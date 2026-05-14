@@ -677,22 +677,25 @@ class _TintedTpmsVehicleImage extends StatelessWidget {
       builder: (context, color, child) {
         final paintColor = color ?? vehicleColor;
         final isWhitePaint = paintColor.computeLuminance() > 0.72;
+        final overlayColor = isWhitePaint
+            ? const Color(0xFFF6FAFF)
+            : paintColor;
+        final overlayOpacity = isWhitePaint ? 0.46 : 0.72;
 
         return Stack(
           fit: StackFit.expand,
           children: [
             child!,
-            if (!isWhitePaint)
-              Opacity(
-                opacity: 0.72,
-                child: Image.asset(
-                  _maskPath,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  color: paintColor,
-                  colorBlendMode: BlendMode.srcIn,
-                ),
+            Opacity(
+              opacity: overlayOpacity,
+              child: Image.asset(
+                _maskPath,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                color: overlayColor,
+                colorBlendMode: BlendMode.srcIn,
               ),
+            ),
           ],
         );
       },
