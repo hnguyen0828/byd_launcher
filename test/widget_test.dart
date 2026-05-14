@@ -14,10 +14,14 @@ void main() {
 
     expect(find.text('SEALION 6'), findsNothing);
     expect(find.text('Vehicle'), findsNothing);
-    expect(find.text('Doors'), findsOneWidget);
+    expect(find.text('FL'), findsNothing);
+    expect(find.text('FR'), findsNothing);
+    expect(find.text('RL'), findsNothing);
+    expect(find.text('RR'), findsNothing);
+    expect(find.text('Doors'), findsNothing);
     expect(find.text('Windows'), findsNothing);
-    expect(find.text('Sunroof'), findsOneWidget);
-    expect(find.text('Lock All'), findsOneWidget);
+    expect(find.text('Sunroof'), findsNothing);
+    expect(find.text('Lock'), findsOneWidget);
     expect(find.text('Trunk'), findsOneWidget);
     expect(find.text('Fuel'), findsOneWidget);
     expect(find.text('Battery'), findsOneWidget);

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
@@ -32,7 +30,7 @@ class BydLauncherApp extends StatelessWidget {
   }
 }
 
-enum _VehicleView { status, doors, windows, sunroof, rear }
+enum _VehicleView { status, rear }
 
 class LauncherHomePage extends StatefulWidget {
   const LauncherHomePage({super.key, this.enable3dModel = true});
@@ -45,14 +43,9 @@ class LauncherHomePage extends StatefulWidget {
 
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
-  bool _doorsOpen = true;
-  bool _sunroofOpen = true;
 
   String get _cameraOrbit {
     return switch (_view) {
-      _VehicleView.doors => '-35deg 68deg 96%',
-      _VehicleView.windows => '22deg 72deg 100%',
-      _VehicleView.sunroof => '0deg 46deg 112%',
       _VehicleView.rear => '148deg 70deg 105%',
       _VehicleView.status => '38deg 70deg 98%',
     };
@@ -89,21 +82,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           enable3dModel: widget.enable3dModel,
                           cameraOrbit: _cameraOrbit,
                           view: _view,
-                          doorsOpen: _doorsOpen,
-                          sunroofOpen: _sunroofOpen,
                           onViewChanged: (view) => setState(() => _view = view),
-                          onDoorsToggle: () {
-                            setState(() {
-                              _doorsOpen = !_doorsOpen;
-                              _view = _VehicleView.doors;
-                            });
-                          },
-                          onSunroofToggle: () {
-                            setState(() {
-                              _sunroofOpen = !_sunroofOpen;
-                              _view = _VehicleView.sunroof;
-                            });
-                          },
                         ),
                       ),
                     ],
@@ -132,13 +111,77 @@ class _LeftDashboard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(18, 30, 18, 24),
         child: Column(
           children: [
+            const _StatusBar(),
+            const SizedBox(height: 10),
             const _SpeedCluster(),
-            const SizedBox(height: 22),
+            const SizedBox(height: 10),
+            const _SoftDivider(),
+            const SizedBox(height: 10),
             const Expanded(child: _TpmsCluster()),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
+            const _SoftDivider(),
+            const SizedBox(height: 10),
             const _MediaWidget(),
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
             const _EnergyStrip(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBar extends StatelessWidget {
+  const _StatusBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          '10:30 AM',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: const Color(0xFFE6EBF2),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.wb_sunny_outlined,
+              color: Color(0xFFE6EBF2),
+              size: 20,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '28°C',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: const Color(0xFFE6EBF2),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SoftDivider extends StatelessWidget {
+  const _SoftDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            const Color(0xFF2A3544).withValues(alpha: 0.85),
+            Colors.transparent,
           ],
         ),
       ),
@@ -165,8 +208,8 @@ class _SpeedCluster extends StatelessWidget {
         Text(
           'km/h',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: const Color(0xFFC5CCD8),
-            fontWeight: FontWeight.w500,
+            color: const Color(0xFFE1E7EF),
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 20),
@@ -205,7 +248,7 @@ class _GearText extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: active ? const Color(0xFF45A3FF) : const Color(0xFF6C7480),
+          color: active ? const Color(0xFF45A3FF) : const Color(0xFF98A4B3),
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -218,43 +261,129 @@ class _TpmsCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FittedBox(
-      fit: BoxFit.contain,
-      child: SizedBox(
-        width: 320,
-        height: 280,
-        child: Stack(
-          alignment: Alignment.center,
+    return Column(
+      children: [
+        Row(
           children: [
-            const Positioned(
-              top: 26,
-              left: 0,
-              child: _PressureBlock(value: '2.6 bar', temp: '28 C'),
+            const Icon(
+              Icons.tire_repair_outlined,
+              color: Color(0xFF45A3FF),
+              size: 20,
             ),
-            const Positioned(
-              top: 26,
-              right: 0,
-              child: _PressureBlock(value: '2.6 bar', temp: '28 C'),
-            ),
-            const Positioned(
-              bottom: 34,
-              left: 0,
-              child: _PressureBlock(value: '2.6 bar', temp: '27 C'),
-            ),
-            const Positioned(
-              bottom: 34,
-              right: 0,
-              child: _PressureBlock(value: '2.6 bar', temp: '27 C'),
-            ),
-            SizedBox(
-              width: 132,
-              height: 238,
-              child: Image.asset(
-                'assets/images/sealion6_tpms_top_view.png',
-                fit: BoxFit.contain,
+            const SizedBox(width: 8),
+            Text(
+              'TPMS',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.4,
+                fontSize: 14,
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: 300,
+                height: 230,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const Positioned(
+                      top: 74,
+                      left: 76,
+                      child: _TpmsLine(width: 45),
+                    ),
+                    const Positioned(
+                      top: 74,
+                      right: 76,
+                      child: _TpmsLine(width: 45, flip: true),
+                    ),
+                    const Positioned(
+                      bottom: 62,
+                      left: 76,
+                      child: _TpmsLine(width: 45),
+                    ),
+                    const Positioned(
+                      bottom: 62,
+                      right: 76,
+                      child: _TpmsLine(width: 45, flip: true),
+                    ),
+                    const Positioned(
+                      top: 42,
+                      left: 0,
+                      child: _PressureBlock(value: '2.6 bar', temp: '28°C'),
+                    ),
+                    const Positioned(
+                      top: 42,
+                      right: 0,
+                      child: _PressureBlock(
+                        value: '2.6 bar',
+                        temp: '28°C',
+                        alignRight: true,
+                      ),
+                    ),
+                    const Positioned(
+                      bottom: 34,
+                      left: 0,
+                      child: _PressureBlock(value: '2.6 bar', temp: '27°C'),
+                    ),
+                    const Positioned(
+                      bottom: 34,
+                      right: 0,
+                      child: _PressureBlock(
+                        value: '2.6 bar',
+                        temp: '27°C',
+                        alignRight: true,
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: Center(
+                        child: SizedBox(
+                          width: 88,
+                          height: 224,
+                          child: Image.asset(
+                            'assets/images/sealion6_tpms_top_view.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TpmsLine extends StatelessWidget {
+  const _TpmsLine({required this.width, this.flip = false});
+
+  final double width;
+  final bool flip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.scale(
+      scaleX: flip ? -1 : 1,
+      child: Container(
+        width: width,
+        height: 1.4,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF45A3FF).withValues(alpha: 0.9),
+              const Color(0xFF45A3FF).withValues(alpha: 0.0),
+            ],
+          ),
         ),
       ),
     );
@@ -262,31 +391,43 @@ class _TpmsCluster extends StatelessWidget {
 }
 
 class _PressureBlock extends StatelessWidget {
-  const _PressureBlock({required this.value, required this.temp});
+  const _PressureBlock({
+    required this.value,
+    required this.temp,
+    this.alignRight = false,
+  });
 
   final String value;
   final String temp;
+  final bool alignRight;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 92,
+      width: 74,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: alignRight
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Text(
             value,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w800,
+              fontSize: 12,
+              height: 1.05,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             temp,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFFC5CCD8),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: const Color(0xFFE0E7F0),
               fontWeight: FontWeight.w600,
+              fontSize: 10,
+              height: 1,
             ),
           ),
         ],
@@ -300,71 +441,68 @@ class _MediaWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _DarkPanel(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 78,
-                height: 78,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF3B1118),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.music_note,
-                  color: Color(0xFFFFC857),
-                  size: 38,
-                ),
+    return Column(
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 78,
+              height: 78,
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B1118),
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Blinding Lights',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'The Weeknd',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFFB9C1CC),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+              child: const Icon(
+                Icons.music_note,
+                color: Color(0xFFFFC857),
+                size: 38,
               ),
-              const Icon(Icons.bluetooth, color: Color(0xFF45A3FF)),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const LinearProgressIndicator(
-            value: 0.42,
-            minHeight: 4,
-            color: Color(0xFF45A3FF),
-            backgroundColor: Color(0xFF313944),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: const [
-              Icon(Icons.skip_previous, color: Colors.white, size: 30),
-              Icon(Icons.pause, color: Colors.white, size: 34),
-              Icon(Icons.skip_next, color: Colors.white, size: 30),
-            ],
-          ),
-        ],
-      ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Blinding Lights',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'The Weeknd',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFFD2D9E3),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.bluetooth, color: Color(0xFF45A3FF)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        const LinearProgressIndicator(
+          value: 0.42,
+          minHeight: 4,
+          color: Color(0xFF45A3FF),
+          backgroundColor: Color(0xFF313944),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: const [
+            Icon(Icons.skip_previous, color: Colors.white, size: 30),
+            Icon(Icons.pause, color: Colors.white, size: 34),
+            Icon(Icons.skip_next, color: Colors.white, size: 30),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -374,31 +512,28 @@ class _EnergyStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _DarkPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: const Row(
-        children: [
-          Expanded(
-            child: _EnergyLevel(
-              icon: Icons.local_gas_station,
-              label: 'Fuel',
-              value: '80%',
-              color: Color(0xFF25D366),
-              progress: 0.80,
-            ),
+    return const Row(
+      children: [
+        Expanded(
+          child: _EnergyLevel(
+            icon: Icons.local_gas_station,
+            label: 'Fuel',
+            value: '80%',
+            color: Color(0xFF25D366),
+            progress: 0.80,
           ),
-          SizedBox(width: 14),
-          Expanded(
-            child: _EnergyLevel(
-              icon: Icons.battery_5_bar,
-              label: 'Battery',
-              value: '68%',
-              color: Color(0xFF45A3FF),
-              progress: 0.68,
-            ),
+        ),
+        SizedBox(width: 14),
+        Expanded(
+          child: _EnergyLevel(
+            icon: Icons.battery_5_bar,
+            label: 'Battery',
+            value: '68%',
+            color: Color(0xFF45A3FF),
+            progress: 0.68,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -433,8 +568,8 @@ class _EnergyLevel extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFFB9C1CC),
-                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFFD2D9E3),
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
@@ -464,38 +599,25 @@ class _VehicleCanvas extends StatelessWidget {
     required this.enable3dModel,
     required this.cameraOrbit,
     required this.view,
-    required this.doorsOpen,
-    required this.sunroofOpen,
     required this.onViewChanged,
-    required this.onDoorsToggle,
-    required this.onSunroofToggle,
   });
 
   final bool enable3dModel;
   final String cameraOrbit;
   final _VehicleView view;
-  final bool doorsOpen;
-  final bool sunroofOpen;
   final ValueChanged<_VehicleView> onViewChanged;
-  final VoidCallback onDoorsToggle;
-  final VoidCallback onSunroofToggle;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(34, 34, 46, 30),
+      padding: const EdgeInsets.fromLTRB(26, 28, 38, 28),
       child: Stack(
         children: [
-          const Positioned(
-            top: 0,
-            right: 0,
-            child: SizedBox(width: 290, child: _TopRightStatus()),
-          ),
           Positioned.fill(
             left: 0,
-            top: 0,
+            top: 12,
             right: 0,
-            bottom: 34,
+            bottom: 68,
             child: _VehicleReveal(
               child: _VehicleEntrance(
                 child: _VehicleHero(
@@ -511,10 +633,6 @@ class _VehicleCanvas extends StatelessWidget {
             right: 430,
             child: _FloatingVehicleControls(
               view: view,
-              doorsOpen: doorsOpen,
-              sunroofOpen: sunroofOpen,
-              onDoorsToggle: onDoorsToggle,
-              onSunroofToggle: onSunroofToggle,
               onRear: () => onViewChanged(_VehicleView.rear),
             ),
           ),
@@ -530,166 +648,111 @@ class _VehicleCanvas extends StatelessWidget {
   }
 }
 
-class _TopRightStatus extends StatelessWidget {
-  const _TopRightStatus();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '10:30 AM',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: const Color(0xFFE6EBF2),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(width: 18),
-        const Icon(Icons.wb_sunny_outlined, color: Color(0xFFE6EBF2), size: 21),
-        const SizedBox(width: 7),
-        Text(
-          '28 C',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: const Color(0xFFE6EBF2),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _FloatingVehicleControls extends StatelessWidget {
-  const _FloatingVehicleControls({
-    required this.view,
-    required this.doorsOpen,
-    required this.sunroofOpen,
-    required this.onDoorsToggle,
-    required this.onSunroofToggle,
-    required this.onRear,
-  });
+  const _FloatingVehicleControls({required this.view, required this.onRear});
 
   final _VehicleView view;
-  final bool doorsOpen;
-  final bool sunroofOpen;
-  final VoidCallback onDoorsToggle;
-  final VoidCallback onSunroofToggle;
   final VoidCallback onRear;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        _FloatingControlButton(
-          icon: Icons.door_front_door_outlined,
-          title: 'Doors',
-          value: doorsOpen ? '2 Open' : 'Closed',
-          selected: view == _VehicleView.doors,
-          onTap: onDoorsToggle,
-        ),
-        _FloatingControlButton(
-          icon: Icons.wb_sunny_outlined,
-          title: 'Sunroof',
-          value: sunroofOpen ? 'Open' : 'Closed',
-          selected: view == _VehicleView.sunroof,
-          onTap: onSunroofToggle,
-        ),
-        _FloatingControlButton(
-          icon: Icons.lock_outline,
-          title: 'Lock All',
-          value: 'Ready',
-          onTap: onDoorsToggle,
-        ),
-        _FloatingControlButton(
-          icon: Icons.airport_shuttle_outlined,
-          title: 'Trunk',
-          value: 'Closed',
-          selected: view == _VehicleView.rear,
-          onTap: onRear,
-        ),
-        _FloatingControlButton(
-          icon: Icons.no_crash_outlined,
-          title: 'Window Lock',
-          value: 'On',
-          onTap: () {},
-        ),
-        _FloatingControlButton(
-          icon: Icons.flip_to_front_outlined,
-          title: 'Fold Mirrors',
-          value: 'Auto',
-          onTap: () {},
-        ),
-      ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [_QuickActionStrip(onRear: onRear)],
     );
   }
 }
 
-class _FloatingControlButton extends StatelessWidget {
-  const _FloatingControlButton({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.onTap,
-    this.selected = false,
-  });
+class _QuickActionStrip extends StatelessWidget {
+  const _QuickActionStrip({required this.onRear});
 
-  final IconData icon;
-  final String title;
-  final String value;
-  final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback onRear;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 126,
-      height: 52,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: _DarkPanel(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          selected: selected,
-          child: Row(
-            children: [
-              Icon(icon, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF45A3FF),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11,
-                      ),
-                    ),
+    return _DarkPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _MiniAction(icon: Icons.lock_outline, label: 'Lock'),
+          _MiniAction(
+            icon: Icons.airport_shuttle_outlined,
+            label: 'Trunk',
+            onTap: onRear,
+          ),
+          const _MiniAction(icon: Icons.no_crash_outlined, label: 'Win Lock'),
+          const _MiniAction(
+            icon: Icons.flip_to_front_outlined,
+            label: 'Mirrors',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniAction extends StatelessWidget {
+  const _MiniAction({required this.icon, required this.label, this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(11),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFFDCE6F2), size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: const Color(0xFFC9D3DF),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VehicleReveal extends StatelessWidget {
+  const _VehicleReveal({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.15, 0.06),
+                  radius: 0.68,
+                  colors: [
+                    const Color(0xFF45A3FF).withValues(alpha: 0.18),
+                    const Color(0xFF45A3FF).withValues(alpha: 0.055),
+                    Colors.transparent,
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
-      ),
+        Positioned.fill(child: child),
+      ],
     );
   }
 }
@@ -749,84 +812,6 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
   }
 }
 
-class _VehicleReveal extends StatefulWidget {
-  const _VehicleReveal({required this.child});
-
-  final Widget child;
-
-  @override
-  State<_VehicleReveal> createState() => _VehicleRevealState();
-}
-
-class _VehicleRevealState extends State<_VehicleReveal> {
-  bool _showPreview = true;
-  Timer? _previewTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _previewTimer = Timer(const Duration(milliseconds: 1150), () {
-      if (mounted) {
-        setState(() => _showPreview = false);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _previewTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        AnimatedOpacity(
-          opacity: _showPreview ? 0 : 1,
-          duration: const Duration(milliseconds: 700),
-          curve: Curves.easeOutCubic,
-          child: widget.child,
-        ),
-        IgnorePointer(
-          child: AnimatedOpacity(
-            opacity: _showPreview ? 1 : 0,
-            duration: const Duration(milliseconds: 700),
-            curve: Curves.easeOutCubic,
-            child: const _VehicleLoadingPreview(),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _VehicleLoadingPreview extends StatelessWidget {
-  const _VehicleLoadingPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.92, end: 1.0),
-        duration: const Duration(milliseconds: 1150),
-        curve: Curves.easeOutCubic,
-        builder: (context, scale, child) {
-          return Transform.scale(scale: scale, child: child);
-        },
-        child: Image.asset(
-          'assets/images/sealion6_tpms_top_view.png',
-          fit: BoxFit.contain,
-          width: 600,
-          color: Colors.white.withValues(alpha: 0.20),
-          colorBlendMode: BlendMode.srcATop,
-        ),
-      ),
-    );
-  }
-}
-
 class _VehicleHero extends StatelessWidget {
   const _VehicleHero({required this.enable3dModel, required this.cameraOrbit});
 
@@ -844,21 +829,17 @@ class _VehicleHero extends StatelessWidget {
       child: ModelViewer(
         src: 'assets/models/2024_byd_seal_u_dm-i.glb',
         alt: '2024 BYD Seal U DM-i 3D model',
-        poster: 'assets/images/sealion6_tpms_top_view.png',
-        loading: Loading.eager,
-        reveal: Reveal.auto,
         backgroundColor: Colors.transparent,
         cameraControls: true,
         autoRotate: false,
         disableZoom: true,
         interactionPrompt: InteractionPrompt.none,
         cameraOrbit: cameraOrbit,
-        minCameraOrbit: 'auto 42deg 66%',
-        maxCameraOrbit: 'auto 86deg 132%',
-        fieldOfView: '18deg',
+        minCameraOrbit: 'auto 42deg 74%',
+        maxCameraOrbit: 'auto 86deg 142%',
+        fieldOfView: '22deg',
         exposure: 0.78,
         shadowIntensity: 0.30,
-        relatedCss: ':root { --poster-color: transparent; }',
       ),
     );
   }
@@ -923,9 +904,9 @@ class _BottomTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? Colors.white : const Color(0xFF8E98A6);
+    final color = selected ? Colors.white : const Color(0xFFC1CAD6);
     return SizedBox(
-      width: 128,
+      width: 150,
       height: 54,
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -974,12 +955,10 @@ class _DarkPanel extends StatelessWidget {
   const _DarkPanel({
     required this.child,
     this.padding = const EdgeInsets.all(18),
-    this.selected = false,
   });
 
   final Widget child;
   final EdgeInsets padding;
-  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -987,13 +966,9 @@ class _DarkPanel extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: selected
-            ? const Color(0xFF151D28).withValues(alpha: 0.92)
-            : const Color(0xFF101721).withValues(alpha: 0.74),
+        color: const Color(0xFF101721).withValues(alpha: 0.74),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: selected ? const Color(0xFF33465C) : const Color(0xFF202A36),
-        ),
+        border: Border.all(color: const Color(0xFF202A36)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.24),
