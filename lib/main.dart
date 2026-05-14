@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
@@ -21,9 +22,13 @@ class BydLauncherApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'BYD Launcher',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF369CFF)),
-        fontFamily: 'Roboto',
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF45A3FF)),
+        fontFamily: 'sans-serif',
         useMaterial3: true,
+        visualDensity: VisualDensity.standard,
+        textTheme: Typography.material2021(
+          platform: TargetPlatform.android,
+        ).white.apply(bodyColor: _textPrimary, displayColor: _textPrimary),
       ),
       home: const LauncherHomePage(),
     );
@@ -31,6 +36,29 @@ class BydLauncherApp extends StatelessWidget {
 }
 
 enum _VehicleView { status, rear }
+
+const Color _textPrimary = Color(0xFFF6FAFF);
+const Color _textSecondary = Color(0xFFE5ECF5);
+const Color _textMuted = Color(0xFFB7C2CF);
+
+TextStyle? _sharp(
+  BuildContext context,
+  TextStyle? base, {
+  Color color = _textPrimary,
+  FontWeight weight = FontWeight.w500,
+  double? size,
+  double? height,
+  double? letterSpacing,
+}) {
+  return base?.copyWith(
+    color: color,
+    fontWeight: weight,
+    fontSize: size,
+    height: height,
+    letterSpacing: letterSpacing,
+    leadingDistribution: TextLeadingDistribution.even,
+  );
+}
 
 class LauncherHomePage extends StatefulWidget {
   const LauncherHomePage({super.key, this.enable3dModel = true});
@@ -104,7 +132,7 @@ class _LeftDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFF090E16).withValues(alpha: 0.78),
+        color: const Color(0xFF090E16).withValues(alpha: 0.96),
         border: const Border(right: BorderSide(color: Color(0xFF222B37))),
       ),
       child: Padding(
@@ -141,9 +169,13 @@ class _StatusBar extends StatelessWidget {
       children: [
         Text(
           '10:30 AM',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: const Color(0xFFE6EBF2),
-            fontWeight: FontWeight.w700,
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.bodyLarge,
+            color: _textPrimary,
+            weight: FontWeight.w500,
+            size: 17,
+            letterSpacing: 0.1,
           ),
         ),
         Row(
@@ -198,18 +230,25 @@ class _SpeedCluster extends StatelessWidget {
       children: [
         Text(
           '0',
-          style: Theme.of(context).textTheme.displayLarge?.copyWith(
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.displayLarge,
             color: Colors.white,
-            fontSize: 74,
-            height: 0.95,
-            fontWeight: FontWeight.w500,
+            weight: FontWeight.w400,
+            size: 80,
+            height: 0.88,
+            letterSpacing: -2.4,
           ),
         ),
         Text(
           'km/h',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: const Color(0xFFE1E7EF),
-            fontWeight: FontWeight.w600,
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.titleMedium,
+            color: _textSecondary,
+            weight: FontWeight.w500,
+            size: 17,
+            letterSpacing: 0.3,
           ),
         ),
         const SizedBox(height: 20),
@@ -223,9 +262,13 @@ class _SpeedCluster extends StatelessWidget {
             const SizedBox(width: 14),
             Text(
               'READY',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.bodyMedium,
                 color: const Color(0xFF25D366),
-                fontWeight: FontWeight.w800,
+                weight: FontWeight.w700,
+                size: 15,
+                letterSpacing: 0.5,
               ),
             ),
           ],
@@ -247,9 +290,13 @@ class _GearText extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: active ? const Color(0xFF45A3FF) : const Color(0xFF98A4B3),
-          fontWeight: FontWeight.w800,
+        style: _sharp(
+          context,
+          Theme.of(context).textTheme.bodyMedium,
+          color: active ? const Color(0xFF45A3FF) : _textMuted,
+          weight: FontWeight.w600,
+          size: 15,
+          letterSpacing: 0.4,
         ),
       ),
     );
@@ -273,11 +320,13 @@ class _TpmsCluster extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               'TPMS',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.4,
-                fontSize: 14,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.titleSmall,
+                color: _textPrimary,
+                weight: FontWeight.w700,
+                size: 15,
+                letterSpacing: 0.6,
               ),
             ),
           ],
@@ -285,76 +334,74 @@ class _TpmsCluster extends StatelessWidget {
         const SizedBox(height: 8),
         Expanded(
           child: Center(
-            child: FittedBox(
-              fit: BoxFit.contain,
-              child: SizedBox(
-                width: 300,
-                height: 230,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    const Positioned(
-                      top: 74,
-                      left: 76,
-                      child: _TpmsLine(width: 45),
+            child: SizedBox(
+              width: 300,
+              height: 230,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Positioned(
+                    top: 74,
+                    left: 76,
+                    child: _TpmsLine(width: 45),
+                  ),
+                  const Positioned(
+                    top: 74,
+                    right: 76,
+                    child: _TpmsLine(width: 45, flip: true),
+                  ),
+                  const Positioned(
+                    bottom: 62,
+                    left: 76,
+                    child: _TpmsLine(width: 45),
+                  ),
+                  const Positioned(
+                    bottom: 62,
+                    right: 76,
+                    child: _TpmsLine(width: 45, flip: true),
+                  ),
+                  const Positioned(
+                    top: 42,
+                    left: 0,
+                    child: _PressureBlock(value: '2.6 bar', temp: '28°C'),
+                  ),
+                  const Positioned(
+                    top: 42,
+                    right: 0,
+                    child: _PressureBlock(
+                      value: '2.6 bar',
+                      temp: '28°C',
+                      alignRight: true,
                     ),
-                    const Positioned(
-                      top: 74,
-                      right: 76,
-                      child: _TpmsLine(width: 45, flip: true),
+                  ),
+                  const Positioned(
+                    bottom: 34,
+                    left: 0,
+                    child: _PressureBlock(value: '2.6 bar', temp: '27°C'),
+                  ),
+                  const Positioned(
+                    bottom: 34,
+                    right: 0,
+                    child: _PressureBlock(
+                      value: '2.6 bar',
+                      temp: '27°C',
+                      alignRight: true,
                     ),
-                    const Positioned(
-                      bottom: 62,
-                      left: 76,
-                      child: _TpmsLine(width: 45),
-                    ),
-                    const Positioned(
-                      bottom: 62,
-                      right: 76,
-                      child: _TpmsLine(width: 45, flip: true),
-                    ),
-                    const Positioned(
-                      top: 42,
-                      left: 0,
-                      child: _PressureBlock(value: '2.6 bar', temp: '28°C'),
-                    ),
-                    const Positioned(
-                      top: 42,
-                      right: 0,
-                      child: _PressureBlock(
-                        value: '2.6 bar',
-                        temp: '28°C',
-                        alignRight: true,
-                      ),
-                    ),
-                    const Positioned(
-                      bottom: 34,
-                      left: 0,
-                      child: _PressureBlock(value: '2.6 bar', temp: '27°C'),
-                    ),
-                    const Positioned(
-                      bottom: 34,
-                      right: 0,
-                      child: _PressureBlock(
-                        value: '2.6 bar',
-                        temp: '27°C',
-                        alignRight: true,
-                      ),
-                    ),
-                    Positioned.fill(
-                      child: Center(
-                        child: SizedBox(
-                          width: 88,
-                          height: 224,
-                          child: Image.asset(
-                            'assets/images/sealion6_tpms_top_view.png',
-                            fit: BoxFit.contain,
-                          ),
+                  ),
+                  Positioned.fill(
+                    child: Center(
+                      child: SizedBox(
+                        width: 88,
+                        height: 224,
+                        child: Image.asset(
+                          'assets/images/sealion6_tpms_top_view.png',
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -413,21 +460,27 @@ class _PressureBlock extends StatelessWidget {
         children: [
           Text(
             value,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.bodyMedium,
+              color: _textPrimary,
+              weight: FontWeight.w600,
+              size: 14,
               height: 1.05,
+              letterSpacing: 0.05,
             ),
           ),
           const SizedBox(height: 3),
           Text(
             temp,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: const Color(0xFFE0E7F0),
-              fontWeight: FontWeight.w600,
-              fontSize: 10,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.bodySmall,
+              color: _textSecondary,
+              weight: FontWeight.w500,
+              size: 12,
               height: 1,
+              letterSpacing: 0.05,
             ),
           ),
         ],
@@ -467,17 +520,24 @@ class _MediaWidget extends StatelessWidget {
                     'Blinding Lights',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.titleMedium,
+                      color: _textPrimary,
+                      weight: FontWeight.w600,
+                      size: 17,
+                      letterSpacing: 0.05,
                     ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     'The Weeknd',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFFD2D9E3),
-                      fontWeight: FontWeight.w700,
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.bodyMedium,
+                      color: _textSecondary,
+                      weight: FontWeight.w500,
+                      size: 14,
                     ),
                   ),
                 ],
@@ -567,17 +627,24 @@ class _EnergyLevel extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFFD2D9E3),
-                  fontWeight: FontWeight.w800,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textSecondary,
+                  weight: FontWeight.w500,
+                  size: 13,
+                  letterSpacing: 0.1,
                 ),
               ),
             ),
             Text(
               value,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.bodyMedium,
+                color: _textPrimary,
+                weight: FontWeight.w600,
+                size: 14,
               ),
             ),
           ],
@@ -628,8 +695,8 @@ class _VehicleCanvas extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 0,
-            top: 10,
+            left: 4,
+            top: 12,
             right: 430,
             child: _FloatingVehicleControls(
               view: view,
@@ -639,7 +706,7 @@ class _VehicleCanvas extends StatelessWidget {
           const Positioned(
             left: 0,
             right: 0,
-            bottom: 0,
+            bottom: 4,
             child: Center(child: _BottomTabs()),
           ),
         ],
@@ -670,23 +737,49 @@ class _QuickActionStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _DarkPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const _MiniAction(icon: Icons.lock_outline, label: 'Lock'),
-          _MiniAction(
-            icon: Icons.airport_shuttle_outlined,
-            label: 'Trunk',
-            onTap: onRear,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0B111A).withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.075),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+              BoxShadow(
+                color: const Color(0xFF78B7FF).withValues(alpha: 0.055),
+                blurRadius: 24,
+                spreadRadius: 1,
+              ),
+            ],
           ),
-          const _MiniAction(icon: Icons.no_crash_outlined, label: 'Win Lock'),
-          const _MiniAction(
-            icon: Icons.flip_to_front_outlined,
-            label: 'Mirrors',
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _MiniAction(icon: Icons.lock_outline, label: 'Lock'),
+              _MiniAction(
+                icon: Icons.airport_shuttle_outlined,
+                label: 'Trunk',
+                onTap: onRear,
+              ),
+              const _MiniAction(icon: Icons.window_outlined, label: 'Windows'),
+              const _MiniAction(
+                icon: Icons.flip_to_front_outlined,
+                label: 'Mirrors',
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -702,20 +795,24 @@ class _MiniAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(11),
+      borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Column(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: const Color(0xFFDCE6F2), size: 20),
-            const SizedBox(height: 4),
+            Icon(icon, color: const Color(0xFFEAF1F8), size: 17),
+            const SizedBox(width: 7),
             Text(
               label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: const Color(0xFFC9D3DF),
-                fontWeight: FontWeight.w800,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelSmall,
+                color: const Color(0xFFD8E2ED),
+                weight: FontWeight.w500,
+                size: 11.5,
+                letterSpacing: 0.12,
               ),
             ),
           ],
@@ -742,8 +839,8 @@ class _VehicleReveal extends StatelessWidget {
                   center: const Alignment(0.15, 0.06),
                   radius: 0.68,
                   colors: [
-                    const Color(0xFF45A3FF).withValues(alpha: 0.18),
-                    const Color(0xFF45A3FF).withValues(alpha: 0.055),
+                    const Color(0xFF78B7FF).withValues(alpha: 0.14),
+                    const Color(0xFF78B7FF).withValues(alpha: 0.045),
                     Colors.transparent,
                   ],
                 ),
@@ -874,19 +971,47 @@ class _BottomTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: const [
-        _BottomTab(
-          icon: Icons.directions_car_filled_outlined,
-          label: 'Status',
-          selected: true,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          height: 52,
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: const Color(0xFF07101A).withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.07),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.26),
+                blurRadius: 30,
+                offset: const Offset(0, 14),
+              ),
+              BoxShadow(
+                color: const Color(0xFF78B7FF).withValues(alpha: 0.06),
+                blurRadius: 28,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _BottomTab(
+                icon: Icons.directions_car_filled_outlined,
+                label: 'Vehicle',
+                selected: true,
+              ),
+              _BottomTab(icon: Icons.navigation_outlined, label: 'Navigation'),
+              _BottomTab(icon: Icons.settings_outlined, label: 'Settings'),
+            ],
+          ),
         ),
-        SizedBox(width: 14),
-        _BottomTab(icon: Icons.navigation_outlined, label: 'Map'),
-        SizedBox(width: 14),
-        _BottomTab(icon: Icons.settings, label: 'Settings'),
-      ],
+      ),
     );
   }
 }
@@ -904,47 +1029,61 @@ class _BottomTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? Colors.white : const Color(0xFFC1CAD6);
-    return SizedBox(
-      width: 150,
-      height: 54,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF202A36).withValues(alpha: 0.94)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(
-            color: selected ? const Color(0xFF3D5068) : Colors.transparent,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.22),
-                    blurRadius: 18,
-                    offset: const Offset(0, 10),
-                  ),
-                ]
-              : null,
-        ),
-        child: Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 24, color: color),
-                const SizedBox(width: 10),
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w800,
-                  ),
+    final color = selected ? Colors.white : const Color(0xFF9FAEBE);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      width: selected ? 156 : 138,
+      height: 42,
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        gradient: selected
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF233040).withValues(alpha: 0.96),
+                  const Color(0xFF121C28).withValues(alpha: 0.96),
+                ],
+              )
+            : null,
+        border: selected
+            ? Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1)
+            : null,
+        boxShadow: selected
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF78B7FF).withValues(alpha: 0.12),
+                  blurRadius: 18,
+                  spreadRadius: 1,
                 ),
-              ],
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
+                ),
+              ]
+            : null,
+      ),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.titleMedium,
+                color: color,
+                weight: selected ? FontWeight.w600 : FontWeight.w500,
+                size: 14.5,
+                letterSpacing: 0.14,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -966,14 +1105,14 @@ class _DarkPanel extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: const Color(0xFF101721).withValues(alpha: 0.74),
+        color: const Color(0xFF101721).withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFF202A36)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.24),
-            blurRadius: 28,
-            offset: const Offset(0, 18),
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
