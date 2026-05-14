@@ -37,6 +37,8 @@ class BydLauncherApp extends StatelessWidget {
 
 enum _VehicleView { status, rear }
 
+enum _LauncherTab { status, map, settings }
+
 const Color _textPrimary = Color(0xFFF6FAFF);
 const Color _textSecondary = Color(0xFFE5ECF5);
 const Color _textMuted = Color(0xFFB7C2CF);
@@ -72,6 +74,7 @@ class LauncherHomePage extends StatefulWidget {
 
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
+  _LauncherTab _activeTab = _LauncherTab.status;
 
   String get _cameraOrbit {
     return switch (_view) {
@@ -111,7 +114,10 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           enable3dModel: widget.enable3dModel,
                           cameraOrbit: _cameraOrbit,
                           view: _view,
+                          activeTab: _activeTab,
                           onViewChanged: (view) => setState(() => _view = view),
+                          onTabChanged: (tab) =>
+                              setState(() => _activeTab = tab),
                         ),
                       ),
                     ],
@@ -844,13 +850,17 @@ class _VehicleCanvas extends StatelessWidget {
     required this.enable3dModel,
     required this.cameraOrbit,
     required this.view,
+    required this.activeTab,
     required this.onViewChanged,
+    required this.onTabChanged,
   });
 
   final bool enable3dModel;
   final String cameraOrbit;
   final _VehicleView view;
+  final _LauncherTab activeTab;
   final ValueChanged<_VehicleView> onViewChanged;
+  final ValueChanged<_LauncherTab> onTabChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -863,38 +873,992 @@ class _VehicleCanvas extends StatelessWidget {
             top: 12,
             right: 0,
             bottom: 68,
-            child: _VehicleReveal(
-              child: _VehicleEntrance(
-                child: _VehicleHero(
-                  enable3dModel: enable3dModel,
-                  cameraOrbit: cameraOrbit,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeOutCubic,
+              child: activeTab == _LauncherTab.settings
+                  ? const _SettingsPanel(key: ValueKey('settings'))
+                  : activeTab == _LauncherTab.map
+                  ? const _NavigationPanel(key: ValueKey('navigation'))
+                  : _VehicleStage(
+                      key: const ValueKey('vehicle-stage'),
+                      enable3dModel: enable3dModel,
+                      cameraOrbit: cameraOrbit,
+                    ),
+            ),
+          ),
+          if (activeTab == _LauncherTab.status)
+            Positioned(
+              left: 4,
+              top: 12,
+              right: 430,
+              child: _FloatingVehicleControls(
+                view: view,
+                onRear: () => onViewChanged(_VehicleView.rear),
+              ),
+            ),
+          if (activeTab == _LauncherTab.status)
+            const Positioned(
+              top: 12,
+              right: 0,
+              width: 212,
+              height: 172,
+              child: _TpmsCluster(),
+            ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 4,
+            child: Center(
+              child: _BottomTabs(
+                activeTab: activeTab,
+                onTabChanged: onTabChanged,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VehicleStage extends StatelessWidget {
+  const _VehicleStage({
+    required this.enable3dModel,
+    required this.cameraOrbit,
+    super.key,
+  });
+
+  final bool enable3dModel;
+  final String cameraOrbit;
+
+  @override
+  Widget build(BuildContext context) {
+    return _VehicleReveal(
+      child: _VehicleEntrance(
+        child: _VehicleHero(
+          enable3dModel: enable3dModel,
+          cameraOrbit: cameraOrbit,
+        ),
+      ),
+    );
+  }
+}
+
+class _NavigationPanel extends StatelessWidget {
+  const _NavigationPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF152334),
+                    Color(0xFF0B141F),
+                    Color(0xFF060B12),
+                  ],
+                ),
+              ),
+              child: CustomPaint(painter: _MapGridPainter()),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0.18, -0.10),
+                    radius: 0.88,
+                    colors: [
+                      _accentSoftBlue.withValues(alpha: 0.18),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
+          const Positioned(top: 16, left: 18, child: _NavigationAppPicker()),
           Positioned(
-            left: 4,
-            top: 12,
-            right: 430,
-            child: _FloatingVehicleControls(
-              view: view,
-              onRear: () => onViewChanged(_VehicleView.rear),
+            top: 22,
+            right: 22,
+            child: _MapStatusPill(icon: Icons.gps_fixed, label: 'GPS Ready'),
+          ),
+          Center(
+            child: Container(
+              width: 78,
+              height: 78,
+              decoration: BoxDecoration(
+                color: _accentSoftBlue.withValues(alpha: 0.14),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _accentSoftBlue.withValues(alpha: 0.34),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _accentSoftBlue.withValues(alpha: 0.20),
+                    blurRadius: 28,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.navigation_rounded,
+                color: _textPrimary,
+                size: 34,
+              ),
             ),
           ),
-          const Positioned(
-            top: 12,
-            right: 0,
-            width: 212,
-            height: 172,
-            child: _TpmsCluster(),
-          ),
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 4,
-            child: Center(child: _BottomTabs()),
+          Positioned(
+            left: 26,
+            right: 26,
+            bottom: 28,
+            child: _GlassCard(
+              padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.place_outlined,
+                    color: _accentSoftBlue,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Navigation',
+                          style: _sharp(
+                            context,
+                            Theme.of(context).textTheme.titleMedium,
+                            color: _textPrimary,
+                            weight: FontWeight.w700,
+                            size: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Choose your preferred map app from the floating picker.',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _sharp(
+                            context,
+                            Theme.of(context).textTheme.bodySmall,
+                            color: _textMuted,
+                            weight: FontWeight.w500,
+                            size: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const _MapStatusPill(
+                    icon: Icons.route_outlined,
+                    label: 'No route',
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NavigationAppPicker extends StatelessWidget {
+  const _NavigationAppPicker();
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF07101A).withValues(alpha: 0.70),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.apps_outlined, color: _accentSoftBlue, size: 19),
+              const SizedBox(width: 8),
+              Text(
+                'Navigation app',
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelLarge,
+                  color: _textPrimary,
+                  weight: FontWeight.w700,
+                  size: 13,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const _NavigationAppChip(label: 'BYD'),
+              const SizedBox(width: 7),
+              const _NavigationAppChip(label: 'Google'),
+              const SizedBox(width: 7),
+              const _NavigationAppChip(label: 'Waze'),
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: _textSecondary,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavigationAppChip extends StatelessWidget {
+  const _NavigationAppChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = label == 'BYD';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: selected
+            ? _accentSoftBlue.withValues(alpha: 0.18)
+            : Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: selected
+              ? _accentSoftBlue.withValues(alpha: 0.30)
+              : Colors.white.withValues(alpha: 0.055),
+        ),
+      ),
+      child: Text(
+        label,
+        style: _sharp(
+          context,
+          Theme.of(context).textTheme.labelSmall,
+          color: selected ? _textPrimary : _textMuted,
+          weight: selected ? FontWeight.w700 : FontWeight.w500,
+          size: 11.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _MapStatusPill extends StatelessWidget {
+  const _MapStatusPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF07101A).withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: _accentSoftBlue, size: 15),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.labelSmall,
+              color: _textSecondary,
+              weight: FontWeight.w600,
+              size: 11.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final roadPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.075)
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final accentRoadPaint = Paint()
+      ..color = _accentSoftBlue.withValues(alpha: 0.24)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    for (var i = -2; i < 8; i++) {
+      final y = size.height * (0.12 + i * 0.16);
+      final path = Path()
+        ..moveTo(-40, y)
+        ..cubicTo(
+          size.width * 0.24,
+          y + 42,
+          size.width * 0.44,
+          y - 58,
+          size.width + 40,
+          y + 12,
+        );
+      canvas.drawPath(path, roadPaint);
+    }
+
+    for (var i = -1; i < 6; i++) {
+      final x = size.width * (0.10 + i * 0.18);
+      final path = Path()
+        ..moveTo(x, -40)
+        ..cubicTo(
+          x + 48,
+          size.height * 0.26,
+          x - 54,
+          size.height * 0.52,
+          x + 20,
+          size.height + 40,
+        );
+      canvas.drawPath(path, roadPaint);
+    }
+
+    final route = Path()
+      ..moveTo(size.width * 0.18, size.height * 0.82)
+      ..cubicTo(
+        size.width * 0.34,
+        size.height * 0.64,
+        size.width * 0.50,
+        size.height * 0.74,
+        size.width * 0.52,
+        size.height * 0.50,
+      )
+      ..cubicTo(
+        size.width * 0.54,
+        size.height * 0.30,
+        size.width * 0.70,
+        size.height * 0.34,
+        size.width * 0.82,
+        size.height * 0.16,
+      );
+    canvas.drawPath(route, accentRoadPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _SettingsPanel extends StatelessWidget {
+  const _SettingsPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: _accentSoftBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.07),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.settings_outlined,
+                  color: _accentSoftBlue,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Settings',
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.headlineSmall,
+                      color: _textPrimary,
+                      weight: FontWeight.w700,
+                      size: 28,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Launcher and vehicle display preferences',
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.bodyMedium,
+                      color: _textMuted,
+                      weight: FontWeight.w500,
+                      size: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: const [
+                Expanded(flex: 11, child: _SettingsMainColumn()),
+                SizedBox(width: 14),
+                Expanded(flex: 9, child: _SettingsPermissionColumn()),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsMainColumn extends StatelessWidget {
+  const _SettingsMainColumn();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        children: [
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SettingsSectionTitle(
+                  icon: Icons.palette_outlined,
+                  title: 'Vehicle color',
+                  subtitle:
+                      'Used by the launcher preview and future render states.',
+                ),
+                const SizedBox(height: 16),
+                const Row(
+                  children: [
+                    _VehicleColorSwatch(
+                      label: 'Arctic',
+                      color: Color(0xFFE9EEF4),
+                      selected: true,
+                    ),
+                    SizedBox(width: 10),
+                    _VehicleColorSwatch(
+                      label: 'Azure',
+                      color: Color(0xFF1687FF),
+                    ),
+                    SizedBox(width: 10),
+                    _VehicleColorSwatch(
+                      label: 'Graphite',
+                      color: Color(0xFF4D5661),
+                    ),
+                    SizedBox(width: 10),
+                    _VehicleColorSwatch(
+                      label: 'Onyx',
+                      color: Color(0xFF10141B),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                _SettingsSectionTitle(
+                  icon: Icons.contrast_outlined,
+                  title: 'Appearance',
+                  subtitle:
+                      'Choose a light theme, dark theme, or follow the system setting.',
+                ),
+                SizedBox(height: 14),
+                _ThemeModePicker(),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              children: const [
+                _SettingsSwitchRow(
+                  icon: Icons.home_outlined,
+                  title: 'Default launcher',
+                  subtitle:
+                      'Open this launcher when the vehicle head unit starts.',
+                  value: true,
+                ),
+                SizedBox(height: 12),
+                _SettingsSwitchRow(
+                  icon: Icons.screen_rotation_alt_outlined,
+                  title: 'Force landscape',
+                  subtitle:
+                      'Keep the launcher optimized for the 15.6 inch display.',
+                  value: true,
+                ),
+                SizedBox(height: 12),
+                _SettingsSwitchRow(
+                  icon: Icons.motion_photos_auto_outlined,
+                  title: 'Vehicle animation',
+                  subtitle:
+                      'Animate the vehicle preview when the launcher opens.',
+                  value: true,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsPermissionColumn extends StatelessWidget {
+  const _SettingsPermissionColumn();
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassCard(
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          _SettingsSectionTitle(
+            icon: Icons.admin_panel_settings_outlined,
+            title: 'System permissions',
+            subtitle:
+                'Required for overlay, bridge, vehicle data and launcher behavior.',
+          ),
+          SizedBox(height: 16),
+          _PermissionRow(
+            icon: Icons.layers_outlined,
+            title: 'System overlay',
+            status: 'Needed',
+            highlighted: true,
+          ),
+          SizedBox(height: 10),
+          _PermissionRow(
+            icon: Icons.directions_car_outlined,
+            title: 'Vehicle bridge',
+            status: 'Ready',
+          ),
+          SizedBox(height: 10),
+          _PermissionRow(
+            icon: Icons.usb_outlined,
+            title: 'ADB bridge',
+            status: 'Optional',
+          ),
+          SizedBox(height: 10),
+          _PermissionRow(
+            icon: Icons.network_check_outlined,
+            title: 'Internet',
+            status: 'Granted',
+          ),
+          Spacer(),
+          _SettingsActionButton(),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSectionTitle extends StatelessWidget {
+  const _SettingsSectionTitle({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: _accentSoftBlue, size: 21),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.titleMedium,
+                  color: _textPrimary,
+                  weight: FontWeight.w700,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.bodySmall,
+                  color: _textMuted,
+                  weight: FontWeight.w500,
+                  size: 11.5,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VehicleColorSwatch extends StatelessWidget {
+  const _VehicleColorSwatch({
+    required this.label,
+    required this.color,
+    this.selected = false,
+  });
+
+  final String label;
+  final Color color;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        height: 76,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: selected ? 0.08 : 0.035),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected
+                ? _accentSoftBlue.withValues(alpha: 0.62)
+                : Colors.white.withValues(alpha: 0.06),
+            width: selected ? 1.4 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.32),
+                    blurRadius: 14,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelSmall,
+                color: selected ? _textPrimary : _textMuted,
+                weight: FontWeight.w600,
+                size: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeModePicker extends StatelessWidget {
+  const _ThemeModePicker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: const Row(
+        children: [
+          _ThemeModeOption(icon: Icons.light_mode_outlined, label: 'Light'),
+          _ThemeModeOption(
+            icon: Icons.dark_mode_outlined,
+            label: 'Dark',
+            selected: true,
+          ),
+          _ThemeModeOption(
+            icon: Icons.brightness_auto_outlined,
+            label: 'System',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeModeOption extends StatelessWidget {
+  const _ThemeModeOption({
+    required this.icon,
+    required this.label,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? _textPrimary : _textMuted;
+    return Expanded(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: selected
+              ? _accentSoftBlue.withValues(alpha: 0.16)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: selected
+              ? Border.all(color: _accentSoftBlue.withValues(alpha: 0.28))
+              : null,
+        ),
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color, size: 17),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.labelMedium,
+                    color: color,
+                    weight: selected ? FontWeight.w700 : FontWeight.w500,
+                    size: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSwitchRow extends StatelessWidget {
+  const _SettingsSwitchRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.045)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _textSecondary, size: 21),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.bodyMedium,
+                    color: _textPrimary,
+                    weight: FontWeight.w600,
+                    size: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.bodySmall,
+                    color: _textMuted,
+                    weight: FontWeight.w500,
+                    size: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            activeThumbColor: _accentSoftBlue,
+            activeTrackColor: _accentSoftBlue.withValues(alpha: 0.25),
+            onChanged: (_) {},
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionRow extends StatelessWidget {
+  const _PermissionRow({
+    required this.icon,
+    required this.title,
+    required this.status,
+    this.highlighted = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String status;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? const Color(0xFF78B7FF).withValues(alpha: 0.09)
+            : Colors.black.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: highlighted
+              ? _accentSoftBlue.withValues(alpha: 0.22)
+              : Colors.white.withValues(alpha: 0.045),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: highlighted ? _accentSoftBlue : _textSecondary,
+            size: 21,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              title,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.bodyMedium,
+                color: _textPrimary,
+                weight: FontWeight.w600,
+                size: 13.5,
+              ),
+            ),
+          ),
+          Text(
+            status,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.labelSmall,
+              color: highlighted ? _accentSoftBlue : _textMuted,
+              weight: FontWeight.w700,
+              size: 11.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsActionButton extends StatelessWidget {
+  const _SettingsActionButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 46,
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: _accentSoftBlue.withValues(alpha: 0.18),
+          foregroundColor: _textPrimary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        onPressed: () {},
+        icon: const Icon(Icons.open_in_new_outlined, size: 18),
+        label: Text(
+          'Open system settings',
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.labelLarge,
+            color: _textPrimary,
+            weight: FontWeight.w700,
+            size: 13,
+          ),
+        ),
       ),
     );
   }
@@ -1108,7 +2072,7 @@ class _VehicleHero extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: ModelViewer(
-        src: 'assets/models/2024_byd_seal_u_dm-i.glb',
+        src: 'assets/models/2024_byd_seal_u_dm-i2.glb',
         alt: '2024 BYD Seal U DM-i 3D model',
         backgroundColor: Colors.transparent,
         cameraControls: true,
@@ -1151,7 +2115,10 @@ class _VehicleModelPlaceholder extends StatelessWidget {
 }
 
 class _BottomTabs extends StatelessWidget {
-  const _BottomTabs();
+  const _BottomTabs({required this.activeTab, required this.onTabChanged});
+
+  final _LauncherTab activeTab;
+  final ValueChanged<_LauncherTab> onTabChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1182,16 +2149,27 @@ class _BottomTabs extends StatelessWidget {
               ),
             ],
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               _BottomTab(
                 icon: Icons.directions_car_filled_outlined,
-                label: 'Status',
-                selected: true,
+                label: 'Vehicle',
+                selected: activeTab == _LauncherTab.status,
+                onTap: () => onTabChanged(_LauncherTab.status),
               ),
-              _BottomTab(icon: Icons.navigation_outlined, label: 'Map'),
-              _BottomTab(icon: Icons.settings_outlined, label: 'Settings'),
+              _BottomTab(
+                icon: Icons.navigation_outlined,
+                label: 'Navigation',
+                selected: activeTab == _LauncherTab.map,
+                onTap: () => onTabChanged(_LauncherTab.map),
+              ),
+              _BottomTab(
+                icon: Icons.settings_outlined,
+                label: 'Settings',
+                selected: activeTab == _LauncherTab.settings,
+                onTap: () => onTabChanged(_LauncherTab.settings),
+              ),
             ],
           ),
         ),
@@ -1204,72 +2182,81 @@ class _BottomTab extends StatelessWidget {
   const _BottomTab({
     required this.icon,
     required this.label,
+    required this.onTap,
     this.selected = false,
   });
 
   final IconData icon;
   final String label;
+  final VoidCallback onTap;
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final color = selected ? Colors.white : const Color(0xFF9FAEBE);
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      width: selected ? 132 : 116,
-      height: 42,
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        gradient: selected
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFF233040).withValues(alpha: 0.96),
-                  const Color(0xFF121C28).withValues(alpha: 0.96),
-                ],
-              )
-            : null,
-        border: selected
-            ? Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1)
-            : null,
-        boxShadow: selected
-            ? [
-                BoxShadow(
-                  color: const Color(0xFF78B7FF).withValues(alpha: 0.12),
-                  blurRadius: 18,
-                  spreadRadius: 1,
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        width: selected ? 132 : 116,
+        height: 42,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          gradient: selected
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    const Color(0xFF233040).withValues(alpha: 0.96),
+                    const Color(0xFF121C28).withValues(alpha: 0.96),
+                  ],
+                )
+              : null,
+          border: selected
+              ? Border.all(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  width: 1,
+                )
+              : null,
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF78B7FF).withValues(alpha: 0.12),
+                    blurRadius: 18,
+                    spreadRadius: 1,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: color),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.titleMedium,
+                    color: color,
+                    weight: selected ? FontWeight.w600 : FontWeight.w500,
+                    size: 14.5,
+                    letterSpacing: 0.14,
+                  ),
                 ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.18),
-                  blurRadius: 12,
-                  offset: const Offset(0, 5),
-                ),
-              ]
-            : null,
-      ),
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.titleMedium,
-                  color: color,
-                  weight: selected ? FontWeight.w600 : FontWeight.w500,
-                  size: 14.5,
-                  letterSpacing: 0.14,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
