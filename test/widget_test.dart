@@ -21,6 +21,7 @@ void main() {
     expect(find.text('Doors'), findsNothing);
     expect(find.text('Windows'), findsNothing);
     expect(find.text('Sunroof'), findsNothing);
+    expect(find.text('TPMS'), findsOneWidget);
     expect(find.text('Lock'), findsOneWidget);
     expect(find.text('Trunk'), findsOneWidget);
     expect(find.text('Fuel'), findsOneWidget);
