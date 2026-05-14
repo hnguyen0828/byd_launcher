@@ -1,10 +1,30 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+
+const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i2.glb';
+
+const List<_VehiclePaintOption> _vehiclePaintOptions = [
+  _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
+  _VehiclePaintOption('Harbour Grey', Color(0xFF6F7880)),
+  _VehiclePaintOption('Delan Black', Color(0xFF090C12)),
+  _VehiclePaintOption('Azure Blue', Color(0xFF1687FF)),
+  _VehiclePaintOption('Stone Grey', Color(0xFF9AA0A4)),
+];
+
+class _VehiclePaintOption {
+  const _VehiclePaintOption(this.label, this.color);
+
+  final String label;
+  final Color color;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _preloadVehicleModelAssets();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
@@ -13,26 +33,62 @@ void main() async {
   runApp(const BydLauncherApp());
 }
 
-class BydLauncherApp extends StatelessWidget {
+void _preloadVehicleModelAssets() {
+  unawaited(rootBundle.load(_vehicleModelAsset));
+  unawaited(
+    rootBundle.load('packages/model_viewer_plus/assets/model-viewer.min.js'),
+  );
+  unawaited(
+    rootBundle.loadString('packages/model_viewer_plus/assets/template.html'),
+  );
+}
+
+class BydLauncherApp extends StatefulWidget {
   const BydLauncherApp({super.key});
+
+  @override
+  State<BydLauncherApp> createState() => _BydLauncherAppState();
+}
+
+class _BydLauncherAppState extends State<BydLauncherApp> {
+  ThemeMode _themeMode = ThemeMode.dark;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'BYD Launcher',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF45A3FF)),
-        fontFamily: 'sans-serif',
-        useMaterial3: true,
-        visualDensity: VisualDensity.standard,
-        textTheme: Typography.material2021(
-          platform: TargetPlatform.android,
-        ).white.apply(bodyColor: _textPrimary, displayColor: _textPrimary),
+      themeMode: _themeMode,
+      theme: _launcherTheme(Brightness.light),
+      darkTheme: _launcherTheme(Brightness.dark),
+      home: LauncherHomePage(
+        themeMode: _themeMode,
+        onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
       ),
-      home: const LauncherHomePage(),
     );
   }
+}
+
+ThemeData _launcherTheme(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final textColor = dark ? _textPrimary : const Color(0xFF17202B);
+
+  return ThemeData(
+    brightness: brightness,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF45A3FF),
+      brightness: brightness,
+    ),
+    scaffoldBackgroundColor: dark
+        ? const Color(0xFF070B12)
+        : const Color(0xFFE9EEF4),
+    fontFamily: 'sans-serif',
+    useMaterial3: true,
+    visualDensity: VisualDensity.standard,
+    textTheme: Typography.material2021(
+      platform: TargetPlatform.android,
+    ).englishLike.apply(bodyColor: textColor, displayColor: textColor),
+  );
 }
 
 enum _VehicleView { status, rear }
@@ -44,6 +100,28 @@ const Color _textSecondary = Color(0xFFE5ECF5);
 const Color _textMuted = Color(0xFFB7C2CF);
 const Color _accentSoftBlue = Color(0xFF78B7FF);
 
+bool _isLight(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.light;
+}
+
+Color _tone(BuildContext context, Color color) {
+  if (!_isLight(context)) {
+    return color;
+  }
+
+  if (color == _textPrimary || color == Colors.white) {
+    return const Color(0xFF111827);
+  }
+  if (color == _textSecondary) {
+    return const Color(0xFF334155);
+  }
+  if (color == _textMuted || color == const Color(0xFF9FAEBE)) {
+    return const Color(0xFF64748B);
+  }
+
+  return color;
+}
+
 TextStyle? _sharp(
   BuildContext context,
   TextStyle? base, {
@@ -54,7 +132,7 @@ TextStyle? _sharp(
   double? letterSpacing,
 }) {
   return base?.copyWith(
-    color: color,
+    color: _tone(context, color),
     fontWeight: weight,
     fontSize: size,
     height: height,
@@ -64,9 +142,16 @@ TextStyle? _sharp(
 }
 
 class LauncherHomePage extends StatefulWidget {
-  const LauncherHomePage({super.key, this.enable3dModel = true});
+  const LauncherHomePage({
+    super.key,
+    this.enable3dModel = true,
+    this.themeMode = ThemeMode.dark,
+    this.onThemeModeChanged,
+  });
 
   final bool enable3dModel;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   @override
   State<LauncherHomePage> createState() => _LauncherHomePageState();
@@ -75,26 +160,38 @@ class LauncherHomePage extends StatefulWidget {
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
-  int _vehicleReplayKey = 0;
+  Color _vehicleColor = const Color(0xFFE9EEF4);
 
   String get _cameraOrbit {
     return switch (_view) {
-      _VehicleView.rear => '148deg 70deg 105%',
-      _VehicleView.status => '38deg 70deg 98%',
+      _VehicleView.rear => '148deg 70deg 92%',
+      _VehicleView.status => '38deg 70deg 86%',
     };
   }
 
   @override
   Widget build(BuildContext context) {
+    final light = Theme.of(context).brightness == Brightness.light;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF070B12),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: RadialGradient(
-              center: Alignment(0.40, -0.25),
+              center: const Alignment(0.40, -0.25),
               radius: 1.18,
-              colors: [Color(0xFF202A38), Color(0xFF0B111A), Color(0xFF05070C)],
+              colors: light
+                  ? const [
+                      Color(0xFFF8FAFC),
+                      Color(0xFFE7EDF5),
+                      Color(0xFFD6E0EA),
+                    ]
+                  : const [
+                      Color(0xFF202A38),
+                      Color(0xFF0B111A),
+                      Color(0xFF05070C),
+                    ],
             ),
           ),
           child: LayoutBuilder(
@@ -116,9 +213,13 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           cameraOrbit: _cameraOrbit,
                           view: _view,
                           activeTab: _activeTab,
-                          vehicleReplayKey: _vehicleReplayKey,
+                          vehicleColor: _vehicleColor,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
+                          onVehicleColorChanged: (color) =>
+                              setState(() => _vehicleColor = color),
+                          themeMode: widget.themeMode,
+                          onThemeModeChanged: widget.onThemeModeChanged,
                         ),
                       ),
                     ],
@@ -133,12 +234,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   }
 
   void _handleTabChanged(_LauncherTab tab) {
-    setState(() {
-      if (tab == _LauncherTab.status) {
-        _vehicleReplayKey++;
-      }
-      _activeTab = tab;
-    });
+    setState(() => _activeTab = tab);
   }
 }
 
@@ -147,6 +243,8 @@ class _LeftDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 8, 18),
       child: ClipRRect(
@@ -158,24 +256,33 @@ class _LeftDashboard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFF101824).withValues(alpha: 0.94),
-                  const Color(0xFF070D15).withValues(alpha: 0.90),
-                ],
+                colors: light
+                    ? [
+                        Colors.white.withValues(alpha: 0.86),
+                        const Color(0xFFEFF5FB).withValues(alpha: 0.78),
+                      ]
+                    : [
+                        const Color(0xFF101824).withValues(alpha: 0.94),
+                        const Color(0xFF070D15).withValues(alpha: 0.90),
+                      ],
               ),
               borderRadius: BorderRadius.circular(28),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.065),
+                color: light
+                    ? Colors.white.withValues(alpha: 0.86)
+                    : Colors.white.withValues(alpha: 0.065),
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.22),
+                  color: Colors.black.withValues(alpha: light ? 0.08 : 0.22),
                   blurRadius: 28,
                   offset: const Offset(0, 14),
                 ),
                 BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: 0.035),
+                  color: _accentSoftBlue.withValues(
+                    alpha: light ? 0.08 : 0.035,
+                  ),
                   blurRadius: 34,
                   spreadRadius: 1,
                 ),
@@ -207,6 +314,8 @@ class _StatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -224,16 +333,22 @@ class _StatusBar extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.055),
+            color: light
+                ? Colors.white.withValues(alpha: 0.58)
+                : Colors.white.withValues(alpha: 0.055),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.055)),
+            border: Border.all(
+              color: light
+                  ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                  : Colors.white.withValues(alpha: 0.055),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 Icons.wb_sunny_outlined,
-                color: _textSecondary,
+                color: _tone(context, _textSecondary),
                 size: 16,
               ),
               const SizedBox(width: 6),
@@ -260,6 +375,8 @@ class _SpeedCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Column(
       children: [
         Text(
@@ -267,7 +384,7 @@ class _SpeedCluster extends StatelessWidget {
           style: _sharp(
             context,
             Theme.of(context).textTheme.displayLarge,
-            color: Colors.white,
+            color: _textPrimary,
             weight: FontWeight.w300,
             size: 106,
             height: 0.82,
@@ -290,9 +407,15 @@ class _SpeedCluster extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.20),
+            color: light
+                ? Colors.white.withValues(alpha: 0.58)
+                : Colors.black.withValues(alpha: 0.20),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.055)),
+            border: Border.all(
+              color: light
+                  ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                  : Colors.white.withValues(alpha: 0.055),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -861,18 +984,24 @@ class _VehicleCanvas extends StatelessWidget {
     required this.cameraOrbit,
     required this.view,
     required this.activeTab,
-    required this.vehicleReplayKey,
+    required this.vehicleColor,
     required this.onViewChanged,
     required this.onTabChanged,
+    required this.onVehicleColorChanged,
+    required this.themeMode,
+    required this.onThemeModeChanged,
   });
 
   final bool enable3dModel;
   final String cameraOrbit;
   final _VehicleView view;
   final _LauncherTab activeTab;
-  final int vehicleReplayKey;
+  final Color vehicleColor;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
+  final ValueChanged<Color> onVehicleColorChanged;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -890,9 +1019,9 @@ class _VehicleCanvas extends StatelessWidget {
               child: IgnorePointer(
                 ignoring: activeTab != _LauncherTab.status,
                 child: _VehicleStage(
-                  key: ValueKey('vehicle-stage-$vehicleReplayKey'),
                   enable3dModel: enable3dModel,
                   cameraOrbit: cameraOrbit,
+                  vehicleColor: vehicleColor,
                 ),
               ),
             ),
@@ -908,7 +1037,13 @@ class _VehicleCanvas extends StatelessWidget {
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeOutCubic,
                 child: activeTab == _LauncherTab.settings
-                    ? const _SettingsPanel(key: ValueKey('settings'))
+                    ? _SettingsPanel(
+                        key: const ValueKey('settings'),
+                        vehicleColor: vehicleColor,
+                        onVehicleColorChanged: onVehicleColorChanged,
+                        themeMode: themeMode,
+                        onThemeModeChanged: onThemeModeChanged,
+                      )
                     : const _NavigationPanel(key: ValueKey('navigation')),
               ),
             ),
@@ -949,13 +1084,14 @@ class _VehicleCanvas extends StatelessWidget {
 
 class _VehicleStage extends StatelessWidget {
   const _VehicleStage({
-    super.key,
     required this.enable3dModel,
     required this.cameraOrbit,
+    required this.vehicleColor,
   });
 
   final bool enable3dModel;
   final String cameraOrbit;
+  final Color vehicleColor;
 
   @override
   Widget build(BuildContext context) {
@@ -964,6 +1100,7 @@ class _VehicleStage extends StatelessWidget {
         child: _VehicleHero(
           enable3dModel: enable3dModel,
           cameraOrbit: cameraOrbit,
+          vehicleColor: vehicleColor,
         ),
       ),
     );
@@ -1107,6 +1244,8 @@ class _NavigationAppPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
@@ -1115,9 +1254,15 @@ class _NavigationAppPicker extends StatelessWidget {
           height: 48,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: const Color(0xFF07101A).withValues(alpha: 0.70),
+            color: light
+                ? Colors.white.withValues(alpha: 0.74)
+                : const Color(0xFF07101A).withValues(alpha: 0.70),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            border: Border.all(
+              color: light
+                  ? Colors.white.withValues(alpha: 0.86)
+                  : Colors.white.withValues(alpha: 0.08),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1141,9 +1286,9 @@ class _NavigationAppPicker extends StatelessWidget {
               const SizedBox(width: 7),
               const _NavigationAppChip(label: 'Waze'),
               const SizedBox(width: 6),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: _textSecondary,
+                color: _tone(context, _textSecondary),
                 size: 20,
               ),
             ],
@@ -1162,16 +1307,22 @@ class _NavigationAppChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = label == 'BYD';
+    final light = _isLight(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: selected
             ? _accentSoftBlue.withValues(alpha: 0.18)
+            : light
+            ? Colors.white.withValues(alpha: 0.66)
             : Colors.white.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: selected
               ? _accentSoftBlue.withValues(alpha: 0.30)
+              : light
+              ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
               : Colors.white.withValues(alpha: 0.055),
         ),
       ),
@@ -1197,12 +1348,20 @@ class _MapStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFF07101A).withValues(alpha: 0.62),
+        color: light
+            ? Colors.white.withValues(alpha: 0.68)
+            : const Color(0xFF07101A).withValues(alpha: 0.62),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+        border: Border.all(
+          color: light
+              ? Colors.white.withValues(alpha: 0.84)
+              : Colors.white.withValues(alpha: 0.07),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1295,7 +1454,18 @@ class _MapGridPainter extends CustomPainter {
 }
 
 class _SettingsPanel extends StatelessWidget {
-  const _SettingsPanel({super.key});
+  const _SettingsPanel({
+    required this.vehicleColor,
+    required this.onVehicleColorChanged,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    super.key,
+  });
+
+  final Color vehicleColor;
+  final ValueChanged<Color> onVehicleColorChanged;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1356,10 +1526,18 @@ class _SettingsPanel extends StatelessWidget {
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: const [
-                Expanded(flex: 11, child: _SettingsMainColumn()),
-                SizedBox(width: 14),
-                Expanded(flex: 9, child: _SettingsPermissionColumn()),
+              children: [
+                Expanded(
+                  flex: 11,
+                  child: _SettingsMainColumn(
+                    vehicleColor: vehicleColor,
+                    onVehicleColorChanged: onVehicleColorChanged,
+                    themeMode: themeMode,
+                    onThemeModeChanged: onThemeModeChanged,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(flex: 9, child: _SettingsPermissionColumn()),
               ],
             ),
           ),
@@ -1370,7 +1548,17 @@ class _SettingsPanel extends StatelessWidget {
 }
 
 class _SettingsMainColumn extends StatelessWidget {
-  const _SettingsMainColumn();
+  const _SettingsMainColumn({
+    required this.vehicleColor,
+    required this.onVehicleColorChanged,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  final Color vehicleColor;
+  final ValueChanged<Color> onVehicleColorChanged;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1390,29 +1578,32 @@ class _SettingsMainColumn extends StatelessWidget {
                       'Used by the launcher preview and future render states.',
                 ),
                 const SizedBox(height: 16),
-                const Row(
-                  children: [
-                    _VehicleColorSwatch(
-                      label: 'Arctic',
-                      color: Color(0xFFE9EEF4),
-                      selected: true,
-                    ),
-                    SizedBox(width: 10),
-                    _VehicleColorSwatch(
-                      label: 'Azure',
-                      color: Color(0xFF1687FF),
-                    ),
-                    SizedBox(width: 10),
-                    _VehicleColorSwatch(
-                      label: 'Graphite',
-                      color: Color(0xFF4D5661),
-                    ),
-                    SizedBox(width: 10),
-                    _VehicleColorSwatch(
-                      label: 'Onyx',
-                      color: Color(0xFF10141B),
-                    ),
-                  ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final rawWidth = (constraints.maxWidth - 20) / 3;
+                    final swatchWidth = rawWidth < 96
+                        ? 96.0
+                        : rawWidth > 156
+                        ? 156.0
+                        : rawWidth;
+
+                    return Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final option in _vehiclePaintOptions)
+                          SizedBox(
+                            width: swatchWidth,
+                            child: _VehicleColorSwatch(
+                              label: option.label,
+                              color: option.color,
+                              selected: vehicleColor == option.color,
+                              onTap: onVehicleColorChanged,
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -1422,15 +1613,18 @@ class _SettingsMainColumn extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                _SettingsSectionTitle(
+              children: [
+                const _SettingsSectionTitle(
                   icon: Icons.contrast_outlined,
                   title: 'Appearance',
                   subtitle:
                       'Choose a light theme, dark theme, or follow the system setting.',
                 ),
-                SizedBox(height: 14),
-                _ThemeModePicker(),
+                const SizedBox(height: 14),
+                _ThemeModePicker(
+                  selectedMode: themeMode,
+                  onChanged: onThemeModeChanged,
+                ),
               ],
             ),
           ),
@@ -1578,16 +1772,20 @@ class _VehicleColorSwatch extends StatelessWidget {
   const _VehicleColorSwatch({
     required this.label,
     required this.color,
+    required this.onTap,
     this.selected = false,
   });
 
   final String label;
   final Color color;
+  final ValueChanged<Color> onTap;
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => onTap(color),
       child: Container(
         height: 76,
         decoration: BoxDecoration(
@@ -1639,29 +1837,48 @@ class _VehicleColorSwatch extends StatelessWidget {
 }
 
 class _ThemeModePicker extends StatelessWidget {
-  const _ThemeModePicker();
+  const _ThemeModePicker({required this.selectedMode, required this.onChanged});
+
+  final ThemeMode selectedMode;
+  final ValueChanged<ThemeMode>? onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Container(
       height: 46,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
+        color: light
+            ? const Color(0xFFE5EDF6).withValues(alpha: 0.72)
+            : Colors.black.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(
+          color: light
+              ? Colors.white.withValues(alpha: 0.88)
+              : Colors.white.withValues(alpha: 0.05),
+        ),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          _ThemeModeOption(icon: Icons.light_mode_outlined, label: 'Light'),
+          _ThemeModeOption(
+            icon: Icons.light_mode_outlined,
+            label: 'Light',
+            selected: selectedMode == ThemeMode.light,
+            onTap: () => onChanged?.call(ThemeMode.light),
+          ),
           _ThemeModeOption(
             icon: Icons.dark_mode_outlined,
             label: 'Dark',
-            selected: true,
+            selected: selectedMode == ThemeMode.dark,
+            onTap: () => onChanged?.call(ThemeMode.dark),
           ),
           _ThemeModeOption(
             icon: Icons.brightness_auto_outlined,
             label: 'System',
+            selected: selectedMode == ThemeMode.system,
+            onTap: () => onChanged?.call(ThemeMode.system),
           ),
         ],
       ),
@@ -1673,48 +1890,56 @@ class _ThemeModeOption extends StatelessWidget {
   const _ThemeModeOption({
     required this.icon,
     required this.label,
+    required this.onTap,
     this.selected = false,
   });
 
   final IconData icon;
   final String label;
+  final VoidCallback onTap;
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? _textPrimary : _textMuted;
+    final color = selected
+        ? _tone(context, _textPrimary)
+        : _tone(context, _textMuted);
     return Expanded(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        decoration: BoxDecoration(
-          color: selected
-              ? _accentSoftBlue.withValues(alpha: 0.16)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          border: selected
-              ? Border.all(color: _accentSoftBlue.withValues(alpha: 0.28))
-              : null,
-        ),
-        child: Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: color, size: 17),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: _sharp(
-                    context,
-                    Theme.of(context).textTheme.labelMedium,
-                    color: color,
-                    weight: selected ? FontWeight.w700 : FontWeight.w500,
-                    size: 12,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: selected
+                ? _accentSoftBlue.withValues(alpha: 0.16)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: selected
+                ? Border.all(color: _accentSoftBlue.withValues(alpha: 0.28))
+                : null,
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 17),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.labelMedium,
+                      color: color,
+                      weight: selected ? FontWeight.w700 : FontWeight.w500,
+                      size: 12,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1738,16 +1963,24 @@ class _SettingsSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.16),
+        color: light
+            ? Colors.white.withValues(alpha: 0.60)
+            : Colors.black.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.045)),
+        border: Border.all(
+          color: light
+              ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
+              : Colors.white.withValues(alpha: 0.045),
+        ),
       ),
       child: Row(
         children: [
-          Icon(icon, color: _textSecondary, size: 21),
+          Icon(icon, color: _tone(context, _textSecondary), size: 21),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1806,16 +2039,22 @@ class _PermissionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
         color: highlighted
             ? const Color(0xFF78B7FF).withValues(alpha: 0.09)
+            : light
+            ? Colors.white.withValues(alpha: 0.58)
             : Colors.black.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: highlighted
               ? _accentSoftBlue.withValues(alpha: 0.22)
+              : light
+              ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
               : Colors.white.withValues(alpha: 0.045),
         ),
       ),
@@ -1823,7 +2062,9 @@ class _PermissionRow extends StatelessWidget {
         children: [
           Icon(
             icon,
-            color: highlighted ? _accentSoftBlue : _textSecondary,
+            color: highlighted
+                ? _accentSoftBlue
+                : _tone(context, _textSecondary),
             size: 21,
           ),
           const SizedBox(width: 11),
@@ -1860,13 +2101,17 @@ class _SettingsActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return SizedBox(
       width: double.infinity,
       height: 46,
       child: FilledButton.icon(
         style: FilledButton.styleFrom(
-          backgroundColor: _accentSoftBlue.withValues(alpha: 0.18),
-          foregroundColor: _textPrimary,
+          backgroundColor: _accentSoftBlue.withValues(
+            alpha: light ? 0.22 : 0.18,
+          ),
+          foregroundColor: _tone(context, _textPrimary),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -2039,8 +2284,6 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _opacity;
-  late final Animation<double> _blurOpacity;
-  late final Animation<Offset> _offset;
 
   @override
   void initState() {
@@ -2050,32 +2293,12 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
       duration: const Duration(milliseconds: 980),
     );
 
-    final runCurve = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutQuart,
-    );
-
     final fadeCurve = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.02, 0.55, curve: Curves.easeOutCubic),
     );
 
-    final trailCurve = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.00, 0.82, curve: Curves.easeOutCubic),
-    );
-
-    _opacity = Tween<double>(begin: 0.15, end: 1).animate(fadeCurve);
-    _blurOpacity = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 32),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 68),
-    ]).animate(trailCurve);
-
-    // Chỉ trượt toàn bộ khung model vào vị trí, không scale model nên xe không bị nhỏ lại.
-    _offset = Tween<Offset>(
-      begin: const Offset(520, -70),
-      end: Offset.zero,
-    ).animate(runCurve);
+    _opacity = Tween<double>(begin: 0.0, end: 1).animate(fadeCurve);
 
     _controller.forward(from: 0);
   }
@@ -2092,167 +2315,277 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
       animation: _controller,
       child: widget.child,
       builder: (context, child) {
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            IgnorePointer(
-              child: Opacity(
-                opacity: _blurOpacity.value,
-                child: Transform.translate(
-                  offset: _offset.value * 0.62,
-                  child: const _VehicleRunInPreview(),
-                ),
-              ),
-            ),
-            Opacity(
-              opacity: _opacity.value,
-              child: Transform.translate(
-                offset: _offset.value,
-                child: child,
-              ),
-            ),
-          ],
-        );
+        return Opacity(opacity: _opacity.value, child: child);
       },
     );
   }
 }
 
-class _VehicleRunInPreview extends StatelessWidget {
-  const _VehicleRunInPreview();
+class _VehicleHero extends StatefulWidget {
+  const _VehicleHero({
+    required this.enable3dModel,
+    required this.cameraOrbit,
+    required this.vehicleColor,
+  });
+
+  final bool enable3dModel;
+  final String cameraOrbit;
+
+  final Color vehicleColor;
+
+  @override
+  State<_VehicleHero> createState() => _VehicleHeroState();
+}
+
+class _VehicleHeroState extends State<_VehicleHero> {
+  WebViewController? _webViewController;
+  final List<Timer> _colorRetryTimers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enable3dModel) {
+      _scheduleColorApply();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _VehicleHero oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enable3dModel) {
+      _cancelColorTimers();
+      return;
+    }
+
+    if (oldWidget.vehicleColor != widget.vehicleColor ||
+        oldWidget.enable3dModel != widget.enable3dModel) {
+      _applyVehicleColor();
+      _scheduleColorApply();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cancelColorTimers();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: FractionallySizedBox(
-        widthFactor: 0.52,
-        heightFactor: 0.86,
+    if (!widget.enable3dModel) {
+      return const _VehicleModelPlaceholder();
+    }
+
+    final light = _isLight(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: const Alignment(0.10, 0.08),
+          radius: 0.78,
+          colors: light
+              ? [
+                  _accentSoftBlue.withValues(alpha: 0.12),
+                  Colors.white.withValues(alpha: 0.34),
+                  Colors.transparent,
+                ]
+              : [
+                  _accentSoftBlue.withValues(alpha: 0.12),
+                  const Color(0xFF101823).withValues(alpha: 0.28),
+                  Colors.transparent,
+                ],
+        ),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.transparent, width: 0),
+        ),
         child: Stack(
-          alignment: Alignment.center,
+          fit: StackFit.expand,
           children: [
-            const Positioned(
-              left: 28,
-              right: 28,
-              bottom: 90,
-              child: _VehicleMotionTrail(),
+            ModelViewer(
+              src: _vehicleModelAsset,
+              alt: '2024 BYD Seal U DM-i 3D model',
+              loading: Loading.eager,
+              reveal: Reveal.auto,
+              backgroundColor: Colors.transparent,
+              cameraControls: true,
+              autoRotate: false,
+              disablePan: true,
+              disableTap: true,
+              disableZoom: true,
+              interactionPrompt: InteractionPrompt.none,
+              cameraOrbit: widget.cameraOrbit,
+              minCameraOrbit: 'auto 42deg 64%',
+              maxCameraOrbit: 'auto 86deg 120%',
+              fieldOfView: '19deg',
+              minFieldOfView: '19deg',
+              maxFieldOfView: '19deg',
+              exposure: 0.78,
+              shadowIntensity: 0.30,
+              relatedCss:
+                  'html, body { background: transparent !important; margin: 0; } '
+                  'model-viewer { background-color: transparent !important; '
+                  '--poster-color: transparent; }',
+              onWebViewCreated: (controller) {
+                _webViewController = controller;
+                _scheduleColorApply();
+              },
             ),
-            Positioned(
-              left: 62,
-              right: 62,
-              bottom: 78,
-              child: Container(
-                height: 24,
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    colors: [
-                      Colors.black.withValues(alpha: 0.30),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            const _ModelStartupCover(),
           ],
         ),
       ),
     );
   }
-}
 
-class _VehicleMotionTrail extends StatelessWidget {
-  const _VehicleMotionTrail();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 86,
-      child: Stack(
-        children: const [
-          Positioned(
-            left: 0,
-            right: 80,
-            top: 18,
-            child: _MotionLine(width: 280),
-          ),
-          Positioned(
-            left: 38,
-            right: 118,
-            top: 42,
-            child: _MotionLine(width: 210),
-          ),
-          Positioned(
-            left: 88,
-            right: 168,
-            top: 66,
-            child: _MotionLine(width: 150),
-          ),
-        ],
-      ),
-    );
+  void _scheduleColorApply() {
+    _cancelColorTimers();
+    for (final delay in const [
+      Duration(milliseconds: 450),
+      Duration(milliseconds: 1200),
+      Duration(milliseconds: 2600),
+    ]) {
+      _colorRetryTimers.add(Timer(delay, _applyVehicleColor));
+    }
   }
-}
 
-class _MotionLine extends StatelessWidget {
-  const _MotionLine({required this.width});
-
-  final double width;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Container(
-        width: width,
-        height: 2,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.transparent,
-              _accentSoftBlue.withValues(alpha: 0.18),
-              Colors.white.withValues(alpha: 0.30),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _cancelColorTimers() {
+    for (final timer in _colorRetryTimers) {
+      timer.cancel();
+    }
+    _colorRetryTimers.clear();
   }
-}
 
-class _VehicleHero extends StatelessWidget {
-  const _VehicleHero({required this.enable3dModel, required this.cameraOrbit});
-
-  final bool enable3dModel;
-  final String cameraOrbit;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!enable3dModel) {
-      return const _VehicleModelPlaceholder();
+  Future<void> _applyVehicleColor() async {
+    final controller = _webViewController;
+    if (controller == null) {
+      return;
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: ModelViewer(
-        src: 'assets/models/2024_byd_seal_u_dm-i2.glb',
-        alt: '2024 BYD Seal U DM-i 3D model',
-        loading: Loading.eager,
-        reveal: Reveal.auto,
-        backgroundColor: Colors.transparent,
-        cameraControls: true,
-        autoRotate: false,
-        disablePan: true,
-        disableTap: true,
-        disableZoom: true,
-        interactionPrompt: InteractionPrompt.none,
-        cameraOrbit: cameraOrbit,
-        minCameraOrbit: 'auto 42deg 74%',
-        maxCameraOrbit: 'auto 86deg 142%',
-        fieldOfView: '22deg',
-        minFieldOfView: '22deg',
-        maxFieldOfView: '22deg',
-        exposure: 0.78,
-        shadowIntensity: 0.30,
-        relatedCss: ':root { --poster-color: transparent; }',
+    try {
+      await controller.runJavaScript(_vehicleColorScript(widget.vehicleColor));
+    } on Object {
+      // WebView may not be ready while model-viewer is still loading.
+    }
+  }
+}
+
+String _vehicleColorScript(Color color) {
+  final argb = color.toARGB32();
+  final r = ((argb >> 16) & 0xFF) / 255.0;
+  final g = ((argb >> 8) & 0xFF) / 255.0;
+  final b = (argb & 0xFF) / 255.0;
+
+  return '''
+(function() {
+  const targetColor = [$r, $g, $b, 1.0];
+  const skip = ['glass', 'window', 'tire', 'tyre', 'rubber', 'wheel', 'rim',
+    'chrome', 'light', 'lamp', 'interior', 'seat', 'logo', 'plate', 'black'];
+  const prefer = ['body', 'paint', 'carpaint', 'exterior', 'shell', 'door',
+    'hood', 'bonnet', 'bumper', 'fender'];
+
+  function shouldPaint(material) {
+    const name = (material.name || '').toLowerCase();
+    if (skip.some((part) => name.includes(part))) return false;
+    return prefer.some((part) => name.includes(part));
+  }
+
+  function applyColor() {
+    const viewer = document.querySelector('model-viewer');
+    if (!viewer || !viewer.model || !viewer.model.materials) return false;
+
+    let changed = 0;
+    for (const material of viewer.model.materials) {
+      const pbr = material.pbrMetallicRoughness;
+      if (!pbr || !shouldPaint(material)) continue;
+      pbr.setBaseColorFactor(targetColor);
+      if (pbr.setMetallicFactor) pbr.setMetallicFactor(0.75);
+      if (pbr.setRoughnessFactor) pbr.setRoughnessFactor(0.34);
+      changed++;
+    }
+
+    if (changed === 0) {
+      for (const material of viewer.model.materials) {
+        const name = (material.name || '').toLowerCase();
+        const pbr = material.pbrMetallicRoughness;
+        if (!pbr || skip.some((part) => name.includes(part))) continue;
+        pbr.setBaseColorFactor(targetColor);
+        if (pbr.setMetallicFactor) pbr.setMetallicFactor(0.75);
+        if (pbr.setRoughnessFactor) pbr.setRoughnessFactor(0.34);
+        changed++;
+        if (changed >= 2) break;
+      }
+    }
+
+    return changed > 0;
+  }
+
+  if (!applyColor()) {
+    const viewer = document.querySelector('model-viewer');
+    if (viewer) viewer.addEventListener('load', applyColor, { once: true });
+    setTimeout(applyColor, 500);
+    setTimeout(applyColor, 1500);
+  }
+})();
+''';
+}
+
+class _ModelStartupCover extends StatefulWidget {
+  const _ModelStartupCover();
+
+  @override
+  State<_ModelStartupCover> createState() => _ModelStartupCoverState();
+}
+
+class _ModelStartupCoverState extends State<_ModelStartupCover> {
+  bool _visible = true;
+  Timer? _hideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _hideTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) {
+        setState(() => _visible = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: _visible ? 1 : 0,
+        duration: const Duration(milliseconds: 520),
+        curve: Curves.easeOutCubic,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(0.10, 0.08),
+              radius: 0.86,
+              colors: light
+                  ? [
+                      _accentSoftBlue.withValues(alpha: 0.10),
+                      Colors.white.withValues(alpha: 0.58),
+                      Colors.transparent,
+                    ]
+                  : [
+                      _accentSoftBlue.withValues(alpha: 0.13),
+                      const Color(0xFF101823).withValues(alpha: 0.54),
+                      Colors.transparent,
+                    ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2263,14 +2596,20 @@ class _VehicleModelPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return Center(
       child: Container(
         width: 520,
         height: 300,
         decoration: BoxDecoration(
-          color: const Color(0xFF111923),
+          color: light
+              ? Colors.white.withValues(alpha: 0.72)
+              : const Color(0xFF111923),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFF263241)),
+          border: Border.all(
+            color: light ? const Color(0xFFD4DEE9) : const Color(0xFF263241),
+          ),
         ),
         child: const Icon(
           Icons.directions_car_filled,
@@ -2290,6 +2629,8 @@ class _BottomTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
@@ -2298,20 +2639,26 @@ class _BottomTabs extends StatelessWidget {
           height: 52,
           padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
-            color: const Color(0xFF07101A).withValues(alpha: 0.62),
+            color: light
+                ? Colors.white.withValues(alpha: 0.72)
+                : const Color(0xFF07101A).withValues(alpha: 0.62),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.07),
+              color: light
+                  ? Colors.white.withValues(alpha: 0.86)
+                  : Colors.white.withValues(alpha: 0.07),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.26),
+                color: Colors.black.withValues(alpha: light ? 0.10 : 0.26),
                 blurRadius: 30,
                 offset: const Offset(0, 14),
               ),
               BoxShadow(
-                color: const Color(0xFF78B7FF).withValues(alpha: 0.06),
+                color: const Color(
+                  0xFF78B7FF,
+                ).withValues(alpha: light ? 0.10 : 0.06),
                 blurRadius: 28,
                 spreadRadius: 1,
               ),
@@ -2361,7 +2708,11 @@ class _BottomTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? Colors.white : const Color(0xFF9FAEBE);
+    final light = _isLight(context);
+    final color = selected
+        ? _tone(context, Colors.white)
+        : _tone(context, const Color(0xFF9FAEBE));
+
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
@@ -2377,27 +2728,36 @@ class _BottomTab extends StatelessWidget {
               ? LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    const Color(0xFF233040).withValues(alpha: 0.96),
-                    const Color(0xFF121C28).withValues(alpha: 0.96),
-                  ],
+                  colors: light
+                      ? [
+                          Colors.white.withValues(alpha: 0.96),
+                          const Color(0xFFE7F0FA).withValues(alpha: 0.96),
+                        ]
+                      : [
+                          const Color(0xFF233040).withValues(alpha: 0.96),
+                          const Color(0xFF121C28).withValues(alpha: 0.96),
+                        ],
                 )
               : null,
           border: selected
               ? Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
+                  color: light
+                      ? const Color(0xFFD3DEE9)
+                      : Colors.white.withValues(alpha: 0.08),
                   width: 1,
                 )
               : null,
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: const Color(0xFF78B7FF).withValues(alpha: 0.12),
+                    color: const Color(
+                      0xFF78B7FF,
+                    ).withValues(alpha: light ? 0.18 : 0.12),
                     blurRadius: 18,
                     spreadRadius: 1,
                   ),
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.18),
+                    color: Colors.black.withValues(alpha: light ? 0.08 : 0.18),
                     blurRadius: 12,
                     offset: const Offset(0, 5),
                   ),
@@ -2443,6 +2803,8 @@ class _GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
@@ -2455,19 +2817,25 @@ class _GlassCard extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withValues(alpha: 0.060),
-                Colors.white.withValues(alpha: 0.030),
+                light
+                    ? Colors.white.withValues(alpha: 0.72)
+                    : Colors.white.withValues(alpha: 0.060),
+                light
+                    ? const Color(0xFFF1F6FB).withValues(alpha: 0.52)
+                    : Colors.white.withValues(alpha: 0.030),
               ],
             ),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.065),
+              color: light
+                  ? Colors.white.withValues(alpha: 0.82)
+                  : Colors.white.withValues(alpha: 0.065),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.13),
-                blurRadius: 18,
+                color: Colors.black.withValues(alpha: light ? 0.07 : 0.13),
+                blurRadius: light ? 24 : 18,
                 offset: const Offset(0, 8),
               ),
             ],
