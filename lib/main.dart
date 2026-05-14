@@ -75,7 +75,6 @@ class LauncherHomePage extends StatefulWidget {
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
-  int _vehicleAnimationSeed = 0;
 
   String get _cameraOrbit {
     return switch (_view) {
@@ -116,7 +115,6 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           cameraOrbit: _cameraOrbit,
                           view: _view,
                           activeTab: _activeTab,
-                          vehicleAnimationSeed: _vehicleAnimationSeed,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
                         ),
@@ -133,12 +131,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   }
 
   void _handleTabChanged(_LauncherTab tab) {
-    setState(() {
-      _activeTab = tab;
-      if (tab == _LauncherTab.status) {
-        _vehicleAnimationSeed++;
-      }
-    });
+    setState(() => _activeTab = tab);
   }
 }
 
@@ -861,7 +854,6 @@ class _VehicleCanvas extends StatelessWidget {
     required this.cameraOrbit,
     required this.view,
     required this.activeTab,
-    required this.vehicleAnimationSeed,
     required this.onViewChanged,
     required this.onTabChanged,
   });
@@ -870,7 +862,6 @@ class _VehicleCanvas extends StatelessWidget {
   final String cameraOrbit;
   final _VehicleView view;
   final _LauncherTab activeTab;
-  final int vehicleAnimationSeed;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
 
@@ -885,21 +876,32 @@ class _VehicleCanvas extends StatelessWidget {
             top: 12,
             right: 0,
             bottom: 68,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeOutCubic,
-              child: activeTab == _LauncherTab.settings
-                  ? const _SettingsPanel(key: ValueKey('settings'))
-                  : activeTab == _LauncherTab.map
-                  ? const _NavigationPanel(key: ValueKey('navigation'))
-                  : _VehicleStage(
-                      key: ValueKey('vehicle-stage-$vehicleAnimationSeed'),
-                      enable3dModel: enable3dModel,
-                      cameraOrbit: cameraOrbit,
-                    ),
+            child: Offstage(
+              offstage: activeTab != _LauncherTab.status,
+              child: IgnorePointer(
+                ignoring: activeTab != _LauncherTab.status,
+                child: _VehicleStage(
+                  enable3dModel: enable3dModel,
+                  cameraOrbit: cameraOrbit,
+                ),
+              ),
             ),
           ),
+          if (activeTab != _LauncherTab.status)
+            Positioned.fill(
+              left: 0,
+              top: 12,
+              right: 0,
+              bottom: 68,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeOutCubic,
+                child: activeTab == _LauncherTab.settings
+                    ? const _SettingsPanel(key: ValueKey('settings'))
+                    : const _NavigationPanel(key: ValueKey('navigation')),
+              ),
+            ),
           if (activeTab == _LauncherTab.status)
             Positioned(
               left: 4,
@@ -936,11 +938,7 @@ class _VehicleCanvas extends StatelessWidget {
 }
 
 class _VehicleStage extends StatelessWidget {
-  const _VehicleStage({
-    required this.enable3dModel,
-    required this.cameraOrbit,
-    super.key,
-  });
+  const _VehicleStage({required this.enable3dModel, required this.cameraOrbit});
 
   final bool enable3dModel;
   final String cameraOrbit;
@@ -2028,7 +2026,6 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
   late final AnimationController _controller;
   late final Animation<double> _opacity;
   late final Animation<Offset> _offset;
-  late final Animation<double> _scale;
 
   @override
   void initState() {
@@ -2046,7 +2043,6 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
       begin: const Offset(42, -18),
       end: Offset.zero,
     ).animate(curve);
-    _scale = Tween<double>(begin: 0.72, end: 1).animate(curve);
     _controller.forward();
   }
 
@@ -2074,19 +2070,13 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
                 opacity: trailOpacity,
                 child: Transform.translate(
                   offset: _offset.value,
-                  child: Transform.scale(
-                    scale: _scale.value,
-                    child: const _VehicleRunInPreview(),
-                  ),
+                  child: const _VehicleRunInPreview(),
                 ),
               ),
             ),
             Opacity(
               opacity: _opacity.value,
-              child: Transform.translate(
-                offset: _offset.value,
-                child: Transform.scale(scale: _scale.value, child: child),
-              ),
+              child: Transform.translate(offset: _offset.value, child: child),
             ),
           ],
         );
