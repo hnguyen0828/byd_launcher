@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i2.glb';
+const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i.glb';
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
