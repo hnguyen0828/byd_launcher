@@ -75,6 +75,7 @@ class LauncherHomePage extends StatefulWidget {
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
+  int _vehicleAnimationSeed = 0;
 
   String get _cameraOrbit {
     return switch (_view) {
@@ -115,9 +116,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           cameraOrbit: _cameraOrbit,
                           view: _view,
                           activeTab: _activeTab,
+                          vehicleAnimationSeed: _vehicleAnimationSeed,
                           onViewChanged: (view) => setState(() => _view = view),
-                          onTabChanged: (tab) =>
-                              setState(() => _activeTab = tab),
+                          onTabChanged: _handleTabChanged,
                         ),
                       ),
                     ],
@@ -129,6 +130,15 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
         ),
       ),
     );
+  }
+
+  void _handleTabChanged(_LauncherTab tab) {
+    setState(() {
+      _activeTab = tab;
+      if (tab == _LauncherTab.status) {
+        _vehicleAnimationSeed++;
+      }
+    });
   }
 }
 
@@ -851,6 +861,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.cameraOrbit,
     required this.view,
     required this.activeTab,
+    required this.vehicleAnimationSeed,
     required this.onViewChanged,
     required this.onTabChanged,
   });
@@ -859,6 +870,7 @@ class _VehicleCanvas extends StatelessWidget {
   final String cameraOrbit;
   final _VehicleView view;
   final _LauncherTab activeTab;
+  final int vehicleAnimationSeed;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
 
@@ -882,7 +894,7 @@ class _VehicleCanvas extends StatelessWidget {
                   : activeTab == _LauncherTab.map
                   ? const _NavigationPanel(key: ValueKey('navigation'))
                   : _VehicleStage(
-                      key: const ValueKey('vehicle-stage'),
+                      key: ValueKey('vehicle-stage-$vehicleAnimationSeed'),
                       enable3dModel: enable3dModel,
                       cameraOrbit: cameraOrbit,
                     ),
@@ -2016,6 +2028,7 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
   late final AnimationController _controller;
   late final Animation<double> _opacity;
   late final Animation<Offset> _offset;
+  late final Animation<double> _scale;
 
   @override
   void initState() {
@@ -2030,9 +2043,10 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
     );
     _opacity = Tween<double>(begin: 0, end: 1).animate(curve);
     _offset = Tween<Offset>(
-      begin: const Offset(120, 0),
+      begin: const Offset(42, -18),
       end: Offset.zero,
     ).animate(curve);
+    _scale = Tween<double>(begin: 0.72, end: 1).animate(curve);
     _controller.forward();
   }
 
@@ -2048,11 +2062,135 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
       animation: _controller,
       child: widget.child,
       builder: (context, child) {
-        return Opacity(
-          opacity: _opacity.value,
-          child: Transform.translate(offset: _offset.value, child: child),
+        final trailOpacity = _controller.value < 0.70
+            ? 1.0
+            : (1 - ((_controller.value - 0.70) / 0.30)).clamp(0.0, 1.0);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            IgnorePointer(
+              child: Opacity(
+                opacity: trailOpacity,
+                child: Transform.translate(
+                  offset: _offset.value,
+                  child: Transform.scale(
+                    scale: _scale.value,
+                    child: const _VehicleRunInPreview(),
+                  ),
+                ),
+              ),
+            ),
+            Opacity(
+              opacity: _opacity.value,
+              child: Transform.translate(
+                offset: _offset.value,
+                child: Transform.scale(scale: _scale.value, child: child),
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+}
+
+class _VehicleRunInPreview extends StatelessWidget {
+  const _VehicleRunInPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: FractionallySizedBox(
+        widthFactor: 0.52,
+        heightFactor: 0.86,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            const Positioned(
+              left: 28,
+              right: 28,
+              bottom: 90,
+              child: _VehicleMotionTrail(),
+            ),
+            Positioned(
+              left: 62,
+              right: 62,
+              bottom: 78,
+              child: Container(
+                height: 24,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.black.withValues(alpha: 0.30),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VehicleMotionTrail extends StatelessWidget {
+  const _VehicleMotionTrail();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 86,
+      child: Stack(
+        children: const [
+          Positioned(
+            left: 0,
+            right: 80,
+            top: 18,
+            child: _MotionLine(width: 280),
+          ),
+          Positioned(
+            left: 38,
+            right: 118,
+            top: 42,
+            child: _MotionLine(width: 210),
+          ),
+          Positioned(
+            left: 88,
+            right: 168,
+            top: 66,
+            child: _MotionLine(width: 150),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MotionLine extends StatelessWidget {
+  const _MotionLine({required this.width});
+
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        width: width,
+        height: 2,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.transparent,
+              _accentSoftBlue.withValues(alpha: 0.18),
+              Colors.white.withValues(alpha: 0.30),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2074,6 +2212,8 @@ class _VehicleHero extends StatelessWidget {
       child: ModelViewer(
         src: 'assets/models/2024_byd_seal_u_dm-i2.glb',
         alt: '2024 BYD Seal U DM-i 3D model',
+        loading: Loading.eager,
+        reveal: Reveal.auto,
         backgroundColor: Colors.transparent,
         cameraControls: true,
         autoRotate: false,
@@ -2085,6 +2225,7 @@ class _VehicleHero extends StatelessWidget {
         fieldOfView: '22deg',
         exposure: 0.78,
         shadowIntensity: 0.30,
+        relatedCss: ':root { --poster-color: transparent; }',
       ),
     );
   }
