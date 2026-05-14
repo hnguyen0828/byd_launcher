@@ -81,7 +81,7 @@ ThemeData _launcherTheme(Brightness brightness) {
     ),
     scaffoldBackgroundColor: dark
         ? const Color(0xFF070B12)
-        : const Color(0xFFE9EEF4),
+        : const Color(0xFFF1F5FA),
     fontFamily: 'sans-serif',
     useMaterial3: true,
     visualDensity: VisualDensity.standard,
@@ -99,6 +99,13 @@ const Color _textPrimary = Color(0xFFF6FAFF);
 const Color _textSecondary = Color(0xFFE5ECF5);
 const Color _textMuted = Color(0xFFB7C2CF);
 const Color _accentSoftBlue = Color(0xFF78B7FF);
+const Color _premiumLightStroke = Color(0xFFD5E0EB);
+const Color _premiumLightText = Color(0xFF182230);
+const Color _premiumLightMuted = Color(0xFF64748B);
+
+const Color _lightInk = Color(0xFF101827);
+const Color _lightInkSoft = Color(0xFF334155);
+const Color _lightMuted = Color(0xFF728197);
 
 bool _isLight(BuildContext context) {
   return Theme.of(context).brightness == Brightness.light;
@@ -110,13 +117,13 @@ Color _tone(BuildContext context, Color color) {
   }
 
   if (color == _textPrimary || color == Colors.white) {
-    return const Color(0xFF111827);
+    return _lightInk;
   }
   if (color == _textSecondary) {
-    return const Color(0xFF334155);
+    return _lightInkSoft;
   }
   if (color == _textMuted || color == const Color(0xFF9FAEBE)) {
-    return const Color(0xFF64748B);
+    return _lightMuted;
   }
 
   return color;
@@ -165,7 +172,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   String get _cameraOrbit {
     return switch (_view) {
       _VehicleView.rear => '148deg 70deg 92%',
-      _VehicleView.status => '38deg 70deg 86%',
+      _VehicleView.status => '318deg 70deg 86%',
     };
   }
 
@@ -183,9 +190,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
               radius: 1.18,
               colors: light
                   ? const [
-                      Color(0xFFF8FAFC),
-                      Color(0xFFE7EDF5),
-                      Color(0xFFD6E0EA),
+                      Color(0xFFFFFFFF),
+                      Color(0xFFF1F6FC),
+                      Color(0xFFDCE7F2),
                     ]
                   : const [
                       Color(0xFF202A38),
@@ -258,8 +265,8 @@ class _LeftDashboard extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: light
                     ? [
-                        Colors.white.withValues(alpha: 0.86),
-                        const Color(0xFFEFF5FB).withValues(alpha: 0.78),
+                        const Color(0xFFFFFFFF).withValues(alpha: 0.92),
+                        const Color(0xFFEAF2FA).withValues(alpha: 0.86),
                       ]
                     : [
                         const Color(0xFF101824).withValues(alpha: 0.94),
@@ -269,21 +276,21 @@ class _LeftDashboard extends StatelessWidget {
               borderRadius: BorderRadius.circular(28),
               border: Border.all(
                 color: light
-                    ? Colors.white.withValues(alpha: 0.86)
+                    ? const Color(0xFFE0E8F2).withValues(alpha: 0.95)
                     : Colors.white.withValues(alpha: 0.065),
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: light ? 0.08 : 0.22),
-                  blurRadius: 28,
-                  offset: const Offset(0, 14),
+                  color: Colors.black.withValues(alpha: light ? 0.12 : 0.22),
+                  blurRadius: light ? 38 : 28,
+                  offset: const Offset(0, 18),
                 ),
                 BoxShadow(
                   color: _accentSoftBlue.withValues(
-                    alpha: light ? 0.08 : 0.035,
+                    alpha: light ? 0.16 : 0.035,
                   ),
-                  blurRadius: 34,
+                  blurRadius: light ? 44 : 34,
                   spreadRadius: 1,
                 ),
               ],
@@ -499,7 +506,9 @@ class _GearText extends StatelessWidget {
 }
 
 class _TpmsCluster extends StatelessWidget {
-  const _TpmsCluster();
+  const _TpmsCluster({required this.vehicleColor});
+
+  final Color vehicleColor;
 
   @override
   Widget build(BuildContext context) {
@@ -558,10 +567,8 @@ class _TpmsCluster extends StatelessWidget {
                         child: SizedBox(
                           width: 82,
                           height: constraints.maxHeight * 0.94,
-                          child: Image.asset(
-                            'assets/images/sealion6_tpms_top_view.png',
-                            fit: BoxFit.contain,
-                            filterQuality: FilterQuality.high,
+                          child: _TintedTpmsVehicleImage(
+                            vehicleColor: vehicleColor,
                           ),
                         ),
                       ),
@@ -653,6 +660,51 @@ class _TpmsLine extends StatelessWidget {
   }
 }
 
+class _TintedTpmsVehicleImage extends StatelessWidget {
+  const _TintedTpmsVehicleImage({required this.vehicleColor});
+
+  final Color vehicleColor;
+
+  static const _assetPath = 'assets/images/sealion6_tpms_top_view.png';
+  static const _maskPath = 'assets/images/sealion6_tpms_body_mask.png';
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: vehicleColor),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      builder: (context, color, child) {
+        final paintColor = color ?? vehicleColor;
+        final isWhitePaint = paintColor.computeLuminance() > 0.72;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            child!,
+            if (!isWhitePaint)
+              Opacity(
+                opacity: 0.72,
+                child: Image.asset(
+                  _maskPath,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  color: paintColor,
+                  colorBlendMode: BlendMode.srcIn,
+                ),
+              ),
+          ],
+        );
+      },
+      child: Image.asset(
+        _assetPath,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      ),
+    );
+  }
+}
+
 class _PressureBlock extends StatelessWidget {
   const _PressureBlock({
     required this.value,
@@ -711,6 +763,12 @@ class _MediaWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final controlColor = light ? const Color(0xFF31516F) : _textSecondary;
+    final progressTrack = light
+        ? const Color(0xFFD4E0EB)
+        : const Color(0xFF293241);
+
     return _GlassCard(
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -771,51 +829,59 @@ class _MediaWidget extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.bluetooth, color: _accentSoftBlue, size: 20),
+              Icon(
+                Icons.bluetooth,
+                color: _accentSoftBlue,
+                size: light ? 22 : 20,
+              ),
             ],
           ),
           const Spacer(),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
-            child: const LinearProgressIndicator(
+            child: LinearProgressIndicator(
               value: 0.42,
-              minHeight: 3,
+              minHeight: light ? 4 : 3,
               color: _accentSoftBlue,
-              backgroundColor: Color(0xFF293241),
+              backgroundColor: progressTrack,
             ),
           ),
           const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.skip_previous_rounded,
-                color: _textSecondary,
-                size: 26,
-              ),
+              Icon(Icons.skip_previous_rounded, color: controlColor, size: 26),
               const SizedBox(width: 22),
               Container(
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
+                  color: light
+                      ? _accentSoftBlue.withValues(alpha: 0.18)
+                      : Colors.white.withValues(alpha: 0.10),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.07),
+                    color: light
+                        ? _accentSoftBlue.withValues(alpha: 0.24)
+                        : Colors.white.withValues(alpha: 0.07),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: light
+                          ? _accentSoftBlue.withValues(alpha: 0.12)
+                          : Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 12,
+                    ),
+                  ],
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.pause_rounded,
-                  color: Colors.white,
+                  color: light ? const Color(0xFF1D4F86) : Colors.white,
                   size: 22,
                 ),
               ),
               const SizedBox(width: 22),
-              const Icon(
-                Icons.skip_next_rounded,
-                color: _textSecondary,
-                size: 26,
-              ),
+              Icon(Icons.skip_next_rounded, color: controlColor, size: 26),
             ],
           ),
         ],
@@ -1058,12 +1124,12 @@ class _VehicleCanvas extends StatelessWidget {
               ),
             ),
           if (activeTab == _LauncherTab.status)
-            const Positioned(
+            Positioned(
               top: 12,
               right: 0,
               width: 212,
               height: 172,
-              child: _TpmsCluster(),
+              child: _TpmsCluster(vehicleColor: vehicleColor),
             ),
           Positioned(
             left: 0,
@@ -1112,21 +1178,29 @@ class _NavigationPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(28),
       child: Stack(
         children: [
           Positioned.fill(
             child: DecoratedBox(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF152334),
-                    Color(0xFF0B141F),
-                    Color(0xFF060B12),
-                  ],
+                  colors: light
+                      ? const [
+                          Color(0xFFFDFEFF),
+                          Color(0xFFE9F2FB),
+                          Color(0xFFD9E6F2),
+                        ]
+                      : const [
+                          Color(0xFF152334),
+                          Color(0xFF0B141F),
+                          Color(0xFF060B12),
+                        ],
                 ),
               ),
               child: CustomPaint(painter: _MapGridPainter()),
@@ -1331,7 +1405,9 @@ class _NavigationAppChip extends StatelessWidget {
         style: _sharp(
           context,
           Theme.of(context).textTheme.labelSmall,
-          color: selected ? _textPrimary : _textMuted,
+          color: selected
+              ? (_isLight(context) ? _premiumLightText : _textPrimary)
+              : (_isLight(context) ? _premiumLightMuted : _textMuted),
           weight: selected ? FontWeight.w700 : FontWeight.w500,
           size: 11.5,
         ),
@@ -1824,7 +1900,9 @@ class _VehicleColorSwatch extends StatelessWidget {
               style: _sharp(
                 context,
                 Theme.of(context).textTheme.labelSmall,
-                color: selected ? _textPrimary : _textMuted,
+                color: selected
+                    ? (_isLight(context) ? _premiumLightText : _textPrimary)
+                    : (_isLight(context) ? _premiumLightMuted : _textMuted),
                 weight: FontWeight.w600,
                 size: 11,
               ),
@@ -2155,27 +2233,35 @@ class _QuickActionStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFF0B111A).withValues(alpha: 0.58),
+            color: light
+                ? Colors.white.withValues(alpha: 0.88)
+                : const Color(0xFF0B111A).withValues(alpha: 0.58),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.075),
+              color: light
+                  ? _premiumLightStroke.withValues(alpha: 0.92)
+                  : Colors.white.withValues(alpha: 0.075),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
+                color: Colors.black.withValues(alpha: light ? 0.08 : 0.18),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               ),
               BoxShadow(
-                color: const Color(0xFF78B7FF).withValues(alpha: 0.055),
+                color: const Color(
+                  0xFF78B7FF,
+                ).withValues(alpha: light ? 0.10 : 0.055),
                 blurRadius: 24,
                 spreadRadius: 1,
               ),
@@ -2211,6 +2297,8 @@ class _MiniAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
@@ -2219,15 +2307,21 @@ class _MiniAction extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: const Color(0xFFEAF1F8), size: 17),
+            Icon(
+              icon,
+              color: light ? const Color(0xFF475569) : const Color(0xFFEAF1F8),
+              size: 17,
+            ),
             const SizedBox(width: 7),
             Text(
               label,
               style: _sharp(
                 context,
                 Theme.of(context).textTheme.labelSmall,
-                color: const Color(0xFFD8E2ED),
-                weight: FontWeight.w500,
+                color: light
+                    ? const Color(0xFF475569)
+                    : const Color(0xFFD8E2ED),
+                weight: FontWeight.w600,
                 size: 11.5,
                 letterSpacing: 0.12,
               ),
@@ -2385,8 +2479,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
           radius: 0.78,
           colors: light
               ? [
-                  _accentSoftBlue.withValues(alpha: 0.12),
-                  Colors.white.withValues(alpha: 0.34),
+                  _accentSoftBlue.withValues(alpha: 0.08),
+                  Colors.white.withValues(alpha: 0.00),
                   Colors.transparent,
                 ]
               : [
@@ -2424,8 +2518,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
               exposure: 0.78,
               shadowIntensity: 0.30,
               relatedCss:
-                  'html, body { background: transparent !important; margin: 0; } '
-                  'model-viewer { background-color: transparent !important; '
+                  'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                  'model-viewer { background: transparent !important; background-color: transparent !important; '
                   '--poster-color: transparent; }',
               onWebViewCreated: (controller) {
                 _webViewController = controller;
@@ -2634,18 +2728,18 @@ class _BottomTabs extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         child: Container(
           height: 52,
           padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
             color: light
-                ? Colors.white.withValues(alpha: 0.72)
+                ? Colors.white.withValues(alpha: 0.88)
                 : const Color(0xFF07101A).withValues(alpha: 0.62),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
               color: light
-                  ? Colors.white.withValues(alpha: 0.86)
+                  ? _premiumLightStroke.withValues(alpha: 0.95)
                   : Colors.white.withValues(alpha: 0.07),
               width: 1,
             ),
@@ -2656,10 +2750,8 @@ class _BottomTabs extends StatelessWidget {
                 offset: const Offset(0, 14),
               ),
               BoxShadow(
-                color: const Color(
-                  0xFF78B7FF,
-                ).withValues(alpha: light ? 0.10 : 0.06),
-                blurRadius: 28,
+                color: _accentSoftBlue.withValues(alpha: light ? 0.10 : 0.05),
+                blurRadius: 26,
                 spreadRadius: 1,
               ),
             ],
@@ -2710,7 +2802,7 @@ class _BottomTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = _isLight(context);
     final color = selected
-        ? _tone(context, Colors.white)
+        ? (light ? const Color(0xFF1D4F86) : _tone(context, Colors.white))
         : _tone(context, const Color(0xFF9FAEBE));
 
     return InkWell(
@@ -2730,8 +2822,8 @@ class _BottomTab extends StatelessWidget {
                   end: Alignment.bottomRight,
                   colors: light
                       ? [
-                          Colors.white.withValues(alpha: 0.96),
-                          const Color(0xFFE7F0FA).withValues(alpha: 0.96),
+                          const Color(0xFFFFFFFF).withValues(alpha: 0.98),
+                          const Color(0xFFE5F2FF).withValues(alpha: 0.98),
                         ]
                       : [
                           const Color(0xFF233040).withValues(alpha: 0.96),
@@ -2742,7 +2834,7 @@ class _BottomTab extends StatelessWidget {
           border: selected
               ? Border.all(
                   color: light
-                      ? const Color(0xFFD3DEE9)
+                      ? const Color(0xFF78B7FF).withValues(alpha: 0.38)
                       : Colors.white.withValues(alpha: 0.08),
                   width: 1,
                 )
@@ -2752,13 +2844,13 @@ class _BottomTab extends StatelessWidget {
                   BoxShadow(
                     color: const Color(
                       0xFF78B7FF,
-                    ).withValues(alpha: light ? 0.18 : 0.12),
+                    ).withValues(alpha: light ? 0.20 : 0.12),
                     blurRadius: 18,
                     spreadRadius: 1,
                   ),
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: light ? 0.08 : 0.18),
-                    blurRadius: 12,
+                    color: Colors.black.withValues(alpha: light ? 0.06 : 0.18),
+                    blurRadius: light ? 16 : 12,
                     offset: const Offset(0, 5),
                   ),
                 ]
@@ -2808,7 +2900,10 @@ class _GlassCard extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        filter: ImageFilter.blur(
+          sigmaX: light ? 18 : 14,
+          sigmaY: light ? 18 : 14,
+        ),
         child: Container(
           width: double.infinity,
           padding: padding,
@@ -2816,28 +2911,35 @@ class _GlassCard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                light
-                    ? Colors.white.withValues(alpha: 0.72)
-                    : Colors.white.withValues(alpha: 0.060),
-                light
-                    ? const Color(0xFFF1F6FB).withValues(alpha: 0.52)
-                    : Colors.white.withValues(alpha: 0.030),
-              ],
+              colors: light
+                  ? [
+                      const Color(0xFFFFFFFF).withValues(alpha: 0.88),
+                      const Color(0xFFEAF2FA).withValues(alpha: 0.74),
+                    ]
+                  : [
+                      Colors.white.withValues(alpha: 0.060),
+                      Colors.white.withValues(alpha: 0.030),
+                    ],
             ),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: light
-                  ? Colors.white.withValues(alpha: 0.82)
+                  ? const Color(0xFFE0E8F2).withValues(alpha: 0.92)
                   : Colors.white.withValues(alpha: 0.065),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.07 : 0.13),
-                blurRadius: light ? 24 : 18,
-                offset: const Offset(0, 8),
+                color: Colors.black.withValues(alpha: light ? 0.105 : 0.13),
+                blurRadius: light ? 34 : 18,
+                offset: Offset(0, light ? 16 : 8),
               ),
+              if (light)
+                BoxShadow(
+                  color: _accentSoftBlue.withValues(alpha: 0.10),
+                  blurRadius: 30,
+                  spreadRadius: -2,
+                ),
             ],
           ),
           child: child,
