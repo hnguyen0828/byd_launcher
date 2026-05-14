@@ -75,6 +75,7 @@ class LauncherHomePage extends StatefulWidget {
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
+  int _vehicleReplayKey = 0;
 
   String get _cameraOrbit {
     return switch (_view) {
@@ -115,6 +116,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           cameraOrbit: _cameraOrbit,
                           view: _view,
                           activeTab: _activeTab,
+                          vehicleReplayKey: _vehicleReplayKey,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
                         ),
@@ -131,7 +133,12 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   }
 
   void _handleTabChanged(_LauncherTab tab) {
-    setState(() => _activeTab = tab);
+    setState(() {
+      if (tab == _LauncherTab.status) {
+        _vehicleReplayKey++;
+      }
+      _activeTab = tab;
+    });
   }
 }
 
@@ -854,6 +861,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.cameraOrbit,
     required this.view,
     required this.activeTab,
+    required this.vehicleReplayKey,
     required this.onViewChanged,
     required this.onTabChanged,
   });
@@ -862,6 +870,7 @@ class _VehicleCanvas extends StatelessWidget {
   final String cameraOrbit;
   final _VehicleView view;
   final _LauncherTab activeTab;
+  final int vehicleReplayKey;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
 
@@ -881,6 +890,7 @@ class _VehicleCanvas extends StatelessWidget {
               child: IgnorePointer(
                 ignoring: activeTab != _LauncherTab.status,
                 child: _VehicleStage(
+                  key: ValueKey('vehicle-stage-$vehicleReplayKey'),
                   enable3dModel: enable3dModel,
                   cameraOrbit: cameraOrbit,
                 ),
@@ -938,7 +948,11 @@ class _VehicleCanvas extends StatelessWidget {
 }
 
 class _VehicleStage extends StatelessWidget {
-  const _VehicleStage({required this.enable3dModel, required this.cameraOrbit});
+  const _VehicleStage({
+    super.key,
+    required this.enable3dModel,
+    required this.cameraOrbit,
+  });
 
   final bool enable3dModel;
   final String cameraOrbit;
@@ -2025,6 +2039,7 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _opacity;
+  late final Animation<double> _blurOpacity;
   late final Animation<Offset> _offset;
 
   @override
@@ -2032,18 +2047,37 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 950),
+      duration: const Duration(milliseconds: 980),
     );
-    final curve = CurvedAnimation(
+
+    final runCurve = CurvedAnimation(
       parent: _controller,
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeOutQuart,
     );
-    _opacity = Tween<double>(begin: 0, end: 1).animate(curve);
+
+    final fadeCurve = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.02, 0.55, curve: Curves.easeOutCubic),
+    );
+
+    final trailCurve = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.00, 0.82, curve: Curves.easeOutCubic),
+    );
+
+    _opacity = Tween<double>(begin: 0.15, end: 1).animate(fadeCurve);
+    _blurOpacity = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 32),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 68),
+    ]).animate(trailCurve);
+
+    // Chỉ trượt toàn bộ khung model vào vị trí, không scale model nên xe không bị nhỏ lại.
     _offset = Tween<Offset>(
-      begin: const Offset(42, -18),
+      begin: const Offset(520, -70),
       end: Offset.zero,
-    ).animate(curve);
-    _controller.forward();
+    ).animate(runCurve);
+
+    _controller.forward(from: 0);
   }
 
   @override
@@ -2058,25 +2092,24 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
       animation: _controller,
       child: widget.child,
       builder: (context, child) {
-        final trailOpacity = _controller.value < 0.70
-            ? 1.0
-            : (1 - ((_controller.value - 0.70) / 0.30)).clamp(0.0, 1.0);
-
         return Stack(
           fit: StackFit.expand,
           children: [
             IgnorePointer(
               child: Opacity(
-                opacity: trailOpacity,
+                opacity: _blurOpacity.value,
                 child: Transform.translate(
-                  offset: _offset.value,
+                  offset: _offset.value * 0.62,
                   child: const _VehicleRunInPreview(),
                 ),
               ),
             ),
             Opacity(
               opacity: _opacity.value,
-              child: Transform.translate(offset: _offset.value, child: child),
+              child: Transform.translate(
+                offset: _offset.value,
+                child: child,
+              ),
             ),
           ],
         );
@@ -2207,12 +2240,16 @@ class _VehicleHero extends StatelessWidget {
         backgroundColor: Colors.transparent,
         cameraControls: true,
         autoRotate: false,
+        disablePan: true,
+        disableTap: true,
         disableZoom: true,
         interactionPrompt: InteractionPrompt.none,
         cameraOrbit: cameraOrbit,
         minCameraOrbit: 'auto 42deg 74%',
         maxCameraOrbit: 'auto 86deg 142%',
         fieldOfView: '22deg',
+        minFieldOfView: '22deg',
+        maxFieldOfView: '22deg',
         exposure: 0.78,
         shadowIntensity: 0.30,
         relatedCss: ':root { --poster-color: transparent; }',
