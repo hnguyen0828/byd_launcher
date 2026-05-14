@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="900" viewBox="0 0 520 900">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4552"/>
+      <stop offset="0.52" stop-color="#242d38"/>
+      <stop offset="1" stop-color="#111821"/>
+    </linearGradient>
+    <filter id="shadow" x="-40%" y="-20%" width="180%" height="140%">
+      <feDropShadow dx="8" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <path filter="url(#shadow)" d="M170 55H350C380 102 398 162 405 235L388 780C374 812 352 836 330 850H190C168 836 146 812 132 780L115 235C122 162 140 102 170 55Z" fill="url(#body)" stroke="#6f7e91" stroke-width="4"/>
+  <rect x="160" y="82" width="200" height="150" rx="42" fill="#26303a" stroke="#5d6d80" stroke-width="3"/>
+  <rect x="154" y="248" width="212" height="220" rx="46" fill="#060a10" stroke="#445267" stroke-width="3"/>
+  <rect x="162" y="492" width="196" height="174" rx="36" fill="#0c121b" stroke="#445267" stroke-width="3"/>
+  <rect x="177" y="690" width="166" height="122" rx="34" fill="#121924" stroke="#445267" stroke-width="3"/>
+  <rect x="206" y="510" width="108" height="128" rx="22" fill="#1f2733"/>
+  <rect x="98" y="250" width="40" height="60" rx="14" fill="#27303b" stroke="#5d6d80" stroke-width="3"/>
+  <rect x="382" y="250" width="40" height="60" rx="14" fill="#27303b" stroke="#5d6d80" stroke-width="3"/>
+  <rect x="122" y="278" width="24" height="88" rx="10" fill="#131d26" stroke="#23d366" stroke-width="5"/>
+  <rect x="386" y="278" width="24" height="88" rx="10" fill="#131d26" stroke="#23d366" stroke-width="5"/>
+  <rect x="122" y="690" width="24" height="88" rx="10" fill="#131d26" stroke="#23d366" stroke-width="5"/>
+  <rect x="386" y="690" width="24" height="88" rx="10" fill="#131d26" stroke="#23d366" stroke-width="5"/>
+  <rect x="188" y="835" width="144" height="13" rx="7" fill="#ac262c"/>
+  <rect x="190" y="58" width="140" height="10" rx="6" fill="#c3cdd8"/>
+  <line x1="260" y1="84" x2="260" y2="824" stroke="#506074" stroke-width="2" opacity="0.45"/>
+</svg>
