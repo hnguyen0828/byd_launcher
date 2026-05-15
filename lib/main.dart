@@ -13,6 +13,7 @@ const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Delan Black', Color(0xFF090C12)),
   _VehiclePaintOption('Azure Blue', Color(0xFF1687FF)),
   _VehiclePaintOption('Stone Grey', Color(0xFF9AA0A4)),
+  _VehiclePaintOption('Ruby Red', Color(0xFF9D1028)),
 ];
 
 class _VehiclePaintOption {
