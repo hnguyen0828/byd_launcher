@@ -76,7 +76,7 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
       theme: _launcherTheme(Brightness.light),
       darkTheme: _launcherTheme(Brightness.dark),
       home: LauncherHomePage(
-        enable3dModel: _themePreferenceLoaded,
+        enable3dModel: true,
         themeMode: _themeMode,
         onThemeModeChanged: _setThemeMode,
       ),
@@ -3631,7 +3631,6 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
       _updateNativeTexture();
     }
     if (oldWidget.asset != widget.asset ||
-        oldWidget.backgroundColor != widget.backgroundColor ||
         oldWidget.renderQuality != widget.renderQuality) {
       _recreateForCurrentSize();
     }
