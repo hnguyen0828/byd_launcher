@@ -3303,7 +3303,8 @@ class _DrivingRoadPainter extends CustomPainter {
       );
     }
 
-    double halfWidthAt(double t) => lerpDouble(size.width * 0.145, size.width * 0.455, t)!;
+    double halfWidthAt(double t) =>
+        lerpDouble(size.width * 0.13, size.width * 0.40, t)!;
 
     Offset roadPoint(double t, double side) {
       final center = centerAt(t);
@@ -3344,20 +3345,21 @@ class _DrivingRoadPainter extends CustomPainter {
 
     final vehicleContactCenter = Offset(size.width * 0.56, size.height * 0.705);
     final softShadowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.black.withValues(alpha: light ? 0.13 : 0.28),
-          Colors.black.withValues(alpha: light ? 0.055 : 0.13),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.48, 1.0],
-      ).createShader(
-        Rect.fromCenter(
-          center: vehicleContactCenter,
-          width: size.width * 0.34,
-          height: size.height * 0.16,
-        ),
-      );
+      ..shader =
+          RadialGradient(
+            colors: [
+              Colors.black.withValues(alpha: light ? 0.13 : 0.28),
+              Colors.black.withValues(alpha: light ? 0.055 : 0.13),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.48, 1.0],
+          ).createShader(
+            Rect.fromCenter(
+              center: vehicleContactCenter,
+              width: size.width * 0.34,
+              height: size.height * 0.16,
+            ),
+          );
     canvas.drawOval(
       Rect.fromCenter(
         center: vehicleContactCenter,
@@ -3389,7 +3391,7 @@ class _DrivingRoadPainter extends CustomPainter {
       );
 
     final edgePaint = Paint()
-      ..color = _accentSoftBlue.withValues(alpha: light ? 0.075 : 0.10)
+      ..color = _accentSoftBlue.withValues(alpha: light ? 0.05 : 0.065)
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
     canvas
@@ -3409,7 +3411,10 @@ class _DrivingRoadPainter extends CustomPainter {
       final center = centerAt(t);
       final segment = lerpDouble(7, 48, t)!;
       final distanceFade = Curves.easeOut.transform(t).clamp(0.0, 1.0);
-      final nearFade = (1.0 - ((t - 0.80).clamp(0.0, 0.20) / 0.20)).clamp(0.0, 1.0);
+      final nearFade = (1.0 - ((t - 0.80).clamp(0.0, 0.20) / 0.20)).clamp(
+        0.0,
+        1.0,
+      );
       final alpha = distanceFade * nearFade;
       lanePaint.color = Colors.white.withValues(
         alpha: (light ? 0.16 : 0.22) * alpha,
