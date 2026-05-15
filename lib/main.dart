@@ -59,6 +59,7 @@ class BydLauncherApp extends StatefulWidget {
 
 class _BydLauncherAppState extends State<BydLauncherApp> {
   ThemeMode _themeMode = ThemeMode.dark;
+  bool _themePreferenceLoaded = false;
 
   @override
   void initState() {
@@ -75,6 +76,7 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
       theme: _launcherTheme(Brightness.light),
       darkTheme: _launcherTheme(Brightness.dark),
       home: LauncherHomePage(
+        enable3dModel: _themePreferenceLoaded,
         themeMode: _themeMode,
         onThemeModeChanged: _setThemeMode,
       ),
@@ -86,7 +88,10 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
     final stored = prefs.getString(_themeModePreferenceKey);
     final themeMode = _parseThemeMode(stored);
     if (!mounted) return;
-    setState(() => _themeMode = themeMode);
+    setState(() {
+      _themeMode = themeMode;
+      _themePreferenceLoaded = true;
+    });
   }
 
   Future<void> _setThemeMode(ThemeMode mode) async {
@@ -213,6 +218,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
   Color _vehicleColor = const Color(0xFFE9EEF4);
   bool _drivingMode = false;
+  bool _vehiclePreferencesLoaded = false;
   double _vehicleSpeedKmh = 0;
 
   @override
@@ -276,7 +282,8 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                       ),
                       Expanded(
                         child: _VehicleCanvas(
-                          enable3dModel: widget.enable3dModel,
+                          enable3dModel:
+                              widget.enable3dModel && _vehiclePreferencesLoaded,
                           cameraOrbit: _cameraOrbit,
                           view: _view,
                           activeTab: _activeTab,
@@ -329,6 +336,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
         _vehicleColor = Color(storedColor);
       }
       _renderQuality = _parseRenderQuality(storedQuality);
+      _vehiclePreferencesLoaded = true;
     });
   }
 
@@ -3402,7 +3410,9 @@ class _DrivingRoadPainter extends CustomPainter {
     canvas.clipPath(roadPath);
 
     final lanePaint = Paint()
-      ..color = Colors.white.withValues(alpha: light ? 0.18 : 0.22)
+      ..color = (light ? const Color(0xFF31516F) : Colors.white).withValues(
+        alpha: light ? 0.26 : 0.22,
+      )
       ..strokeWidth = 2.4
       ..strokeCap = StrokeCap.round;
 
@@ -3416,9 +3426,8 @@ class _DrivingRoadPainter extends CustomPainter {
         1.0,
       );
       final alpha = distanceFade * nearFade;
-      lanePaint.color = Colors.white.withValues(
-        alpha: (light ? 0.16 : 0.22) * alpha,
-      );
+      lanePaint.color = (light ? const Color(0xFF31516F) : Colors.white)
+          .withValues(alpha: (light ? 0.30 : 0.22) * alpha);
       canvas.drawLine(
         Offset(center.dx, center.dy - segment * 0.50),
         Offset(center.dx, center.dy + segment * 0.50),
@@ -3427,7 +3436,7 @@ class _DrivingRoadPainter extends CustomPainter {
     }
 
     final speedPaint = Paint()
-      ..color = _accentSoftBlue.withValues(alpha: light ? 0.08 : 0.13)
+      ..color = _accentSoftBlue.withValues(alpha: light ? 0.16 : 0.13)
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 8; i++) {
