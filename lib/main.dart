@@ -213,6 +213,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
   Color _vehicleColor = const Color(0xFFE9EEF4);
   bool _drivingMode = false;
+  double _vehicleSpeedKmh = 0;
 
   @override
   void initState() {
@@ -222,7 +223,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
 
   String get _cameraOrbit {
     if (_drivingMode) {
-      return '325deg 68deg 88%';
+      return '180deg 80deg 98%';
     }
 
     return switch (_view) {
@@ -269,6 +270,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                         width: sidebarWidth,
                         child: _LeftDashboard(
                           drivingMode: _drivingMode,
+                          vehicleSpeedKmh: _vehicleSpeedKmh,
                           onDrivingModeChanged: _setDrivingMode,
                         ),
                       ),
@@ -281,6 +283,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           vehicleColor: _vehicleColor,
                           renderQuality: _renderQuality,
                           drivingMode: _drivingMode,
+                          vehicleSpeedKmh: _vehicleSpeedKmh,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
                           onVehicleColorChanged: _setVehicleColor,
@@ -307,6 +310,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   void _setDrivingMode(bool value) {
     setState(() {
       _drivingMode = value;
+      _vehicleSpeedKmh = value ? 24 : 0;
       if (value) {
         _activeTab = _LauncherTab.status;
         _view = _VehicleView.status;
@@ -344,10 +348,12 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
 class _LeftDashboard extends StatelessWidget {
   const _LeftDashboard({
     required this.drivingMode,
+    required this.vehicleSpeedKmh,
     required this.onDrivingModeChanged,
   });
 
   final bool drivingMode;
+  final double vehicleSpeedKmh;
   final ValueChanged<bool> onDrivingModeChanged;
 
   @override
@@ -405,6 +411,7 @@ class _LeftDashboard extends StatelessWidget {
                   const SizedBox(height: 10),
                   _SpeedCluster(
                     drivingMode: drivingMode,
+                    vehicleSpeedKmh: vehicleSpeedKmh,
                     onDrivingModeChanged: onDrivingModeChanged,
                   ),
                   const SizedBox(height: 20),
@@ -485,10 +492,12 @@ class _StatusBar extends StatelessWidget {
 class _SpeedCluster extends StatelessWidget {
   const _SpeedCluster({
     required this.drivingMode,
+    required this.vehicleSpeedKmh,
     required this.onDrivingModeChanged,
   });
 
   final bool drivingMode;
+  final double vehicleSpeedKmh;
   final ValueChanged<bool> onDrivingModeChanged;
 
   @override
@@ -497,17 +506,24 @@ class _SpeedCluster extends StatelessWidget {
 
     return Column(
       children: [
-        Text(
-          drivingMode ? '24' : '0',
-          style: _sharp(
-            context,
-            Theme.of(context).textTheme.displayLarge,
-            color: _textPrimary,
-            weight: FontWeight.w300,
-            size: 88,
-            height: 0.86,
-            letterSpacing: -2.6,
-          ),
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: vehicleSpeedKmh),
+          duration: const Duration(milliseconds: 620),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, _) {
+            return Text(
+              value.round().toString(),
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.displayLarge,
+                color: _textPrimary,
+                weight: FontWeight.w300,
+                size: 88,
+                height: 0.86,
+                letterSpacing: -2.6,
+              ),
+            );
+          },
         ),
         Text(
           'km/h',
@@ -1179,6 +1195,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.vehicleColor,
     required this.renderQuality,
     required this.drivingMode,
+    required this.vehicleSpeedKmh,
     required this.onViewChanged,
     required this.onTabChanged,
     required this.onVehicleColorChanged,
@@ -1194,6 +1211,7 @@ class _VehicleCanvas extends StatelessWidget {
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
   final bool drivingMode;
+  final double vehicleSpeedKmh;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
@@ -1222,6 +1240,7 @@ class _VehicleCanvas extends StatelessWidget {
                   vehicleColor: vehicleColor,
                   renderQuality: renderQuality,
                   drivingMode: drivingMode,
+                  vehicleSpeedKmh: vehicleSpeedKmh,
                 ),
               ),
             ),
@@ -1291,6 +1310,7 @@ class _VehicleStage extends StatelessWidget {
     required this.vehicleColor,
     required this.renderQuality,
     required this.drivingMode,
+    required this.vehicleSpeedKmh,
   });
 
   final bool enable3dModel;
@@ -1298,6 +1318,7 @@ class _VehicleStage extends StatelessWidget {
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
   final bool drivingMode;
+  final double vehicleSpeedKmh;
 
   @override
   Widget build(BuildContext context) {
@@ -1309,6 +1330,7 @@ class _VehicleStage extends StatelessWidget {
           vehicleColor: vehicleColor,
           renderQuality: renderQuality,
           drivingMode: drivingMode,
+          vehicleSpeedKmh: vehicleSpeedKmh,
         ),
       ),
     );
@@ -2710,6 +2732,7 @@ class _VehicleHero extends StatefulWidget {
     required this.vehicleColor,
     required this.renderQuality,
     required this.drivingMode,
+    required this.vehicleSpeedKmh,
   });
 
   final bool enable3dModel;
@@ -2717,6 +2740,7 @@ class _VehicleHero extends StatefulWidget {
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
   final bool drivingMode;
+  final double vehicleSpeedKmh;
 
   @override
   State<_VehicleHero> createState() => _VehicleHeroState();
@@ -2771,7 +2795,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        _DrivingRoadLayer(active: widget.drivingMode),
+        _DrivingRoadLayer(
+          active: widget.drivingMode,
+          speedKmh: widget.vehicleSpeedKmh,
+        ),
         if (useNativeRenderer)
           _NativeVehicleScene(
             asset: _vehicleModelAsset,
@@ -2890,7 +2917,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     _orbit = _NativeOrbit.parse(widget.cameraOrbit);
     _orbitController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
+      duration: const Duration(milliseconds: 820),
     )..addListener(_tickOrbitAnimation);
   }
 
@@ -2898,12 +2925,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   void didUpdateWidget(covariant _NativeVehicleScene oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.cameraOrbit != widget.cameraOrbit) {
-      if (widget.drivingMode && !oldWidget.drivingMode) {
-        _animateOrbitTo(_NativeOrbit.parse(widget.cameraOrbit));
-      } else {
-        _orbit = _NativeOrbit.parse(widget.cameraOrbit);
-        _updateNativeTexture();
-      }
+      _animateOrbitTo(_NativeOrbit.parse(widget.cameraOrbit));
     } else if (!oldWidget.drivingMode && widget.drivingMode) {
       _animateOrbitTo(_NativeOrbit.parse(widget.cameraOrbit));
     }
@@ -3138,9 +3160,10 @@ Color _vehicleSceneBackground(BuildContext context) {
 }
 
 class _DrivingRoadLayer extends StatefulWidget {
-  const _DrivingRoadLayer({required this.active});
+  const _DrivingRoadLayer({required this.active, required this.speedKmh});
 
   final bool active;
+  final double speedKmh;
 
   @override
   State<_DrivingRoadLayer> createState() => _DrivingRoadLayerState();
@@ -3160,7 +3183,7 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
     );
     _motionController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1250),
+      duration: _roadMotionDuration(widget.speedKmh),
     );
 
     if (widget.active) {
@@ -3172,6 +3195,13 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
   @override
   void didUpdateWidget(covariant _DrivingRoadLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.speedKmh != oldWidget.speedKmh) {
+      _motionController.duration = _roadMotionDuration(widget.speedKmh);
+      if (widget.active && !_motionController.isAnimating) {
+        _motionController.repeat();
+      }
+    }
+
     if (widget.active == oldWidget.active) {
       return;
     }
@@ -3226,6 +3256,12 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
   }
 }
 
+Duration _roadMotionDuration(double speedKmh) {
+  final speed = speedKmh.clamp(0, 120).toDouble();
+  final milliseconds = lerpDouble(1500, 460, speed / 120)!.round();
+  return Duration(milliseconds: milliseconds);
+}
+
 class _DrivingRoadPainter extends CustomPainter {
   const _DrivingRoadPainter({required this.progress, required this.light});
 
@@ -3252,18 +3288,39 @@ class _DrivingRoadPainter extends CustomPainter {
           );
     canvas.drawRect(Offset.zero & size, glowPaint);
 
-    final roadTop = size.height * 0.54;
-    final roadBottom = size.height * 1.08;
+    final vanish = Offset(size.width * 0.56, size.height * 0.20);
+    final near = Offset(size.width * 0.56, size.height * 1.16);
+    const roadPerp = Offset(1.0, 0.0);
+
+    Offset centerAt(double t) {
+      final eased = Curves.easeIn.transform(t);
+      return Offset(
+        lerpDouble(vanish.dx, near.dx, eased)!,
+        lerpDouble(vanish.dy, near.dy, eased)!,
+      );
+    }
+
+    double halfWidthAt(double t) => lerpDouble(34, size.width * 0.43, t)!;
+
+    Offset roadPoint(double t, double side) {
+      final center = centerAt(t);
+      final halfWidth = halfWidthAt(t);
+      return Offset(
+        center.dx + roadPerp.dx * halfWidth * side,
+        center.dy + roadPerp.dy * halfWidth * side,
+      );
+    }
+
     final roadPath = Path()
-      ..moveTo(size.width * 0.22, roadBottom)
-      ..lineTo(size.width * 0.44, roadTop)
+      ..moveTo(roadPoint(1, -1).dx, roadPoint(1, -1).dy)
+      ..lineTo(roadPoint(0, -1).dx, roadPoint(0, -1).dy)
       ..quadraticBezierTo(
-        size.width * 0.54,
-        size.height * 0.48,
-        size.width * 0.64,
-        roadTop,
+        vanish.dx,
+        vanish.dy - size.height * 0.03,
+        roadPoint(0, 1).dx,
+        roadPoint(0, 1).dy,
       )
-      ..lineTo(size.width * 0.94, roadBottom)
+      ..lineTo(roadPoint(1, 1).dx, roadPoint(1, 1).dy)
       ..close();
 
     final roadPaint = Paint()
@@ -3272,39 +3329,43 @@ class _DrivingRoadPainter extends CustomPainter {
         end: Alignment.bottomCenter,
         colors: light
             ? [
-                const Color(0xFFCBD8E5).withValues(alpha: 0.10),
-                const Color(0xFF8FA2B7).withValues(alpha: 0.19),
+                const Color(0xFFCBD8E5).withValues(alpha: 0.12),
+                const Color(0xFF8FA2B7).withValues(alpha: 0.23),
               ]
             : [
-                const Color(0xFF101C28).withValues(alpha: 0.20),
-                const Color(0xFF02070D).withValues(alpha: 0.38),
+                const Color(0xFF101C28).withValues(alpha: 0.24),
+                const Color(0xFF02070D).withValues(alpha: 0.46),
               ],
       ).createShader(Offset.zero & size);
     canvas.drawPath(roadPath, roadPaint);
 
     final edgePaint = Paint()
-      ..color = _accentSoftBlue.withValues(alpha: light ? 0.16 : 0.18)
-      ..strokeWidth = 1.1
+      ..color = _accentSoftBlue.withValues(alpha: light ? 0.11 : 0.14)
+      ..strokeWidth = 0.9
       ..style = PaintingStyle.stroke;
-    canvas.drawPath(roadPath, edgePaint);
+    canvas
+      ..drawLine(roadPoint(0, -1), roadPoint(1, -1), edgePaint)
+      ..drawLine(roadPoint(0, 1), roadPoint(1, 1), edgePaint);
+
+    canvas.save();
+    canvas.clipPath(roadPath);
 
     final lanePaint = Paint()
       ..color = Colors.white.withValues(alpha: light ? 0.28 : 0.34)
       ..strokeWidth = 3.0
       ..strokeCap = StrokeCap.round;
 
-    for (var i = -2; i < 8; i++) {
+    for (var i = -2; i < 7; i++) {
       final t = ((i + progress * 2.2) / 7).clamp(0.0, 1.0);
-      final y = lerpDouble(roadTop + 8, roadBottom - 20, t)!;
-      final laneHalf = lerpDouble(4, 40, t)!;
-      final x = lerpDouble(size.width * 0.54, size.width * 0.58, t)!;
+      final center = centerAt(t);
+      final segment = lerpDouble(8, 54, t)!;
       final alpha = (1.0 - (t - 0.55).abs()).clamp(0.0, 1.0);
       lanePaint.color = Colors.white.withValues(
         alpha: (light ? 0.24 : 0.32) * alpha,
       );
       canvas.drawLine(
-        Offset(x - laneHalf, y),
-        Offset(x + laneHalf, y + lerpDouble(2, 16, t)!),
+        Offset(center.dx, center.dy - segment * 0.50),
+        Offset(center.dx, center.dy + segment * 0.50),
         lanePaint,
       );
     }
@@ -3315,16 +3376,12 @@ class _DrivingRoadPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 8; i++) {
       final t = ((i / 8) + progress) % 1.0;
-      final y = lerpDouble(roadTop + 24, roadBottom - 8, t)!;
-      final leftX = lerpDouble(size.width * 0.36, size.width * 0.20, t)!;
-      final rightX = lerpDouble(size.width * 0.72, size.width * 0.98, t)!;
-      canvas.drawLine(Offset(leftX, y), Offset(leftX - 28, y + 18), speedPaint);
-      canvas.drawLine(
-        Offset(rightX, y),
-        Offset(rightX + 28, y + 18),
-        speedPaint,
-      );
+      final left = roadPoint(t, -1);
+      final right = roadPoint(t, 1);
+      canvas.drawLine(left, left + const Offset(-22, -34), speedPaint);
+      canvas.drawLine(right, right + const Offset(22, -34), speedPaint);
     }
+    canvas.restore();
   }
 
   @override
