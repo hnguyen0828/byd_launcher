@@ -34,9 +34,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Navigation app'), findsOneWidget);
-    expect(find.text('BYD'), findsWidgets);
-    expect(find.text('Google'), findsOneWidget);
-    expect(find.text('Waze'), findsOneWidget);
+    expect(find.text('No map app installed'), findsOneWidget);
+    expect(
+      find.text('Install a navigation app, then tap reload above.'),
+      findsOneWidget,
+    );
     expect(find.text('Fuel'), findsOneWidget);
     expect(find.text('Battery'), findsOneWidget);
     expect(find.text('TPMS'), findsNothing);
