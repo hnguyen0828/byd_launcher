@@ -2912,12 +2912,12 @@ class _VehicleHeroState extends State<_VehicleHero> {
     }
 
     return switch (hotspot) {
-      _VehicleHotspot.frontLeftWindow => '304deg 67deg 74%',
-      _VehicleHotspot.frontRightWindow => '332deg 67deg 74%',
-      _VehicleHotspot.rearLeftWindow => '274deg 68deg 76%',
-      _VehicleHotspot.rearRightWindow => '020deg 68deg 76%',
-      _VehicleHotspot.sunroof => '318deg 52deg 70%',
-      _VehicleHotspot.trunk => '154deg 66deg 74%',
+      _VehicleHotspot.frontLeftWindow => '312deg 66deg 70%',
+      _VehicleHotspot.frontRightWindow => '046deg 66deg 70%',
+      _VehicleHotspot.rearLeftWindow => '286deg 66deg 68%',
+      _VehicleHotspot.rearRightWindow => '064deg 66deg 68%',
+      _VehicleHotspot.sunroof => '0deg 38deg 66%',
+      _VehicleHotspot.trunk => '172deg 66deg 68%',
     };
   }
 
@@ -2928,16 +2928,28 @@ class _VehicleHeroState extends State<_VehicleHero> {
     }
 
     return switch (hotspot) {
-      _VehicleHotspot.frontLeftWindow => const Offset(38, 12),
-      _VehicleHotspot.frontRightWindow => const Offset(-28, 12),
-      _VehicleHotspot.rearLeftWindow => const Offset(48, 4),
-      _VehicleHotspot.rearRightWindow => const Offset(-38, 4),
-      _VehicleHotspot.sunroof => const Offset(0, 34),
-      _VehicleHotspot.trunk => const Offset(62, 8),
+      _VehicleHotspot.frontLeftWindow => const Offset(58, 14),
+      _VehicleHotspot.frontRightWindow => const Offset(-58, 14),
+      _VehicleHotspot.rearLeftWindow => const Offset(70, 8),
+      _VehicleHotspot.rearRightWindow => const Offset(-70, 8),
+      _VehicleHotspot.sunroof => const Offset(0, 46),
+      _VehicleHotspot.trunk => const Offset(78, 10),
     };
   }
 
-  double get _focusScale => _selectedHotspot == null ? 1.0 : 1.045;
+  double get _focusScale {
+    final hotspot = _selectedHotspot;
+    if (hotspot == null) return 1.0;
+
+    return switch (hotspot) {
+      _VehicleHotspot.frontLeftWindow ||
+      _VehicleHotspot.frontRightWindow => 1.075,
+      _VehicleHotspot.rearLeftWindow ||
+      _VehicleHotspot.rearRightWindow => 1.095,
+      _VehicleHotspot.sunroof => 1.085,
+      _VehicleHotspot.trunk => 1.085,
+    };
+  }
 
   void _showHotspots() {
     if (!mounted) return;
