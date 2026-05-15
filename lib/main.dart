@@ -18,6 +18,8 @@ const String _launchNavigationWithLauncherPreferenceKey =
     'launcher.navigation.launchWithLauncher';
 const MethodChannel _musicChannel = MethodChannel('byd/music');
 const EventChannel _musicEvents = EventChannel('byd/music/events');
+const MethodChannel _vehicleChannel = MethodChannel('byd.vehicle');
+const EventChannel _vehicleEvents = EventChannel('byd.vehicle/events');
 const MethodChannel _navigationChannel = MethodChannel('byd/navigation');
 const MethodChannel _navigationVdChannel = MethodChannel('byd/navigation_vd');
 const MethodChannel _permissionChannel = MethodChannel('byd/permissions');
@@ -30,6 +32,90 @@ const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Stone Grey', Color(0xFF9AA0A4)),
   _VehiclePaintOption('Ruby Red', Color(0xFF9D1028)),
 ];
+
+class _VehicleSnapshot {
+  const _VehicleSnapshot({
+    this.available = false,
+    this.speedKmh,
+    this.gear,
+    this.rangeKm,
+    this.fuelPercent,
+    this.batteryPercent,
+    this.outsideTemperatureC,
+    this.tpms = const {},
+  });
+
+  factory _VehicleSnapshot.fromMap(Map<dynamic, dynamic> map) {
+    final tpmsMap = map['tpms'];
+    return _VehicleSnapshot(
+      available: map['available'] == true,
+      speedKmh: _doubleFromMap(map, 'speedKmh'),
+      gear: _gearFromString(_stringFromMap(map, 'gear')),
+      rangeKm: _intFromMapOrNull(map, 'rangeKm'),
+      fuelPercent: _intFromMapOrNull(map, 'fuelPercent'),
+      batteryPercent: _doubleFromMap(map, 'batteryPercent'),
+      outsideTemperatureC: _intFromMapOrNull(map, 'outsideTemperatureC'),
+      tpms: tpmsMap is Map
+          ? {
+              'frontLeft': _TyreSnapshot.fromMap(tpmsMap['frontLeft']),
+              'frontRight': _TyreSnapshot.fromMap(tpmsMap['frontRight']),
+              'rearLeft': _TyreSnapshot.fromMap(tpmsMap['rearLeft']),
+              'rearRight': _TyreSnapshot.fromMap(tpmsMap['rearRight']),
+            }
+          : const {},
+    );
+  }
+
+  final bool available;
+  final double? speedKmh;
+  final _VehicleGear? gear;
+  final int? rangeKm;
+  final int? fuelPercent;
+  final double? batteryPercent;
+  final int? outsideTemperatureC;
+  final Map<String, _TyreSnapshot> tpms;
+
+  _TyreSnapshot tyre(String key) => tpms[key] ?? const _TyreSnapshot();
+}
+
+class _TyreSnapshot {
+  const _TyreSnapshot({
+    this.pressureBar,
+    this.pressureState,
+    this.airLeakState,
+    this.signalState,
+  });
+
+  factory _TyreSnapshot.fromMap(Object? value) {
+    if (value is! Map) return const _TyreSnapshot();
+    return _TyreSnapshot(
+      pressureBar: _doubleFromMap(value, 'pressureBar'),
+      pressureState: _intFromMapOrNull(value, 'pressureState'),
+      airLeakState: _intFromMapOrNull(value, 'airLeakState'),
+      signalState: _intFromMapOrNull(value, 'signalState'),
+    );
+  }
+
+  final double? pressureBar;
+  final int? pressureState;
+  final int? airLeakState;
+  final int? signalState;
+
+  String get pressureLabel {
+    final value = pressureBar;
+    if (value == null || value <= 0) return '--';
+    return '${value.toStringAsFixed(1)} bar';
+  }
+
+  String get stateLabel {
+    if (signalState == 1) return 'Signal';
+    if (airLeakState == 1 || airLeakState == 2) return 'Leak';
+    if (pressureState == 1) return 'High';
+    if (pressureState == 2) return 'Low';
+    if (pressureBar != null) return 'OK';
+    return '--';
+  }
+}
 
 class _VehiclePaintOption {
   const _VehiclePaintOption(this.label, this.color);
@@ -263,17 +349,40 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   String? _selectedNavigationPackage;
   bool _launchNavigationWithLauncher = false;
   double _vehicleSpeedKmh = 0;
+  _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
+  Timer? _vehicleSnapshotTimer;
+  StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
 
   bool get _roadMotionActive =>
-      _selectedGear == _VehicleGear.d || _selectedGear == _VehicleGear.r;
+      _effectiveGear == _VehicleGear.d || _effectiveGear == _VehicleGear.r;
 
-  bool get _reverseRoadMotion => _selectedGear == _VehicleGear.r;
+  bool get _reverseRoadMotion => _effectiveGear == _VehicleGear.r;
+
+  _VehicleGear get _effectiveGear => _vehicleSnapshot.gear ?? _selectedGear;
+
+  double get _effectiveSpeedKmh =>
+      _vehicleSnapshot.speedKmh ?? _vehicleSpeedKmh;
 
   @override
   void initState() {
     super.initState();
     _loadVehiclePreferences();
     _loadNavigationPreferences();
+    _refreshVehicleSnapshot();
+    _vehicleSnapshotSubscription = _vehicleEvents
+        .receiveBroadcastStream()
+        .listen(_handleVehicleSnapshotEvent, onError: (_) {});
+    _vehicleSnapshotTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _refreshVehicleSnapshot(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _vehicleSnapshotTimer?.cancel();
+    _vehicleSnapshotSubscription?.cancel();
+    super.dispose();
   }
 
   String get _cameraOrbit {
@@ -325,7 +434,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                         width: sidebarWidth,
                         child: _LeftDashboard(
                           selectedGear: _selectedGear,
-                          vehicleSpeedKmh: _vehicleSpeedKmh,
+                          effectiveGear: _effectiveGear,
+                          vehicleSpeedKmh: _effectiveSpeedKmh,
+                          vehicleSnapshot: _vehicleSnapshot,
                           onGearChanged: _setGear,
                         ),
                       ),
@@ -340,7 +451,8 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           renderQuality: _renderQuality,
                           roadMotionActive: _roadMotionActive,
                           reverseRoadMotion: _reverseRoadMotion,
-                          vehicleSpeedKmh: _vehicleSpeedKmh,
+                          vehicleSpeedKmh: _effectiveSpeedKmh,
+                          vehicleSnapshot: _vehicleSnapshot,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
                           onVehicleColorChanged: _setVehicleColor,
@@ -524,17 +636,36 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_launchNavigationWithLauncherPreferenceKey, value);
   }
+
+  Future<void> _refreshVehicleSnapshot() async {
+    try {
+      final data = await _vehicleChannel.invokeMapMethod<String, dynamic>(
+        'getVehicleSnapshot',
+      );
+      if (!mounted || data == null) return;
+      setState(() => _vehicleSnapshot = _VehicleSnapshot.fromMap(data));
+    } catch (_) {}
+  }
+
+  void _handleVehicleSnapshotEvent(dynamic value) {
+    if (!mounted || value is! Map) return;
+    setState(() => _vehicleSnapshot = _VehicleSnapshot.fromMap(value));
+  }
 }
 
 class _LeftDashboard extends StatelessWidget {
   const _LeftDashboard({
     required this.selectedGear,
+    required this.effectiveGear,
     required this.vehicleSpeedKmh,
+    required this.vehicleSnapshot,
     required this.onGearChanged,
   });
 
   final _VehicleGear selectedGear;
+  final _VehicleGear effectiveGear;
   final double vehicleSpeedKmh;
+  final _VehicleSnapshot vehicleSnapshot;
   final ValueChanged<_VehicleGear> onGearChanged;
 
   @override
@@ -588,17 +719,19 @@ class _LeftDashboard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
               child: Column(
                 children: [
-                  const _StatusBar(),
+                  _StatusBar(
+                    outsideTemperatureC: vehicleSnapshot.outsideTemperatureC,
+                  ),
                   const SizedBox(height: 10),
                   _SpeedCluster(
-                    selectedGear: selectedGear,
+                    selectedGear: effectiveGear,
                     vehicleSpeedKmh: vehicleSpeedKmh,
                     onGearChanged: onGearChanged,
                   ),
                   const SizedBox(height: 20),
                   const SizedBox(height: 168, child: _MediaWidget()),
                   const SizedBox(height: 10),
-                  const _EnergyStrip(),
+                  _EnergyStrip(snapshot: vehicleSnapshot),
                 ],
               ),
             ),
@@ -610,7 +743,9 @@ class _LeftDashboard extends StatelessWidget {
 }
 
 class _StatusBar extends StatefulWidget {
-  const _StatusBar();
+  const _StatusBar({this.outsideTemperatureC});
+
+  final int? outsideTemperatureC;
 
   @override
   State<_StatusBar> createState() => _StatusBarState();
@@ -691,7 +826,9 @@ class _StatusBarState extends State<_StatusBar> {
               ),
               const SizedBox(width: 6),
               Text(
-                '28°C',
+                widget.outsideTemperatureC == null
+                    ? '--°C'
+                    : '${widget.outsideTemperatureC}°C',
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.labelMedium,
@@ -798,27 +935,6 @@ class _SpeedCluster extends StatelessWidget {
                 active: selectedGear == _VehicleGear.d,
                 onTap: () => onGearChanged(_VehicleGear.d),
               ),
-              const SizedBox(width: 10),
-              Container(
-                width: 5,
-                height: 5,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF25D366),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'READY',
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.labelMedium,
-                  color: const Color(0xFF25D366),
-                  weight: FontWeight.w600,
-                  size: 12,
-                  letterSpacing: 0.45,
-                ),
-              ),
             ],
           ),
         ),
@@ -878,9 +994,10 @@ class _GearText extends StatelessWidget {
 }
 
 class _TpmsCluster extends StatelessWidget {
-  const _TpmsCluster({required this.vehicleColor});
+  const _TpmsCluster({required this.vehicleColor, required this.snapshot});
 
   final Color vehicleColor;
+  final _VehicleSnapshot snapshot;
 
   @override
   Widget build(BuildContext context) {
@@ -949,28 +1066,34 @@ class _TpmsCluster extends StatelessWidget {
                     Positioned(
                       left: 0,
                       top: 16,
-                      child: _PressureBlock(value: '2.6 bar', temp: '28°C'),
+                      child: _PressureBlock(
+                        value: snapshot.tyre('frontLeft').pressureLabel,
+                        temp: snapshot.tyre('frontLeft').stateLabel,
+                      ),
                     ),
                     Positioned(
                       right: 0,
                       top: 16,
                       child: _PressureBlock(
-                        value: '2.6 bar',
-                        temp: '28°C',
+                        value: snapshot.tyre('frontRight').pressureLabel,
+                        temp: snapshot.tyre('frontRight').stateLabel,
                         alignRight: true,
                       ),
                     ),
                     Positioned(
                       left: 0,
                       bottom: 16,
-                      child: _PressureBlock(value: '2.6 bar', temp: '27°C'),
+                      child: _PressureBlock(
+                        value: snapshot.tyre('rearLeft').pressureLabel,
+                        temp: snapshot.tyre('rearLeft').stateLabel,
+                      ),
                     ),
                     Positioned(
                       right: 0,
                       bottom: 16,
                       child: _PressureBlock(
-                        value: '2.6 bar',
-                        temp: '27°C',
+                        value: snapshot.tyre('rearRight').pressureLabel,
+                        temp: snapshot.tyre('rearRight').stateLabel,
                         alignRight: true,
                       ),
                     ),
@@ -1526,6 +1649,29 @@ int _intFromMap(Map<dynamic, dynamic> map, String key) {
   return 0;
 }
 
+int? _intFromMapOrNull(Map<dynamic, dynamic> map, String key) {
+  final value = map[key];
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return null;
+}
+
+double? _doubleFromMap(Map<dynamic, dynamic> map, String key) {
+  final value = map[key];
+  if (value is num) return value.toDouble();
+  return null;
+}
+
+_VehicleGear? _gearFromString(String value) {
+  return switch (value.toUpperCase()) {
+    'P' => _VehicleGear.p,
+    'R' => _VehicleGear.r,
+    'N' => _VehicleGear.n,
+    'D' || 'M' || 'S' => _VehicleGear.d,
+    _ => null,
+  };
+}
+
 String _formatMediaTime(int milliseconds) {
   final totalSeconds = Duration(milliseconds: milliseconds).inSeconds;
   final minutes = totalSeconds ~/ 60;
@@ -1534,10 +1680,16 @@ String _formatMediaTime(int milliseconds) {
 }
 
 class _EnergyStrip extends StatelessWidget {
-  const _EnergyStrip();
+  const _EnergyStrip({required this.snapshot});
+
+  final _VehicleSnapshot snapshot;
 
   @override
   Widget build(BuildContext context) {
+    final fuel = snapshot.fuelPercent;
+    final battery = snapshot.batteryPercent;
+    final range = snapshot.rangeKm;
+
     return _GlassCard(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 11),
       child: Column(
@@ -1559,7 +1711,7 @@ class _EnergyStrip extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '840',
+                range?.toString() ?? '--',
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.headlineMedium,
@@ -1593,25 +1745,25 @@ class _EnergyStrip extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          const Row(
+          Row(
             children: [
               Expanded(
                 child: _EnergyLevel(
                   icon: Icons.local_gas_station,
                   label: 'Fuel',
-                  value: '80%',
+                  value: fuel == null ? '--' : '$fuel%',
                   color: Color(0xFF25D366),
-                  progress: 0.80,
+                  progress: (fuel ?? 0) / 100,
                 ),
               ),
-              SizedBox(width: 14),
+              const SizedBox(width: 14),
               Expanded(
                 child: _EnergyLevel(
                   icon: Icons.battery_5_bar,
                   label: 'Battery',
-                  value: '68%',
+                  value: battery == null ? '--' : '${battery.round()}%',
                   color: _accentSoftBlue,
-                  progress: 0.68,
+                  progress: (battery ?? 0) / 100,
                 ),
               ),
             ],
@@ -1698,6 +1850,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.vehicleSnapshot,
     required this.onViewChanged,
     required this.onTabChanged,
     required this.onVehicleColorChanged,
@@ -1722,6 +1875,7 @@ class _VehicleCanvas extends StatelessWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final _VehicleSnapshot vehicleSnapshot;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
@@ -1814,7 +1968,10 @@ class _VehicleCanvas extends StatelessWidget {
               right: 0,
               width: 212,
               height: 172,
-              child: _TpmsCluster(vehicleColor: vehicleColor),
+              child: _TpmsCluster(
+                vehicleColor: vehicleColor,
+                snapshot: vehicleSnapshot,
+              ),
             ),
           Positioned(
             left: 0,

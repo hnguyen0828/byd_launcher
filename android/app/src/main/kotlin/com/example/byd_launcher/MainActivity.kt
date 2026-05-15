@@ -19,7 +19,10 @@ class MainActivity : FlutterActivity() {
 
         super.configureFlutterEngine(flutterEngine)
 
-        VehicleBridge.register(flutterEngine.dartExecutor.binaryMessenger)
+        VehicleBridge.register(
+            flutterEngine.dartExecutor.binaryMessenger,
+            applicationContext,
+        )
         PermissionBridge.register(
             flutterEngine.dartExecutor.binaryMessenger,
             applicationContext,
