@@ -2768,6 +2768,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   final List<Timer> _colorRetryTimers = [];
   Timer? _hotspotAutoHideTimer;
   bool _hotspotsVisible = false;
+  int _hotspotAnimationSeed = 0;
   _VehicleHotspot? _selectedHotspot;
   final Map<_VehicleHotspot, double> _hotspotLevels = {
     _VehicleHotspot.frontLeftWindow: 0,
@@ -2820,6 +2821,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final useNativeRenderer =
         _preferNativeVehicleRenderer &&
         defaultTargetPlatform == TargetPlatform.android;
+    final focusedOrbit = _focusedCameraOrbit;
+    final focusOffset = _focusOffset;
+    final focusScale = _focusScale;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -2831,17 +2835,30 @@ class _VehicleHeroState extends State<_VehicleHero> {
             active: widget.drivingMode,
             speedKmh: widget.vehicleSpeedKmh,
           ),
-          if (useNativeRenderer)
-            _NativeVehicleScene(
-              asset: _vehicleModelAsset,
-              cameraOrbit: widget.cameraOrbit,
-              vehicleColor: widget.vehicleColor,
-              renderQuality: widget.renderQuality,
-              drivingMode: widget.drivingMode,
-              backgroundColor: sceneBackground,
-            )
-          else
-            ModelViewer(
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
+            duration: const Duration(milliseconds: 520),
+            curve: Curves.easeOutCubic,
+            builder: (context, focusT, child) {
+              return Transform.translate(
+                offset: Offset(focusOffset.dx * focusT, focusOffset.dy * focusT),
+                child: Transform.scale(
+                  scale: 1 + (focusScale - 1) * focusT,
+                  alignment: Alignment.center,
+                  child: child,
+                ),
+              );
+            },
+            child: useNativeRenderer
+                ? _NativeVehicleScene(
+                    asset: _vehicleModelAsset,
+                    cameraOrbit: focusedOrbit,
+                    vehicleColor: widget.vehicleColor,
+                    renderQuality: widget.renderQuality,
+                    drivingMode: widget.drivingMode,
+                    backgroundColor: sceneBackground,
+                  )
+                : ModelViewer(
               src: _vehicleModelAsset,
               alt: '2024 BYD Seal U DM-i 3D model',
               loading: Loading.eager,
@@ -2853,8 +2870,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
               disableTap: true,
               disableZoom: true,
               interactionPrompt: InteractionPrompt.none,
-              cameraOrbit: widget.cameraOrbit,
-              minCameraOrbit: 'auto 42deg 64%',
+                  cameraOrbit: focusedOrbit,
+                  minCameraOrbit: 'auto 42deg 64%',
               maxCameraOrbit: 'auto 86deg 120%',
               fieldOfView: '19deg',
               minFieldOfView: '19deg',
@@ -2865,11 +2882,12 @@ class _VehicleHeroState extends State<_VehicleHero> {
                   'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
                   'model-viewer { background: transparent !important; background-color: transparent !important; '
                   '--poster-color: transparent; }',
-              onWebViewCreated: (controller) {
-                _webViewController = controller;
-                _scheduleColorApply();
-              },
-            ),
+                  onWebViewCreated: (controller) {
+                    _webViewController = controller;
+                    _scheduleColorApply();
+                  },
+                ),
+          ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
           _VehicleHotspotLayer(
@@ -2879,11 +2897,47 @@ class _VehicleHeroState extends State<_VehicleHero> {
             onHotspotTap: _selectHotspot,
             onSetLevel: _setHotspotLevel,
             onDismiss: _hideHotspots,
+            animationSeed: _hotspotAnimationSeed,
           ),
         ],
       ),
     );
   }
+
+
+  String get _focusedCameraOrbit {
+    final hotspot = _selectedHotspot;
+    if (widget.drivingMode || hotspot == null) {
+      return widget.cameraOrbit;
+    }
+
+    return switch (hotspot) {
+      _VehicleHotspot.frontLeftWindow => '304deg 67deg 74%',
+      _VehicleHotspot.frontRightWindow => '332deg 67deg 74%',
+      _VehicleHotspot.rearLeftWindow => '274deg 68deg 76%',
+      _VehicleHotspot.rearRightWindow => '020deg 68deg 76%',
+      _VehicleHotspot.sunroof => '318deg 52deg 70%',
+      _VehicleHotspot.trunk => '154deg 66deg 74%',
+    };
+  }
+
+  Offset get _focusOffset {
+    final hotspot = _selectedHotspot;
+    if (hotspot == null) {
+      return Offset.zero;
+    }
+
+    return switch (hotspot) {
+      _VehicleHotspot.frontLeftWindow => const Offset(38, 12),
+      _VehicleHotspot.frontRightWindow => const Offset(-28, 12),
+      _VehicleHotspot.rearLeftWindow => const Offset(48, 4),
+      _VehicleHotspot.rearRightWindow => const Offset(-38, 4),
+      _VehicleHotspot.sunroof => const Offset(0, 34),
+      _VehicleHotspot.trunk => const Offset(62, 8),
+    };
+  }
+
+  double get _focusScale => _selectedHotspot == null ? 1.0 : 1.045;
 
   void _showHotspots() {
     if (!mounted) return;
@@ -2904,6 +2958,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
     setState(() {
       _hotspotsVisible = true;
       _selectedHotspot = hotspot;
+      _hotspotAnimationSeed++;
     });
     _restartHotspotAutoHideTimer();
   }
@@ -2963,6 +3018,7 @@ class _VehicleHotspotLayer extends StatelessWidget {
     required this.onHotspotTap,
     required this.onSetLevel,
     required this.onDismiss,
+    required this.animationSeed,
   });
 
   final bool visible;
@@ -2971,6 +3027,7 @@ class _VehicleHotspotLayer extends StatelessWidget {
   final ValueChanged<_VehicleHotspot> onHotspotTap;
   final void Function(_VehicleHotspot hotspot, double level) onSetLevel;
   final VoidCallback onDismiss;
+  final int animationSeed;
 
   @override
   Widget build(BuildContext context) {
@@ -3064,6 +3121,11 @@ class _VehicleHotspotLayer extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (selected != null)
+                  _HotspotFocusRipple(
+                    key: ValueKey('ripple-${selected.name}-$animationSeed'),
+                    position: spots.firstWhere((spot) => spot.hotspot == selected).position,
+                  ),
                 for (final spec in spots)
                   Positioned(
                     left: spec.position.dx - (spec.wide ? 42 : 24),
@@ -3073,6 +3135,7 @@ class _VehicleHotspotLayer extends StatelessWidget {
                       selected: spec.hotspot == selected,
                       progress: levels[spec.hotspot] ?? 0,
                       onTap: () => onHotspotTap(spec.hotspot),
+                      animationSeed: animationSeed,
                     ),
                   ),
                 if (selected != null)
@@ -3081,8 +3144,57 @@ class _VehicleHotspotLayer extends StatelessWidget {
                     constraints: constraints,
                     progress: levels[selected] ?? 0,
                     onSetLevel: (level) => onSetLevel(selected, level),
+                    animationSeed: animationSeed,
                   ),
               ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+
+class _HotspotFocusRipple extends StatelessWidget {
+  const _HotspotFocusRipple({super.key, required this.position});
+
+  final Offset position;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: position.dx - 56,
+      top: position.dy - 56,
+      width: 112,
+      height: 112,
+      child: IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 620),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) {
+            return Opacity(
+              opacity: (1 - value).clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: 0.45 + value * 1.15,
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _accentSoftBlue.withValues(alpha: 0.72),
+                      width: 1.4,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _accentSoftBlue.withValues(alpha: 0.28),
+                        blurRadius: 24,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             );
           },
         ),
@@ -3117,12 +3229,14 @@ class _VehicleHotspotButton extends StatelessWidget {
     required this.selected,
     required this.progress,
     required this.onTap,
+    required this.animationSeed,
   });
 
   final _HotspotSpec spec;
   final bool selected;
   final double progress;
   final VoidCallback onTap;
+  final int animationSeed;
 
   @override
   Widget build(BuildContext context) {
@@ -3131,11 +3245,16 @@ class _VehicleHotspotButton extends StatelessWidget {
     final height = spec.wide ? 36.0 : 48.0;
 
     return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: selected ? 1 : 0),
-      duration: const Duration(milliseconds: 220),
+      key: ValueKey('${spec.hotspot.name}-$selected-$animationSeed'),
+      tween: Tween<double>(begin: selected ? 0.55 : 0, end: selected ? 1 : 0),
+      duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutBack,
       builder: (context, value, child) {
-        return Transform.scale(scale: 0.92 + value * 0.10, child: child);
+        final tapPulse = selected ? (1 - value).clamp(0.0, 1.0) : 0.0;
+        return Transform.scale(
+          scale: 0.92 + value * 0.12 + tapPulse * 0.18,
+          child: child,
+        );
       },
       child: Material(
         color: Colors.transparent,
@@ -3173,11 +3292,18 @@ class _VehicleHotspotButton extends StatelessWidget {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 2.2,
-                  color: const Color(0xFF64E58A),
-                  backgroundColor: Colors.white.withValues(alpha: 0.10),
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(end: progress),
+                  duration: const Duration(milliseconds: 420),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, animatedProgress, _) {
+                    return CircularProgressIndicator(
+                      value: animatedProgress,
+                      strokeWidth: 2.2,
+                      color: const Color(0xFF64E58A),
+                      backgroundColor: Colors.white.withValues(alpha: 0.10),
+                    );
+                  },
                 ),
                 spec.wide
                     ? Text(
@@ -3207,12 +3333,14 @@ class _HotspotControlCardPositioner extends StatelessWidget {
     required this.constraints,
     required this.progress,
     required this.onSetLevel,
+    required this.animationSeed,
   });
 
   final _HotspotSpec selected;
   final BoxConstraints constraints;
   final double progress;
   final ValueChanged<double> onSetLevel;
+  final int animationSeed;
 
   @override
   Widget build(BuildContext context) {
@@ -3240,6 +3368,7 @@ class _HotspotControlCardPositioner extends StatelessWidget {
         spec: selected,
         progress: progress,
         onSetLevel: onSetLevel,
+        animationSeed: animationSeed,
       ),
     );
   }
@@ -3250,19 +3379,39 @@ class _HotspotControlCard extends StatelessWidget {
     required this.spec,
     required this.progress,
     required this.onSetLevel,
+    required this.animationSeed,
   });
 
   final _HotspotSpec spec;
   final double progress;
   final ValueChanged<double> onSetLevel;
+  final int animationSeed;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: BackdropFilter(
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('card-${spec.hotspot.name}-$animationSeed'),
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 14 * (1 - value)),
+            child: Transform.scale(
+              scale: 0.96 + value * 0.04,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
@@ -3369,10 +3518,10 @@ class _HotspotControlCard extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }
-
 class _HotspotActionButton extends StatelessWidget {
   const _HotspotActionButton({
     required this.label,
