@@ -2476,80 +2476,54 @@ class _VehicleHeroState extends State<_VehicleHero> {
       return const _VehicleModelPlaceholder();
     }
 
-    final light = _isLight(context);
     final sceneBackground = _vehicleSceneBackground(context);
     final useNativeRenderer =
         _preferNativeVehicleRenderer &&
         defaultTargetPlatform == TargetPlatform.android;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: sceneBackground,
-        gradient: RadialGradient(
-          center: const Alignment(0.10, 0.08),
-          radius: 0.78,
-          colors: light
-              ? [
-                  _accentSoftBlue.withValues(alpha: 0.08),
-                  Colors.white.withValues(alpha: 0.00),
-                  Colors.transparent,
-                ]
-              : [
-                  _accentSoftBlue.withValues(alpha: 0.12),
-                  const Color(0xFF101823).withValues(alpha: 0.28),
-                  Colors.transparent,
-                ],
-        ),
-      ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.transparent, width: 0),
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (useNativeRenderer)
-              _NativeVehicleScene(
-                asset: _vehicleModelAsset,
-                cameraOrbit: widget.cameraOrbit,
-                vehicleColor: widget.vehicleColor,
-                backgroundColor: sceneBackground,
-              )
-            else
-              ModelViewer(
-                src: _vehicleModelAsset,
-                alt: '2024 BYD Seal U DM-i 3D model',
-                loading: Loading.eager,
-                reveal: Reveal.auto,
-                backgroundColor: Colors.transparent,
-                cameraControls: true,
-                autoRotate: false,
-                disablePan: true,
-                disableTap: true,
-                disableZoom: true,
-                interactionPrompt: InteractionPrompt.none,
-                cameraOrbit: widget.cameraOrbit,
-                minCameraOrbit: 'auto 42deg 64%',
-                maxCameraOrbit: 'auto 86deg 120%',
-                fieldOfView: '19deg',
-                minFieldOfView: '19deg',
-                maxFieldOfView: '19deg',
-                exposure: 0.78,
-                shadowIntensity: 0.30,
-                relatedCss:
-                    'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
-                    'model-viewer { background: transparent !important; background-color: transparent !important; '
-                    '--poster-color: transparent; }',
-                onWebViewCreated: (controller) {
-                  _webViewController = controller;
-                  _scheduleColorApply();
-                },
-              ),
-            if (useNativeRenderer) const _NativeSceneLightWash(),
-            if (!useNativeRenderer) const _ModelStartupCover(),
-          ],
-        ),
-      ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (useNativeRenderer)
+          _NativeVehicleScene(
+            asset: _vehicleModelAsset,
+            cameraOrbit: widget.cameraOrbit,
+            vehicleColor: widget.vehicleColor,
+            backgroundColor: sceneBackground,
+          )
+        else
+          ModelViewer(
+            src: _vehicleModelAsset,
+            alt: '2024 BYD Seal U DM-i 3D model',
+            loading: Loading.eager,
+            reveal: Reveal.auto,
+            backgroundColor: Colors.transparent,
+            cameraControls: true,
+            autoRotate: false,
+            disablePan: true,
+            disableTap: true,
+            disableZoom: true,
+            interactionPrompt: InteractionPrompt.none,
+            cameraOrbit: widget.cameraOrbit,
+            minCameraOrbit: 'auto 42deg 64%',
+            maxCameraOrbit: 'auto 86deg 120%',
+            fieldOfView: '19deg',
+            minFieldOfView: '19deg',
+            maxFieldOfView: '19deg',
+            exposure: 0.78,
+            shadowIntensity: 0.30,
+            relatedCss:
+                'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                'model-viewer { background: transparent !important; background-color: transparent !important; '
+                '--poster-color: transparent; }',
+            onWebViewCreated: (controller) {
+              _webViewController = controller;
+              _scheduleColorApply();
+            },
+          ),
+        if (useNativeRenderer) const _NativeSceneLightWash(),
+        if (!useNativeRenderer) const _ModelStartupCover(),
+      ],
     );
   }
 
@@ -2831,13 +2805,13 @@ class _NativeSceneLightWash extends StatelessWidget {
             radius: 0.82,
             colors: light
                 ? [
-                    Colors.white.withValues(alpha: 0.22),
-                    _accentSoftBlue.withValues(alpha: 0.05),
+                    Colors.white.withValues(alpha: 0.12),
+                    _accentSoftBlue.withValues(alpha: 0.035),
                     Colors.transparent,
                   ]
                 : [
-                    _accentSoftBlue.withValues(alpha: 0.12),
-                    const Color(0xFF1A2A3A).withValues(alpha: 0.08),
+                    _accentSoftBlue.withValues(alpha: 0.08),
+                    const Color(0xFF1A2A3A).withValues(alpha: 0.04),
                     Colors.transparent,
                   ],
             stops: const [0.0, 0.42, 1.0],
@@ -2850,14 +2824,14 @@ class _NativeSceneLightWash extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: light
                   ? [
-                      Colors.white.withValues(alpha: 0.10),
+                      Colors.white.withValues(alpha: 0.04),
                       Colors.transparent,
-                      const Color(0xFFBFD1E3).withValues(alpha: 0.08),
+                      const Color(0xFFBFD1E3).withValues(alpha: 0.03),
                     ]
                   : [
-                      Colors.white.withValues(alpha: 0.035),
+                      Colors.white.withValues(alpha: 0.015),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.14),
+                      Colors.black.withValues(alpha: 0.05),
                     ],
             ),
           ),
