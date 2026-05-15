@@ -116,6 +116,7 @@ private class VehicleTextureRenderer(
     private var colorGrading: ColorGrading? = null
     private var cameraOrbit = params["cameraOrbit"] as? String
     private var paintColor = (params["color"] as? Number)?.toLong()
+    private val quality = TextureRenderQuality.from(params["quality"] as? String)
     private var disposed = false
 
     init {
@@ -135,15 +136,16 @@ private class VehicleTextureRenderer(
         view.camera = camera
         view.viewport = Viewport(0, 0, width, height)
         view.blendMode = View.BlendMode.TRANSLUCENT
-        view.antiAliasing = View.AntiAliasing.NONE
-        view.sampleCount = 4
-        view.multiSampleAntiAliasingOptions = View.MultiSampleAntiAliasingOptions().apply {
-            enabled = true
-            sampleCount = 4
-            customResolve = false
-        }
+        view.antiAliasing = quality.antiAliasing
+        view.sampleCount = quality.sampleCount
+        view.multiSampleAntiAliasingOptions =
+            View.MultiSampleAntiAliasingOptions().apply {
+                enabled = quality.sampleCount > 1
+                sampleCount = quality.sampleCount
+                customResolve = false
+            }
         view.renderQuality = View.RenderQuality().apply {
-            hdrColorBuffer = View.QualityLevel.HIGH
+            hdrColorBuffer = quality.hdrColorBuffer
         }
         view.setShadowingEnabled(false)
         view.ambientOcclusion = View.AmbientOcclusion.NONE
@@ -398,3 +400,35 @@ private data class TextureCameraOrbit(
     val phiDegrees: Double,
     val radiusPercent: Double,
 )
+
+private enum class TextureRenderQuality(
+    val sampleCount: Int,
+    val hdrColorBuffer: View.QualityLevel,
+    val antiAliasing: View.AntiAliasing,
+) {
+    LOW(
+        sampleCount = 1,
+        hdrColorBuffer = View.QualityLevel.LOW,
+        antiAliasing = View.AntiAliasing.NONE,
+    ),
+    MEDIUM(
+        sampleCount = 1,
+        hdrColorBuffer = View.QualityLevel.MEDIUM,
+        antiAliasing = View.AntiAliasing.NONE,
+    ),
+    HIGH(
+        sampleCount = 2,
+        hdrColorBuffer = View.QualityLevel.MEDIUM,
+        antiAliasing = View.AntiAliasing.NONE,
+    );
+
+    companion object {
+        fun from(value: String?): TextureRenderQuality {
+            return when (value?.lowercase()) {
+                "low" -> LOW
+                "high" -> HIGH
+                else -> MEDIUM
+            }
+        }
+    }
+}

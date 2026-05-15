@@ -4,10 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i.glb';
 const bool _preferNativeVehicleRenderer = true;
+const String _themeModePreferenceKey = 'launcher.themeMode';
+const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
+const String _renderQualityPreferenceKey = 'launcher.renderQuality';
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
@@ -57,6 +61,12 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
   ThemeMode _themeMode = ThemeMode.dark;
 
   @override
+  void initState() {
+    super.initState();
+    _loadThemePreference();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -66,9 +76,23 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
       darkTheme: _launcherTheme(Brightness.dark),
       home: LauncherHomePage(
         themeMode: _themeMode,
-        onThemeModeChanged: (mode) => setState(() => _themeMode = mode),
+        onThemeModeChanged: _setThemeMode,
       ),
     );
+  }
+
+  Future<void> _loadThemePreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_themeModePreferenceKey);
+    final themeMode = _parseThemeMode(stored);
+    if (!mounted) return;
+    setState(() => _themeMode = themeMode);
+  }
+
+  Future<void> _setThemeMode(ThemeMode mode) async {
+    setState(() => _themeMode = mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themeModePreferenceKey, mode.name);
   }
 }
 
@@ -97,6 +121,22 @@ ThemeData _launcherTheme(Brightness brightness) {
 enum _VehicleView { status, rear }
 
 enum _LauncherTab { status, map, settings }
+
+enum _VehicleRenderQuality { low, medium, high }
+
+ThemeMode _parseThemeMode(String? value) {
+  return ThemeMode.values.firstWhere(
+    (mode) => mode.name == value,
+    orElse: () => ThemeMode.dark,
+  );
+}
+
+_VehicleRenderQuality _parseRenderQuality(String? value) {
+  return _VehicleRenderQuality.values.firstWhere(
+    (quality) => quality.name == value,
+    orElse: () => _VehicleRenderQuality.medium,
+  );
+}
 
 const Color _textPrimary = Color(0xFFF6FAFF);
 const Color _textSecondary = Color(0xFFE5ECF5);
@@ -170,9 +210,21 @@ class LauncherHomePage extends StatefulWidget {
 class _LauncherHomePageState extends State<LauncherHomePage> {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
+  _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
   Color _vehicleColor = const Color(0xFFE9EEF4);
+  bool _drivingMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVehiclePreferences();
+  }
 
   String get _cameraOrbit {
+    if (_drivingMode) {
+      return '325deg 68deg 88%';
+    }
+
     return switch (_view) {
       _VehicleView.rear => '148deg 70deg 92%',
       _VehicleView.status => '318deg 70deg 86%',
@@ -215,7 +267,10 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                     children: [
                       SizedBox(
                         width: sidebarWidth,
-                        child: const _LeftDashboard(),
+                        child: _LeftDashboard(
+                          drivingMode: _drivingMode,
+                          onDrivingModeChanged: _setDrivingMode,
+                        ),
                       ),
                       Expanded(
                         child: _VehicleCanvas(
@@ -224,10 +279,12 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           view: _view,
                           activeTab: _activeTab,
                           vehicleColor: _vehicleColor,
+                          renderQuality: _renderQuality,
+                          drivingMode: _drivingMode,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
-                          onVehicleColorChanged: (color) =>
-                              setState(() => _vehicleColor = color),
+                          onVehicleColorChanged: _setVehicleColor,
+                          onRenderQualityChanged: _setRenderQuality,
                           themeMode: widget.themeMode,
                           onThemeModeChanged: widget.onThemeModeChanged,
                         ),
@@ -246,10 +303,52 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   void _handleTabChanged(_LauncherTab tab) {
     setState(() => _activeTab = tab);
   }
+
+  void _setDrivingMode(bool value) {
+    setState(() {
+      _drivingMode = value;
+      if (value) {
+        _activeTab = _LauncherTab.status;
+        _view = _VehicleView.status;
+      }
+    });
+  }
+
+  Future<void> _loadVehiclePreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedColor = prefs.getInt(_vehicleColorPreferenceKey);
+    final storedQuality = prefs.getString(_renderQualityPreferenceKey);
+
+    if (!mounted) return;
+    setState(() {
+      if (storedColor != null) {
+        _vehicleColor = Color(storedColor);
+      }
+      _renderQuality = _parseRenderQuality(storedQuality);
+    });
+  }
+
+  Future<void> _setVehicleColor(Color color) async {
+    setState(() => _vehicleColor = color);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_vehicleColorPreferenceKey, color.toARGB32());
+  }
+
+  Future<void> _setRenderQuality(_VehicleRenderQuality quality) async {
+    setState(() => _renderQuality = quality);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_renderQualityPreferenceKey, quality.name);
+  }
 }
 
 class _LeftDashboard extends StatelessWidget {
-  const _LeftDashboard();
+  const _LeftDashboard({
+    required this.drivingMode,
+    required this.onDrivingModeChanged,
+  });
+
+  final bool drivingMode;
+  final ValueChanged<bool> onDrivingModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -298,17 +397,20 @@ class _LeftDashboard extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Padding(
-              padding: EdgeInsets.fromLTRB(18, 20, 18, 18),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
               child: Column(
                 children: [
-                  _StatusBar(),
-                  SizedBox(height: 14),
-                  _SpeedCluster(),
-                  SizedBox(height: 30),
-                  SizedBox(height: 184, child: _MediaWidget()),
-                  SizedBox(height: 14),
-                  _EnergyStrip(),
+                  const _StatusBar(),
+                  const SizedBox(height: 10),
+                  _SpeedCluster(
+                    drivingMode: drivingMode,
+                    onDrivingModeChanged: onDrivingModeChanged,
+                  ),
+                  const SizedBox(height: 20),
+                  const SizedBox(height: 168, child: _MediaWidget()),
+                  const SizedBox(height: 10),
+                  const _EnergyStrip(),
                 ],
               ),
             ),
@@ -381,7 +483,13 @@ class _StatusBar extends StatelessWidget {
 }
 
 class _SpeedCluster extends StatelessWidget {
-  const _SpeedCluster();
+  const _SpeedCluster({
+    required this.drivingMode,
+    required this.onDrivingModeChanged,
+  });
+
+  final bool drivingMode;
+  final ValueChanged<bool> onDrivingModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -390,18 +498,17 @@ class _SpeedCluster extends StatelessWidget {
     return Column(
       children: [
         Text(
-          '0',
+          drivingMode ? '24' : '0',
           style: _sharp(
             context,
             Theme.of(context).textTheme.displayLarge,
             color: _textPrimary,
             weight: FontWeight.w300,
-            size: 106,
-            height: 0.82,
-            letterSpacing: -4.0,
+            size: 88,
+            height: 0.86,
+            letterSpacing: -2.6,
           ),
         ),
-        const SizedBox(height: 2),
         Text(
           'km/h',
           style: _sharp(
@@ -409,13 +516,13 @@ class _SpeedCluster extends StatelessWidget {
             Theme.of(context).textTheme.titleMedium,
             color: _textSecondary,
             weight: FontWeight.w500,
-            size: 15,
+            size: 14,
             letterSpacing: 0.6,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: light
                 ? Colors.white.withValues(alpha: 0.58)
@@ -430,10 +537,18 @@ class _SpeedCluster extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _GearText('P', active: true),
+              _GearText(
+                'P',
+                active: !drivingMode,
+                onTap: () => onDrivingModeChanged(false),
+              ),
               _GearText('R'),
               _GearText('N'),
-              _GearText('D'),
+              _GearText(
+                'D',
+                active: drivingMode,
+                onTap: () => onDrivingModeChanged(!drivingMode),
+              ),
               const SizedBox(width: 10),
               Container(
                 width: 5,
@@ -464,43 +579,48 @@ class _SpeedCluster extends StatelessWidget {
 }
 
 class _GearText extends StatelessWidget {
-  const _GearText(this.label, {this.active = false});
+  const _GearText(this.label, {this.active = false, this.onTap});
 
   final String label;
   final bool active;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      width: 24,
-      height: 24,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: active
-            ? _accentSoftBlue.withValues(alpha: 0.18)
-            : Colors.transparent,
-        boxShadow: active
-            ? [
-                BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: 0.14),
-                  blurRadius: 10,
-                  spreadRadius: 1,
-                ),
-              ]
-            : null,
-      ),
-      child: Center(
-        child: Text(
-          label,
-          style: _sharp(
-            context,
-            Theme.of(context).textTheme.labelMedium,
-            color: active ? Colors.white : _textMuted,
-            weight: active ? FontWeight.w700 : FontWeight.w500,
-            size: 13,
-            letterSpacing: 0.1,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: active
+              ? _accentSoftBlue.withValues(alpha: 0.18)
+              : Colors.transparent,
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: _accentSoftBlue.withValues(alpha: 0.14),
+                    blurRadius: 10,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.labelMedium,
+              color: active ? Colors.white : _textMuted,
+              weight: active ? FontWeight.w700 : FontWeight.w500,
+              size: 13,
+              letterSpacing: 0.1,
+            ),
           ),
         ),
       ),
@@ -902,7 +1022,7 @@ class _EnergyStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _GlassCard(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 11),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -928,7 +1048,7 @@ class _EnergyStrip extends StatelessWidget {
                   Theme.of(context).textTheme.headlineMedium,
                   color: _textPrimary,
                   weight: FontWeight.w500,
-                  size: 30,
+                  size: 28,
                   height: 0.95,
                   letterSpacing: -0.8,
                 ),
@@ -955,7 +1075,7 @@ class _EnergyStrip extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 13),
+          const SizedBox(height: 10),
           const Row(
             children: [
               Expanded(
@@ -1035,7 +1155,7 @@ class _EnergyLevel extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 7),
         ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: LinearProgressIndicator(
@@ -1057,9 +1177,12 @@ class _VehicleCanvas extends StatelessWidget {
     required this.view,
     required this.activeTab,
     required this.vehicleColor,
+    required this.renderQuality,
+    required this.drivingMode,
     required this.onViewChanged,
     required this.onTabChanged,
     required this.onVehicleColorChanged,
+    required this.onRenderQualityChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
   });
@@ -1069,9 +1192,12 @@ class _VehicleCanvas extends StatelessWidget {
   final _VehicleView view;
   final _LauncherTab activeTab;
   final Color vehicleColor;
+  final _VehicleRenderQuality renderQuality;
+  final bool drivingMode;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
+  final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -1083,7 +1209,7 @@ class _VehicleCanvas extends StatelessWidget {
         children: [
           Positioned.fill(
             left: 0,
-            top: 12,
+            top: 0,
             right: 0,
             bottom: 68,
             child: Offstage(
@@ -1094,6 +1220,8 @@ class _VehicleCanvas extends StatelessWidget {
                   enable3dModel: enable3dModel,
                   cameraOrbit: cameraOrbit,
                   vehicleColor: vehicleColor,
+                  renderQuality: renderQuality,
+                  drivingMode: drivingMode,
                 ),
               ),
             ),
@@ -1101,7 +1229,7 @@ class _VehicleCanvas extends StatelessWidget {
           if (activeTab != _LauncherTab.status)
             Positioned.fill(
               left: 0,
-              top: 12,
+              top: 0,
               right: 0,
               bottom: 68,
               child: AnimatedSwitcher(
@@ -1113,6 +1241,8 @@ class _VehicleCanvas extends StatelessWidget {
                         key: const ValueKey('settings'),
                         vehicleColor: vehicleColor,
                         onVehicleColorChanged: onVehicleColorChanged,
+                        renderQuality: renderQuality,
+                        onRenderQualityChanged: onRenderQualityChanged,
                         themeMode: themeMode,
                         onThemeModeChanged: onThemeModeChanged,
                       )
@@ -1159,11 +1289,15 @@ class _VehicleStage extends StatelessWidget {
     required this.enable3dModel,
     required this.cameraOrbit,
     required this.vehicleColor,
+    required this.renderQuality,
+    required this.drivingMode,
   });
 
   final bool enable3dModel;
   final String cameraOrbit;
   final Color vehicleColor;
+  final _VehicleRenderQuality renderQuality;
+  final bool drivingMode;
 
   @override
   Widget build(BuildContext context) {
@@ -1173,6 +1307,8 @@ class _VehicleStage extends StatelessWidget {
           enable3dModel: enable3dModel,
           cameraOrbit: cameraOrbit,
           vehicleColor: vehicleColor,
+          renderQuality: renderQuality,
+          drivingMode: drivingMode,
         ),
       ),
     );
@@ -1539,6 +1675,8 @@ class _SettingsPanel extends StatelessWidget {
   const _SettingsPanel({
     required this.vehicleColor,
     required this.onVehicleColorChanged,
+    required this.renderQuality,
+    required this.onRenderQualityChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
     super.key,
@@ -1546,6 +1684,8 @@ class _SettingsPanel extends StatelessWidget {
 
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
+  final _VehicleRenderQuality renderQuality;
+  final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -1614,6 +1754,8 @@ class _SettingsPanel extends StatelessWidget {
                   child: _SettingsMainColumn(
                     vehicleColor: vehicleColor,
                     onVehicleColorChanged: onVehicleColorChanged,
+                    renderQuality: renderQuality,
+                    onRenderQualityChanged: onRenderQualityChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
                   ),
@@ -1633,12 +1775,16 @@ class _SettingsMainColumn extends StatelessWidget {
   const _SettingsMainColumn({
     required this.vehicleColor,
     required this.onVehicleColorChanged,
+    required this.renderQuality,
+    required this.onRenderQualityChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
   });
 
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
+  final _VehicleRenderQuality renderQuality;
+  final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -1706,6 +1852,26 @@ class _SettingsMainColumn extends StatelessWidget {
                 _ThemeModePicker(
                   selectedMode: themeMode,
                   onChanged: onThemeModeChanged,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _SettingsSectionTitle(
+                  icon: Icons.speed_outlined,
+                  title: '3D render quality',
+                  subtitle:
+                      'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
+                ),
+                const SizedBox(height: 14),
+                _RenderQualityPicker(
+                  selectedQuality: renderQuality,
+                  onChanged: onRenderQualityChanged,
                 ),
               ],
             ),
@@ -1988,6 +2154,122 @@ class _ThemeModeOption extends StatelessWidget {
     final color = selected
         ? _tone(context, _textPrimary)
         : _tone(context, _textMuted);
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: selected
+                ? _accentSoftBlue.withValues(alpha: 0.16)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: selected
+                ? Border.all(color: _accentSoftBlue.withValues(alpha: 0.28))
+                : null,
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 17),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.labelMedium,
+                      color: color,
+                      weight: selected ? FontWeight.w700 : FontWeight.w500,
+                      size: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RenderQualityPicker extends StatelessWidget {
+  const _RenderQualityPicker({
+    required this.selectedQuality,
+    required this.onChanged,
+  });
+
+  final _VehicleRenderQuality selectedQuality;
+  final ValueChanged<_VehicleRenderQuality> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: light
+            ? const Color(0xFFE5EDF6).withValues(alpha: 0.72)
+            : Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: light
+              ? Colors.white.withValues(alpha: 0.88)
+              : Colors.white.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Row(
+        children: [
+          _RenderQualityOption(
+            icon: Icons.battery_saver_outlined,
+            label: 'Low',
+            selected: selectedQuality == _VehicleRenderQuality.low,
+            onTap: () => onChanged(_VehicleRenderQuality.low),
+          ),
+          _RenderQualityOption(
+            icon: Icons.tune_outlined,
+            label: 'Medium',
+            selected: selectedQuality == _VehicleRenderQuality.medium,
+            onTap: () => onChanged(_VehicleRenderQuality.medium),
+          ),
+          _RenderQualityOption(
+            icon: Icons.auto_awesome_outlined,
+            label: 'High',
+            selected: selectedQuality == _VehicleRenderQuality.high,
+            onTap: () => onChanged(_VehicleRenderQuality.high),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RenderQualityOption extends StatelessWidget {
+  const _RenderQualityOption({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected
+        ? _tone(context, _textPrimary)
+        : _tone(context, _textMuted);
+
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
@@ -2426,12 +2708,15 @@ class _VehicleHero extends StatefulWidget {
     required this.enable3dModel,
     required this.cameraOrbit,
     required this.vehicleColor,
+    required this.renderQuality,
+    required this.drivingMode,
   });
 
   final bool enable3dModel;
   final String cameraOrbit;
-
   final Color vehicleColor;
+  final _VehicleRenderQuality renderQuality;
+  final bool drivingMode;
 
   @override
   State<_VehicleHero> createState() => _VehicleHeroState();
@@ -2458,7 +2743,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
     }
 
     if (oldWidget.vehicleColor != widget.vehicleColor ||
-        oldWidget.enable3dModel != widget.enable3dModel) {
+        oldWidget.enable3dModel != widget.enable3dModel ||
+        oldWidget.renderQuality != widget.renderQuality ||
+        oldWidget.drivingMode != widget.drivingMode) {
       _applyVehicleColor();
       _scheduleColorApply();
     }
@@ -2484,11 +2771,14 @@ class _VehicleHeroState extends State<_VehicleHero> {
     return Stack(
       fit: StackFit.expand,
       children: [
+        _DrivingRoadLayer(active: widget.drivingMode),
         if (useNativeRenderer)
           _NativeVehicleScene(
             asset: _vehicleModelAsset,
             cameraOrbit: widget.cameraOrbit,
             vehicleColor: widget.vehicleColor,
+            renderQuality: widget.renderQuality,
+            drivingMode: widget.drivingMode,
             backgroundColor: sceneBackground,
           )
         else
@@ -2564,19 +2854,24 @@ class _NativeVehicleScene extends StatefulWidget {
     required this.asset,
     required this.cameraOrbit,
     required this.vehicleColor,
+    required this.renderQuality,
+    required this.drivingMode,
     required this.backgroundColor,
   });
 
   final String asset;
   final String cameraOrbit;
   final Color vehicleColor;
+  final _VehicleRenderQuality renderQuality;
+  final bool drivingMode;
   final Color backgroundColor;
 
   @override
   State<_NativeVehicleScene> createState() => _NativeVehicleSceneState();
 }
 
-class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
+class _NativeVehicleSceneState extends State<_NativeVehicleScene>
+    with SingleTickerProviderStateMixin {
   static const MethodChannel _channel = MethodChannel(
     'byd/native_vehicle_texture',
   );
@@ -2585,31 +2880,46 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
   Size? _textureSize;
   Object? _error;
   late _NativeOrbit _orbit;
+  late final AnimationController _orbitController;
+  _NativeOrbit? _orbitStart;
+  _NativeOrbit? _orbitTarget;
 
   @override
   void initState() {
     super.initState();
     _orbit = _NativeOrbit.parse(widget.cameraOrbit);
+    _orbitController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    )..addListener(_tickOrbitAnimation);
   }
 
   @override
   void didUpdateWidget(covariant _NativeVehicleScene oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.cameraOrbit != widget.cameraOrbit) {
-      _orbit = _NativeOrbit.parse(widget.cameraOrbit);
-      _updateNativeTexture();
+      if (widget.drivingMode && !oldWidget.drivingMode) {
+        _animateOrbitTo(_NativeOrbit.parse(widget.cameraOrbit));
+      } else {
+        _orbit = _NativeOrbit.parse(widget.cameraOrbit);
+        _updateNativeTexture();
+      }
+    } else if (!oldWidget.drivingMode && widget.drivingMode) {
+      _animateOrbitTo(_NativeOrbit.parse(widget.cameraOrbit));
     }
     if (oldWidget.vehicleColor != widget.vehicleColor) {
       _updateNativeTexture();
     }
     if (oldWidget.asset != widget.asset ||
-        oldWidget.backgroundColor != widget.backgroundColor) {
+        oldWidget.backgroundColor != widget.backgroundColor ||
+        oldWidget.renderQuality != widget.renderQuality) {
       _recreateForCurrentSize();
     }
   }
 
   @override
   void dispose() {
+    _orbitController.dispose();
     _disposeNativeTexture();
     super.dispose();
   }
@@ -2618,9 +2928,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final renderScale = (MediaQuery.devicePixelRatioOf(context) * 1.25)
-            .clamp(1.5, 2.25)
-            .toDouble();
+        final renderScale = _nativeRenderScale(context, widget.renderQuality);
         final size = Size(
           (constraints.maxWidth * renderScale).clamp(1.0, 4096.0),
           (constraints.maxHeight * renderScale).clamp(1.0, 4096.0),
@@ -2637,7 +2945,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
         if (textureId != null) {
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPanUpdate: _handleOrbitDrag,
+            onPanUpdate: widget.drivingMode ? null : _handleOrbitDrag,
             child: Texture(textureId: textureId),
           );
         }
@@ -2687,6 +2995,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
         'cameraOrbit': _orbit.toCameraOrbit(),
         'color': widget.vehicleColor.toARGB32(),
         'backgroundColor': widget.backgroundColor.toARGB32(),
+        'quality': widget.renderQuality.name,
         'width': size.width.round(),
         'height': size.height.round(),
       });
@@ -2724,7 +3033,25 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
   }
 
   void _handleOrbitDrag(DragUpdateDetails details) {
+    _orbitController.stop();
     _orbit = _orbit.dragged(details.delta);
+    _updateNativeTexture();
+  }
+
+  void _animateOrbitTo(_NativeOrbit target) {
+    _orbitStart = _orbit;
+    _orbitTarget = target;
+    _orbitController.forward(from: 0);
+  }
+
+  void _tickOrbitAnimation() {
+    final start = _orbitStart;
+    final target = _orbitTarget;
+    if (start == null || target == null) {
+      return;
+    }
+    final t = Curves.easeInOutCubic.transform(_orbitController.value);
+    _orbit = _NativeOrbit.lerp(start, target, t);
     _updateNativeTexture();
   }
 
@@ -2743,6 +3070,15 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
       // Renderer updates are best-effort; Android can drop the texture on lifecycle changes.
     }
   }
+}
+
+double _nativeRenderScale(BuildContext context, _VehicleRenderQuality quality) {
+  final deviceScale = MediaQuery.devicePixelRatioOf(context);
+  return switch (quality) {
+    _VehicleRenderQuality.low => (deviceScale * 0.55).clamp(0.70, 1.00),
+    _VehicleRenderQuality.medium => (deviceScale * 0.72).clamp(0.85, 1.25),
+    _VehicleRenderQuality.high => (deviceScale * 0.90).clamp(1.00, 1.55),
+  }.toDouble();
 }
 
 class _NativeOrbit {
@@ -2768,6 +3104,17 @@ class _NativeOrbit {
     );
   }
 
+  static _NativeOrbit lerp(_NativeOrbit start, _NativeOrbit end, double t) {
+    final thetaDelta = ((end.theta - start.theta + 540) % 360) - 180;
+    return _NativeOrbit(
+      theta: (start.theta + thetaDelta * t) % 360,
+      phi: lerpDouble(start.phi, end.phi, t) ?? end.phi,
+      radiusPercent:
+          lerpDouble(start.radiusPercent, end.radiusPercent, t) ??
+          end.radiusPercent,
+    );
+  }
+
   final double theta;
   final double phi;
   final double radiusPercent;
@@ -2790,6 +3137,202 @@ Color _vehicleSceneBackground(BuildContext context) {
   return _isLight(context) ? const Color(0xFFEAF2FA) : const Color(0xFF070B12);
 }
 
+class _DrivingRoadLayer extends StatefulWidget {
+  const _DrivingRoadLayer({required this.active});
+
+  final bool active;
+
+  @override
+  State<_DrivingRoadLayer> createState() => _DrivingRoadLayerState();
+}
+
+class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
+    with TickerProviderStateMixin {
+  late final AnimationController _revealController;
+  late final AnimationController _motionController;
+
+  @override
+  void initState() {
+    super.initState();
+    _revealController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 760),
+    );
+    _motionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1250),
+    );
+
+    if (widget.active) {
+      _revealController.value = 1;
+      _motionController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _DrivingRoadLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active == oldWidget.active) {
+      return;
+    }
+
+    if (widget.active) {
+      Future<void>.delayed(const Duration(milliseconds: 360), () {
+        if (!mounted || !widget.active) {
+          return;
+        }
+        _revealController.forward();
+        _motionController.repeat();
+      });
+    } else {
+      _revealController.reverse();
+      _motionController.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _revealController.dispose();
+    _motionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_revealController, _motionController]),
+        builder: (context, _) {
+          final opacity = Curves.easeOutCubic.transform(
+            _revealController.value,
+          );
+
+          if (opacity <= 0.001) {
+            return const SizedBox.expand();
+          }
+
+          return Opacity(
+            opacity: opacity,
+            child: CustomPaint(
+              painter: _DrivingRoadPainter(
+                progress: _motionController.value,
+                light: _isLight(context),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DrivingRoadPainter extends CustomPainter {
+  const _DrivingRoadPainter({required this.progress, required this.light});
+
+  final double progress;
+  final bool light;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final glowCenter = Offset(size.width * 0.55, size.height * 0.52);
+    final glowPaint = Paint()
+      ..shader =
+          RadialGradient(
+            colors: [
+              _accentSoftBlue.withValues(alpha: light ? 0.18 : 0.24),
+              _accentSoftBlue.withValues(alpha: light ? 0.055 : 0.075),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.42, 1.0],
+          ).createShader(
+            Rect.fromCircle(
+              center: glowCenter,
+              radius: size.shortestSide * 0.50,
+            ),
+          );
+    canvas.drawRect(Offset.zero & size, glowPaint);
+
+    final roadTop = size.height * 0.54;
+    final roadBottom = size.height * 1.08;
+    final roadPath = Path()
+      ..moveTo(size.width * 0.22, roadBottom)
+      ..lineTo(size.width * 0.44, roadTop)
+      ..quadraticBezierTo(
+        size.width * 0.54,
+        size.height * 0.48,
+        size.width * 0.64,
+        roadTop,
+      )
+      ..lineTo(size.width * 0.94, roadBottom)
+      ..close();
+
+    final roadPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: light
+            ? [
+                const Color(0xFFCBD8E5).withValues(alpha: 0.10),
+                const Color(0xFF8FA2B7).withValues(alpha: 0.19),
+              ]
+            : [
+                const Color(0xFF101C28).withValues(alpha: 0.20),
+                const Color(0xFF02070D).withValues(alpha: 0.38),
+              ],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(roadPath, roadPaint);
+
+    final edgePaint = Paint()
+      ..color = _accentSoftBlue.withValues(alpha: light ? 0.16 : 0.18)
+      ..strokeWidth = 1.1
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(roadPath, edgePaint);
+
+    final lanePaint = Paint()
+      ..color = Colors.white.withValues(alpha: light ? 0.28 : 0.34)
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+
+    for (var i = -2; i < 8; i++) {
+      final t = ((i + progress * 2.2) / 7).clamp(0.0, 1.0);
+      final y = lerpDouble(roadTop + 8, roadBottom - 20, t)!;
+      final laneHalf = lerpDouble(4, 40, t)!;
+      final x = lerpDouble(size.width * 0.54, size.width * 0.58, t)!;
+      final alpha = (1.0 - (t - 0.55).abs()).clamp(0.0, 1.0);
+      lanePaint.color = Colors.white.withValues(
+        alpha: (light ? 0.24 : 0.32) * alpha,
+      );
+      canvas.drawLine(
+        Offset(x - laneHalf, y),
+        Offset(x + laneHalf, y + lerpDouble(2, 16, t)!),
+        lanePaint,
+      );
+    }
+
+    final speedPaint = Paint()
+      ..color = _accentSoftBlue.withValues(alpha: light ? 0.14 : 0.20)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 8; i++) {
+      final t = ((i / 8) + progress) % 1.0;
+      final y = lerpDouble(roadTop + 24, roadBottom - 8, t)!;
+      final leftX = lerpDouble(size.width * 0.36, size.width * 0.20, t)!;
+      final rightX = lerpDouble(size.width * 0.72, size.width * 0.98, t)!;
+      canvas.drawLine(Offset(leftX, y), Offset(leftX - 28, y + 18), speedPaint);
+      canvas.drawLine(
+        Offset(rightX, y),
+        Offset(rightX + 28, y + 18),
+        speedPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DrivingRoadPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.light != light;
+  }
+}
+
 class _NativeSceneLightWash extends StatelessWidget {
   const _NativeSceneLightWash();
 
@@ -2801,39 +3344,20 @@ class _NativeSceneLightWash extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           gradient: RadialGradient(
-            center: const Alignment(0.06, 0.03),
-            radius: 0.82,
+            center: const Alignment(0.04, 0.00),
+            radius: 0.86,
             colors: light
                 ? [
-                    Colors.white.withValues(alpha: 0.12),
-                    _accentSoftBlue.withValues(alpha: 0.035),
+                    Colors.white.withValues(alpha: 0.06),
+                    _accentSoftBlue.withValues(alpha: 0.018),
                     Colors.transparent,
                   ]
                 : [
-                    _accentSoftBlue.withValues(alpha: 0.08),
-                    const Color(0xFF1A2A3A).withValues(alpha: 0.04),
+                    _accentSoftBlue.withValues(alpha: 0.055),
+                    const Color(0xFF1A2A3A).withValues(alpha: 0.025),
                     Colors.transparent,
                   ],
-            stops: const [0.0, 0.42, 1.0],
-          ),
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: light
-                  ? [
-                      Colors.white.withValues(alpha: 0.04),
-                      Colors.transparent,
-                      const Color(0xFFBFD1E3).withValues(alpha: 0.03),
-                    ]
-                  : [
-                      Colors.white.withValues(alpha: 0.015),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.05),
-                    ],
-            ),
+            stops: const [0.0, 0.44, 1.0],
           ),
         ),
       ),
