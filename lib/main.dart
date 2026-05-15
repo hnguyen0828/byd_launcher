@@ -129,6 +129,15 @@ enum _LauncherTab { status, map, settings }
 
 enum _VehicleRenderQuality { low, medium, high }
 
+enum _VehicleHotspot {
+  frontLeftWindow,
+  frontRightWindow,
+  rearLeftWindow,
+  rearRightWindow,
+  sunroof,
+  trunk,
+}
+
 ThemeMode _parseThemeMode(String? value) {
   return ThemeMode.values.firstWhere(
     (mode) => mode.name == value,
@@ -2757,6 +2766,17 @@ class _VehicleHero extends StatefulWidget {
 class _VehicleHeroState extends State<_VehicleHero> {
   WebViewController? _webViewController;
   final List<Timer> _colorRetryTimers = [];
+  Timer? _hotspotAutoHideTimer;
+  bool _hotspotsVisible = false;
+  _VehicleHotspot? _selectedHotspot;
+  final Map<_VehicleHotspot, double> _hotspotLevels = {
+    _VehicleHotspot.frontLeftWindow: 0,
+    _VehicleHotspot.frontRightWindow: 0,
+    _VehicleHotspot.rearLeftWindow: 0,
+    _VehicleHotspot.rearRightWindow: 0,
+    _VehicleHotspot.sunroof: 0,
+    _VehicleHotspot.trunk: 0,
+  };
 
   @override
   void initState() {
@@ -2786,6 +2806,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   @override
   void dispose() {
     _cancelColorTimers();
+    _hotspotAutoHideTimer?.cancel();
     super.dispose();
   }
 
@@ -2800,56 +2821,105 @@ class _VehicleHeroState extends State<_VehicleHero> {
         _preferNativeVehicleRenderer &&
         defaultTargetPlatform == TargetPlatform.android;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        _DrivingRoadLayer(
-          active: widget.drivingMode,
-          speedKmh: widget.vehicleSpeedKmh,
-        ),
-        if (useNativeRenderer)
-          _NativeVehicleScene(
-            asset: _vehicleModelAsset,
-            cameraOrbit: widget.cameraOrbit,
-            vehicleColor: widget.vehicleColor,
-            renderQuality: widget.renderQuality,
-            drivingMode: widget.drivingMode,
-            backgroundColor: sceneBackground,
-          )
-        else
-          ModelViewer(
-            src: _vehicleModelAsset,
-            alt: '2024 BYD Seal U DM-i 3D model',
-            loading: Loading.eager,
-            reveal: Reveal.auto,
-            backgroundColor: Colors.transparent,
-            cameraControls: true,
-            autoRotate: false,
-            disablePan: true,
-            disableTap: true,
-            disableZoom: true,
-            interactionPrompt: InteractionPrompt.none,
-            cameraOrbit: widget.cameraOrbit,
-            minCameraOrbit: 'auto 42deg 64%',
-            maxCameraOrbit: 'auto 86deg 120%',
-            fieldOfView: '19deg',
-            minFieldOfView: '19deg',
-            maxFieldOfView: '19deg',
-            exposure: 0.78,
-            shadowIntensity: 0.30,
-            relatedCss:
-                'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
-                'model-viewer { background: transparent !important; background-color: transparent !important; '
-                '--poster-color: transparent; }',
-            onWebViewCreated: (controller) {
-              _webViewController = controller;
-              _scheduleColorApply();
-            },
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: widget.drivingMode ? null : _showHotspots,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _DrivingRoadLayer(
+            active: widget.drivingMode,
+            speedKmh: widget.vehicleSpeedKmh,
           ),
-        if (useNativeRenderer) const _NativeSceneLightWash(),
-        if (!useNativeRenderer) const _ModelStartupCover(),
-      ],
+          if (useNativeRenderer)
+            _NativeVehicleScene(
+              asset: _vehicleModelAsset,
+              cameraOrbit: widget.cameraOrbit,
+              vehicleColor: widget.vehicleColor,
+              renderQuality: widget.renderQuality,
+              drivingMode: widget.drivingMode,
+              backgroundColor: sceneBackground,
+            )
+          else
+            ModelViewer(
+              src: _vehicleModelAsset,
+              alt: '2024 BYD Seal U DM-i 3D model',
+              loading: Loading.eager,
+              reveal: Reveal.auto,
+              backgroundColor: Colors.transparent,
+              cameraControls: true,
+              autoRotate: false,
+              disablePan: true,
+              disableTap: true,
+              disableZoom: true,
+              interactionPrompt: InteractionPrompt.none,
+              cameraOrbit: widget.cameraOrbit,
+              minCameraOrbit: 'auto 42deg 64%',
+              maxCameraOrbit: 'auto 86deg 120%',
+              fieldOfView: '19deg',
+              minFieldOfView: '19deg',
+              maxFieldOfView: '19deg',
+              exposure: 0.78,
+              shadowIntensity: 0.30,
+              relatedCss:
+                  'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                  'model-viewer { background: transparent !important; background-color: transparent !important; '
+                  '--poster-color: transparent; }',
+              onWebViewCreated: (controller) {
+                _webViewController = controller;
+                _scheduleColorApply();
+              },
+            ),
+          if (useNativeRenderer) const _NativeSceneLightWash(),
+          if (!useNativeRenderer) const _ModelStartupCover(),
+          _VehicleHotspotLayer(
+            visible: _hotspotsVisible && !widget.drivingMode,
+            selectedHotspot: _selectedHotspot,
+            levels: _hotspotLevels,
+            onHotspotTap: _selectHotspot,
+            onSetLevel: _setHotspotLevel,
+            onDismiss: _hideHotspots,
+          ),
+        ],
+      ),
     );
+  }
+
+  void _showHotspots() {
+    if (!mounted) return;
+    setState(() => _hotspotsVisible = true);
+    _restartHotspotAutoHideTimer();
+  }
+
+  void _hideHotspots() {
+    _hotspotAutoHideTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _hotspotsVisible = false;
+      _selectedHotspot = null;
+    });
+  }
+
+  void _selectHotspot(_VehicleHotspot hotspot) {
+    setState(() {
+      _hotspotsVisible = true;
+      _selectedHotspot = hotspot;
+    });
+    _restartHotspotAutoHideTimer();
+  }
+
+  void _setHotspotLevel(_VehicleHotspot hotspot, double level) {
+    setState(() {
+      _hotspotLevels[hotspot] = level.clamp(0.0, 1.0);
+      _selectedHotspot = hotspot;
+      _hotspotsVisible = true;
+    });
+    _restartHotspotAutoHideTimer();
+  }
+
+  void _restartHotspotAutoHideTimer() {
+    _hotspotAutoHideTimer?.cancel();
+    _hotspotAutoHideTimer = Timer(const Duration(seconds: 6), _hideHotspots);
   }
 
   void _scheduleColorApply() {
@@ -2881,6 +2951,465 @@ class _VehicleHeroState extends State<_VehicleHero> {
     } on Object {
       // WebView may not be ready while model-viewer is still loading.
     }
+  }
+}
+
+
+class _VehicleHotspotLayer extends StatelessWidget {
+  const _VehicleHotspotLayer({
+    required this.visible,
+    required this.selectedHotspot,
+    required this.levels,
+    required this.onHotspotTap,
+    required this.onSetLevel,
+    required this.onDismiss,
+  });
+
+  final bool visible;
+  final _VehicleHotspot? selectedHotspot;
+  final Map<_VehicleHotspot, double> levels;
+  final ValueChanged<_VehicleHotspot> onHotspotTap;
+  final void Function(_VehicleHotspot hotspot, double level) onSetLevel;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = selectedHotspot;
+
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            Offset point(double x, double y) {
+              return Offset(constraints.maxWidth * x, constraints.maxHeight * y);
+            }
+
+            final spots = <_HotspotSpec>[
+              _HotspotSpec(
+                hotspot: _VehicleHotspot.frontLeftWindow,
+                label: 'Front Left Window',
+                shortLabel: 'FL',
+                icon: Icons.window_outlined,
+                position: point(0.46, 0.45),
+                cardAlignment: Alignment.centerLeft,
+              ),
+              _HotspotSpec(
+                hotspot: _VehicleHotspot.frontRightWindow,
+                label: 'Front Right Window',
+                shortLabel: 'FR',
+                icon: Icons.window_outlined,
+                position: point(0.63, 0.44),
+                cardAlignment: Alignment.centerRight,
+              ),
+              _HotspotSpec(
+                hotspot: _VehicleHotspot.rearLeftWindow,
+                label: 'Rear Left Window',
+                shortLabel: 'RL',
+                icon: Icons.window_outlined,
+                position: point(0.39, 0.38),
+                cardAlignment: Alignment.centerLeft,
+              ),
+              _HotspotSpec(
+                hotspot: _VehicleHotspot.rearRightWindow,
+                label: 'Rear Right Window',
+                shortLabel: 'RR',
+                icon: Icons.window_outlined,
+                position: point(0.55, 0.36),
+                cardAlignment: Alignment.centerRight,
+              ),
+              _HotspotSpec(
+                hotspot: _VehicleHotspot.sunroof,
+                label: 'Sunroof',
+                shortLabel: 'Roof',
+                icon: Icons.roofing_outlined,
+                position: point(0.50, 0.29),
+                wide: true,
+                cardAlignment: Alignment.topCenter,
+              ),
+              _HotspotSpec(
+                hotspot: _VehicleHotspot.trunk,
+                label: 'Trunk',
+                shortLabel: 'Trunk',
+                icon: Icons.airport_shuttle_outlined,
+                position: point(0.31, 0.47),
+                cardAlignment: Alignment.centerLeft,
+              ),
+            ];
+
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: onDismiss,
+                  ),
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: const Alignment(0.12, -0.10),
+                          radius: 0.62,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.10),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                for (final spec in spots)
+                  Positioned(
+                    left: spec.position.dx - (spec.wide ? 42 : 24),
+                    top: spec.position.dy - (spec.wide ? 18 : 24),
+                    child: _VehicleHotspotButton(
+                      spec: spec,
+                      selected: spec.hotspot == selected,
+                      progress: levels[spec.hotspot] ?? 0,
+                      onTap: () => onHotspotTap(spec.hotspot),
+                    ),
+                  ),
+                if (selected != null)
+                  _HotspotControlCardPositioner(
+                    selected: spots.firstWhere((spot) => spot.hotspot == selected),
+                    constraints: constraints,
+                    progress: levels[selected] ?? 0,
+                    onSetLevel: (level) => onSetLevel(selected, level),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _HotspotSpec {
+  const _HotspotSpec({
+    required this.hotspot,
+    required this.label,
+    required this.shortLabel,
+    required this.icon,
+    required this.position,
+    required this.cardAlignment,
+    this.wide = false,
+  });
+
+  final _VehicleHotspot hotspot;
+  final String label;
+  final String shortLabel;
+  final IconData icon;
+  final Offset position;
+  final Alignment cardAlignment;
+  final bool wide;
+}
+
+class _VehicleHotspotButton extends StatelessWidget {
+  const _VehicleHotspotButton({
+    required this.spec,
+    required this.selected,
+    required this.progress,
+    required this.onTap,
+  });
+
+  final _HotspotSpec spec;
+  final bool selected;
+  final double progress;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final width = spec.wide ? 84.0 : 48.0;
+    final height = spec.wide ? 36.0 : 48.0;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: selected ? 1 : 0),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, value, child) {
+        return Transform.scale(scale: 0.92 + value * 0.10, child: child);
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap,
+          child: Container(
+            width: width,
+            height: height,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: RadialGradient(
+                colors: [
+                  _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.28),
+                  const Color(0xFF08111B).withValues(alpha: light ? 0.34 : 0.72),
+                ],
+              ),
+              border: Border.all(
+                color: _accentSoftBlue.withValues(alpha: selected ? 0.76 : 0.44),
+                width: selected ? 1.6 : 1.1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.26),
+                  blurRadius: selected ? 24 : 16,
+                  spreadRadius: selected ? 2 : 0,
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: light ? 0.10 : 0.22),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 2.2,
+                  color: const Color(0xFF64E58A),
+                  backgroundColor: Colors.white.withValues(alpha: 0.10),
+                ),
+                spec.wide
+                    ? Text(
+                        spec.shortLabel,
+                        style: _sharp(
+                          context,
+                          Theme.of(context).textTheme.labelSmall,
+                          color: _textPrimary,
+                          weight: FontWeight.w800,
+                          size: 11,
+                          letterSpacing: 0.4,
+                        ),
+                      )
+                    : Icon(spec.icon, color: _tone(context, _textPrimary), size: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HotspotControlCardPositioner extends StatelessWidget {
+  const _HotspotControlCardPositioner({
+    required this.selected,
+    required this.constraints,
+    required this.progress,
+    required this.onSetLevel,
+  });
+
+  final _HotspotSpec selected;
+  final BoxConstraints constraints;
+  final double progress;
+  final ValueChanged<double> onSetLevel;
+
+  @override
+  Widget build(BuildContext context) {
+    const cardWidth = 236.0;
+    final placeRight = selected.position.dx < constraints.maxWidth * 0.56;
+    final left = (placeRight
+            ? (selected.position.dx + 34).clamp(
+                12.0,
+                constraints.maxWidth - cardWidth - 12,
+              )
+            : (selected.position.dx - cardWidth - 34).clamp(
+                12.0,
+                constraints.maxWidth - cardWidth - 12,
+              ))
+        .toDouble();
+    final top = (selected.position.dy - 58)
+        .clamp(12.0, constraints.maxHeight - 146.0)
+        .toDouble();
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: cardWidth,
+      child: _HotspotControlCard(
+        spec: selected,
+        progress: progress,
+        onSetLevel: onSetLevel,
+      ),
+    );
+  }
+}
+
+class _HotspotControlCard extends StatelessWidget {
+  const _HotspotControlCard({
+    required this.spec,
+    required this.progress,
+    required this.onSetLevel,
+  });
+
+  final _HotspotSpec spec;
+  final double progress;
+  final ValueChanged<double> onSetLevel;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+          decoration: BoxDecoration(
+            color: light
+                ? Colors.white.withValues(alpha: 0.88)
+                : const Color(0xFF07101A).withValues(alpha: 0.78),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: light
+                  ? _premiumLightStroke.withValues(alpha: 0.90)
+                  : Colors.white.withValues(alpha: 0.08),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: light ? 0.10 : 0.22),
+                blurRadius: 26,
+                offset: const Offset(0, 14),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: _accentSoftBlue.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(spec.icon, color: _accentSoftBlue, size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          spec.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _sharp(
+                            context,
+                            Theme.of(context).textTheme.labelLarge,
+                            color: _textPrimary,
+                            weight: FontWeight.w800,
+                            size: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${(progress * 100).round()}% open',
+                          style: _sharp(
+                            context,
+                            Theme.of(context).textTheme.labelSmall,
+                            color: _textMuted,
+                            weight: FontWeight.w600,
+                            size: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                ),
+                child: Slider(
+                  value: progress,
+                  min: 0,
+                  max: 1,
+                  onChanged: onSetLevel,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: _HotspotActionButton(
+                      label: 'Close',
+                      onTap: () => onSetLevel(0),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _HotspotActionButton(
+                      label: 'Open',
+                      highlighted: true,
+                      onTap: () => onSetLevel(1),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HotspotActionButton extends StatelessWidget {
+  const _HotspotActionButton({
+    required this.label,
+    required this.onTap,
+    this.highlighted = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 34,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: highlighted
+              ? _accentSoftBlue.withValues(alpha: 0.24)
+              : Colors.white.withValues(alpha: _isLight(context) ? 0.52 : 0.08),
+          foregroundColor: _tone(context, _textPrimary),
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: onTap,
+        child: Text(
+          label,
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.labelSmall,
+            color: _textPrimary,
+            weight: FontWeight.w800,
+            size: 11.5,
+          ),
+        ),
+      ),
+    );
   }
 }
 
