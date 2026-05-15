@@ -1,6 +1,8 @@
 package com.example.byd_launcher
 
 import byd.VehicleBridge
+import byd.MusicBridge
+import byd.NavigationBridge
 import byd.NativeVehicleScenePlugin
 import byd.NativeVehicleTexturePlugin
 import io.flutter.embedding.android.FlutterActivity
@@ -16,6 +18,14 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         VehicleBridge.register(flutterEngine.dartExecutor.binaryMessenger)
+        MusicBridge.register(
+            flutterEngine.dartExecutor.binaryMessenger,
+            applicationContext,
+        )
+        NavigationBridge.register(
+            flutterEngine.dartExecutor.binaryMessenger,
+            applicationContext,
+        )
         NativeVehicleScenePlugin.register(flutterEngine)
         NativeVehicleTexturePlugin.register(flutterEngine, applicationContext)
     }

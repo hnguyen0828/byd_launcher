@@ -12,6 +12,13 @@ const bool _preferNativeVehicleRenderer = true;
 const String _themeModePreferenceKey = 'launcher.themeMode';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
+const String _navigationDefaultPackagePreferenceKey =
+    'launcher.navigation.defaultPackage';
+const String _launchNavigationWithLauncherPreferenceKey =
+    'launcher.navigation.launchWithLauncher';
+const MethodChannel _musicChannel = MethodChannel('byd/music');
+const EventChannel _musicEvents = EventChannel('byd/music/events');
+const MethodChannel _navigationChannel = MethodChannel('byd/navigation');
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
@@ -28,6 +35,26 @@ class _VehiclePaintOption {
   final String label;
   final Color color;
 }
+
+class _NavigationApp {
+  const _NavigationApp({required this.label, required this.packageName});
+
+  factory _NavigationApp.fromMap(Map<dynamic, dynamic> map) {
+    return _NavigationApp(
+      label: _stringFromMap(map, 'label'),
+      packageName: _stringFromMap(map, 'packageName'),
+    );
+  }
+
+  final String label;
+  final String packageName;
+}
+
+const List<_NavigationApp> _fallbackNavigationApps = [
+  _NavigationApp(label: 'BYD', packageName: 'com.byd.navigation'),
+  _NavigationApp(label: 'Google', packageName: 'com.google.android.apps.maps'),
+  _NavigationApp(label: 'Waze', packageName: 'com.waze'),
+];
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -230,6 +257,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   Color _vehicleColor = const Color(0xFFE9EEF4);
   _VehicleGear _selectedGear = _VehicleGear.p;
   bool _vehiclePreferencesLoaded = false;
+  List<_NavigationApp> _navigationApps = _fallbackNavigationApps;
+  String? _selectedNavigationPackage;
+  bool _launchNavigationWithLauncher = false;
   double _vehicleSpeedKmh = 0;
 
   bool get _roadMotionActive =>
@@ -241,6 +271,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   void initState() {
     super.initState();
     _loadVehiclePreferences();
+    _loadNavigationPreferences();
   }
 
   String get _cameraOrbit {
@@ -312,6 +343,17 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           onTabChanged: _handleTabChanged,
                           onVehicleColorChanged: _setVehicleColor,
                           onRenderQualityChanged: _setRenderQuality,
+                          navigationApps: _navigationApps,
+                          selectedNavigationPackage: _selectedNavigationPackage,
+                          launchNavigationWithLauncher:
+                              _launchNavigationWithLauncher,
+                          onDefaultNavigationAppChanged:
+                              _setDefaultNavigationApp,
+                          onNavigationReloadRequested: _reloadNavigationApps,
+                          onDefaultNavigationOpenRequested:
+                              _openDefaultNavigationApp,
+                          onLaunchNavigationWithLauncherChanged:
+                              _setLaunchNavigationWithLauncher,
                           themeMode: widget.themeMode,
                           onThemeModeChanged: widget.onThemeModeChanged,
                         ),
@@ -377,6 +419,97 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     setState(() => _renderQuality = quality);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_renderQualityPreferenceKey, quality.name);
+  }
+
+  Future<void> _loadNavigationPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedPackage = prefs.getString(
+      _navigationDefaultPackagePreferenceKey,
+    );
+    final launchWithLauncher =
+        prefs.getBool(_launchNavigationWithLauncherPreferenceKey) ?? false;
+    final apps = await _loadNavigationAppsFromPlatform();
+    final selectedPackage = _resolveNavigationPackage(apps, storedPackage);
+
+    if (!mounted) return;
+    setState(() {
+      _navigationApps = apps;
+      _selectedNavigationPackage = selectedPackage;
+      _launchNavigationWithLauncher = launchWithLauncher;
+    });
+
+    if (launchWithLauncher && selectedPackage != null) {
+      unawaited(_launchNavigationApp(selectedPackage));
+    }
+  }
+
+  Future<List<_NavigationApp>> _loadNavigationAppsFromPlatform() async {
+    try {
+      final rawApps = await _navigationChannel.invokeListMethod<dynamic>(
+        'getNavigationApps',
+      );
+      final apps = (rawApps ?? [])
+          .whereType<Map<dynamic, dynamic>>()
+          .map(_NavigationApp.fromMap)
+          .where((app) => app.label.isNotEmpty && app.packageName.isNotEmpty)
+          .toList();
+      return apps.isEmpty ? _fallbackNavigationApps : apps;
+    } catch (_) {
+      return _fallbackNavigationApps;
+    }
+  }
+
+  String? _resolveNavigationPackage(
+    List<_NavigationApp> apps,
+    String? storedPackage,
+  ) {
+    if (apps.isEmpty) return null;
+    if (storedPackage != null &&
+        apps.any((app) => app.packageName == storedPackage)) {
+      return storedPackage;
+    }
+    return apps.first.packageName;
+  }
+
+  Future<void> _setDefaultNavigationApp(_NavigationApp app) async {
+    setState(() => _selectedNavigationPackage = app.packageName);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _navigationDefaultPackagePreferenceKey,
+      app.packageName,
+    );
+  }
+
+  Future<void> _reloadNavigationApps() async {
+    final apps = await _loadNavigationAppsFromPlatform();
+    if (!mounted) return;
+    setState(() {
+      _navigationApps = apps;
+      _selectedNavigationPackage = _resolveNavigationPackage(
+        apps,
+        _selectedNavigationPackage,
+      );
+    });
+  }
+
+  Future<void> _openDefaultNavigationApp() async {
+    final packageName = _selectedNavigationPackage;
+    if (packageName == null) return;
+    await _launchNavigationApp(packageName);
+  }
+
+  Future<void> _launchNavigationApp(String packageName) async {
+    try {
+      await _navigationChannel.invokeMethod<Object?>('launchNavigationApp', {
+        'packageName': packageName,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _setLaunchNavigationWithLauncher(bool value) async {
+    setState(() => _launchNavigationWithLauncher = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_launchNavigationWithLauncherPreferenceKey, value);
   }
 }
 
@@ -943,8 +1076,77 @@ class _PressureBlock extends StatelessWidget {
   }
 }
 
-class _MediaWidget extends StatelessWidget {
+class _MediaWidget extends StatefulWidget {
   const _MediaWidget();
+
+  @override
+  State<_MediaWidget> createState() => _MediaWidgetState();
+}
+
+class _MediaWidgetState extends State<_MediaWidget>
+    with WidgetsBindingObserver {
+  StreamSubscription<dynamic>? _subscription;
+  Timer? _progressTimer;
+  _MediaPlaybackState _state = const _MediaPlaybackState();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadInitialState();
+    _subscription = _musicEvents.receiveBroadcastStream().listen(
+      _handleNativeState,
+      onError: (_) {},
+    );
+    _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _state.isPlaying && _state.durationMs > 0) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _subscription?.cancel();
+    _progressTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadInitialState();
+    }
+  }
+
+  Future<void> _loadInitialState() async {
+    try {
+      final data = await _musicChannel.invokeMapMethod<String, dynamic>(
+        'getState',
+      );
+      _handleNativeState(data);
+    } catch (_) {}
+  }
+
+  void _handleNativeState(dynamic value) {
+    if (!mounted || value is! Map) return;
+    setState(() {
+      _state = _MediaPlaybackState.fromMap(value);
+    });
+  }
+
+  void _invoke(String method) {
+    unawaited(
+      _musicChannel
+          .invokeMethod<Object?>(method)
+          .catchError((Object _) => null),
+    );
+  }
+
+  void _openMusicApp() {
+    _invoke('openMusicApp');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -960,27 +1162,38 @@ class _MediaWidget extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 66,
-                height: 66,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF5E1E2A), Color(0xFF171B2D)],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFFC857).withValues(alpha: 0.08),
-                      blurRadius: 18,
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: _openMusicApp,
+                child: Container(
+                  width: 66,
+                  height: 66,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.music_note_rounded,
-                  color: Color(0xFFFFD36E),
-                  size: 32,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFFC857).withValues(alpha: 0.08),
+                        blurRadius: 18,
+                      ),
+                    ],
+                  ),
+                  child: _state.albumArt == null
+                      ? const Icon(
+                          Icons.music_note_rounded,
+                          color: Color(0xFFFFD36E),
+                          size: 32,
+                        )
+                      : Image.memory(
+                          _state.albumArt!,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        ),
                 ),
               ),
               const SizedBox(width: 13),
@@ -989,7 +1202,7 @@ class _MediaWidget extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Blinding Lights',
+                      _state.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: _sharp(
@@ -1002,7 +1215,9 @@ class _MediaWidget extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      'The Weeknd',
+                      _state.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: _sharp(
                         context,
                         Theme.of(context).textTheme.bodyMedium,
@@ -1015,64 +1230,250 @@ class _MediaWidget extends StatelessWidget {
                 ),
               ),
               Icon(
-                Icons.bluetooth,
+                _state.hasPermission
+                    ? Icons.bluetooth
+                    : Icons.music_off_outlined,
                 color: _accentSoftBlue,
                 size: light ? 22 : 20,
               ),
             ],
           ),
           const Spacer(),
+          Row(
+            children: [
+              Text(
+                _state.elapsedLabel,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelSmall,
+                  color: _textMuted,
+                  weight: FontWeight.w600,
+                  size: 10.5,
+                  height: 1,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _state.durationLabel,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelSmall,
+                  color: _textMuted,
+                  weight: FontWeight.w600,
+                  size: 10.5,
+                  height: 1,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
-              value: 0.42,
+              value: _state.progress ?? 0,
               minHeight: light ? 4 : 3,
               color: _accentSoftBlue,
               backgroundColor: progressTrack,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.skip_previous_rounded, color: controlColor, size: 26),
+              _MediaControlButton(
+                icon: Icons.skip_previous_rounded,
+                color: controlColor,
+                enabled: _state.hasController,
+                onPressed: () => _invoke('previous'),
+              ),
               const SizedBox(width: 22),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: light
-                      ? _accentSoftBlue.withValues(alpha: 0.18)
-                      : Colors.white.withValues(alpha: 0.10),
-                  shape: BoxShape.circle,
-                  border: Border.all(
+              InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _state.hasController
+                    ? () => _invoke('playPause')
+                    : _openMusicApp,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
                     color: light
-                        ? _accentSoftBlue.withValues(alpha: 0.24)
-                        : Colors.white.withValues(alpha: 0.07),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
+                        ? _accentSoftBlue.withValues(alpha: 0.18)
+                        : Colors.white.withValues(alpha: 0.10),
+                    shape: BoxShape.circle,
+                    border: Border.all(
                       color: light
-                          ? _accentSoftBlue.withValues(alpha: 0.12)
-                          : Colors.black.withValues(alpha: 0.10),
-                      blurRadius: 12,
+                          ? _accentSoftBlue.withValues(alpha: 0.24)
+                          : Colors.white.withValues(alpha: 0.07),
                     ),
-                  ],
-                ),
-                child: Icon(
-                  Icons.pause_rounded,
-                  color: light ? const Color(0xFF1D4F86) : Colors.white,
-                  size: 22,
+                    boxShadow: [
+                      BoxShadow(
+                        color: light
+                            ? _accentSoftBlue.withValues(alpha: 0.12)
+                            : Colors.black.withValues(alpha: 0.10),
+                        blurRadius: 12,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _state.isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    color: light ? const Color(0xFF1D4F86) : Colors.white,
+                    size: _state.isPlaying ? 22 : 25,
+                  ),
                 ),
               ),
               const SizedBox(width: 22),
-              Icon(Icons.skip_next_rounded, color: controlColor, size: 26),
+              _MediaControlButton(
+                icon: Icons.skip_next_rounded,
+                color: controlColor,
+                enabled: _state.hasController,
+                onPressed: () => _invoke('next'),
+              ),
             ],
           ),
         ],
       ),
     );
   }
+}
+
+class _MediaControlButton extends StatelessWidget {
+  const _MediaControlButton({
+    required this.icon,
+    required this.color,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final Color color;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      visualDensity: VisualDensity.compact,
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(
+        icon,
+        color: enabled
+            ? color
+            : _tone(context, _textMuted).withValues(alpha: 0.45),
+        size: 26,
+      ),
+    );
+  }
+}
+
+class _MediaPlaybackState {
+  const _MediaPlaybackState({
+    this.hasPermission = false,
+    this.hasController = false,
+    this.title = 'Music',
+    this.artist = 'Open system music',
+    this.album = '',
+    this.isPlaying = false,
+    this.durationMs = 0,
+    this.positionMs = 0,
+    this.receivedAtMs = 0,
+    this.albumArt,
+  });
+
+  factory _MediaPlaybackState.fromMap(Map<dynamic, dynamic> map) {
+    final hasPermission = map['hasPermission'] == true;
+    final hasController = map['hasController'] == true;
+    final title = _stringFromMap(map, 'title');
+    final artist = _stringFromMap(map, 'artist');
+    final album = _stringFromMap(map, 'album');
+
+    return _MediaPlaybackState(
+      hasPermission: hasPermission,
+      hasController: hasController,
+      title: title.isEmpty
+          ? (hasController ? 'Unknown track' : 'Music')
+          : title,
+      artist: artist.isEmpty
+          ? (hasPermission
+                ? 'Open system music'
+                : 'Enable Music access in Settings')
+          : artist,
+      album: album,
+      isPlaying: map['isPlaying'] == true,
+      durationMs: _intFromMap(map, 'durationMs'),
+      positionMs: _intFromMap(map, 'positionMs'),
+      receivedAtMs: DateTime.now().millisecondsSinceEpoch,
+      albumArt: map['albumArt'] is Uint8List
+          ? map['albumArt'] as Uint8List
+          : null,
+    );
+  }
+
+  final bool hasPermission;
+  final bool hasController;
+  final String title;
+  final String artist;
+  final String album;
+  final bool isPlaying;
+  final int durationMs;
+  final int positionMs;
+  final int receivedAtMs;
+  final Uint8List? albumArt;
+
+  String get subtitle {
+    if (album.isEmpty) return artist;
+    return '$artist - $album';
+  }
+
+  double? get progress {
+    if (durationMs <= 0) return null;
+    final position = currentPositionMs.clamp(0, durationMs);
+    return position / durationMs;
+  }
+
+  String get elapsedLabel {
+    if (durationMs <= 0) return '--:--';
+    return _formatMediaTime(currentPositionMs.clamp(0, durationMs));
+  }
+
+  String get durationLabel {
+    if (durationMs <= 0) return '--:--';
+    return _formatMediaTime(durationMs);
+  }
+
+  int get currentPositionMs {
+    if (!isPlaying || receivedAtMs <= 0) {
+      return positionMs;
+    }
+
+    final age = DateTime.now().millisecondsSinceEpoch - receivedAtMs;
+    return positionMs + age.clamp(0, 3600000);
+  }
+}
+
+String _stringFromMap(Map<dynamic, dynamic> map, String key) {
+  final value = map[key];
+  return value is String ? value.trim() : '';
+}
+
+int _intFromMap(Map<dynamic, dynamic> map, String key) {
+  final value = map[key];
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return 0;
+}
+
+String _formatMediaTime(int milliseconds) {
+  final totalSeconds = Duration(milliseconds: milliseconds).inSeconds;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _EnergyStrip extends StatelessWidget {
@@ -1244,6 +1645,13 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onTabChanged,
     required this.onVehicleColorChanged,
     required this.onRenderQualityChanged,
+    required this.navigationApps,
+    required this.selectedNavigationPackage,
+    required this.launchNavigationWithLauncher,
+    required this.onDefaultNavigationAppChanged,
+    required this.onNavigationReloadRequested,
+    required this.onDefaultNavigationOpenRequested,
+    required this.onLaunchNavigationWithLauncherChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
   });
@@ -1261,6 +1669,13 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
+  final List<_NavigationApp> navigationApps;
+  final String? selectedNavigationPackage;
+  final bool launchNavigationWithLauncher;
+  final ValueChanged<_NavigationApp> onDefaultNavigationAppChanged;
+  final VoidCallback onNavigationReloadRequested;
+  final VoidCallback onDefaultNavigationOpenRequested;
+  final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -1308,10 +1723,21 @@ class _VehicleCanvas extends StatelessWidget {
                         onVehicleColorChanged: onVehicleColorChanged,
                         renderQuality: renderQuality,
                         onRenderQualityChanged: onRenderQualityChanged,
+                        launchNavigationWithLauncher:
+                            launchNavigationWithLauncher,
+                        onLaunchNavigationWithLauncherChanged:
+                            onLaunchNavigationWithLauncherChanged,
                         themeMode: themeMode,
                         onThemeModeChanged: onThemeModeChanged,
                       )
-                    : const _NavigationPanel(key: ValueKey('navigation')),
+                    : _NavigationPanel(
+                        key: const ValueKey('navigation'),
+                        apps: navigationApps,
+                        selectedPackage: selectedNavigationPackage,
+                        onAppSelected: onDefaultNavigationAppChanged,
+                        onReload: onNavigationReloadRequested,
+                        onOpen: onDefaultNavigationOpenRequested,
+                      ),
               ),
             ),
           if (activeTab == _LauncherTab.status)
@@ -1387,11 +1813,32 @@ class _VehicleStage extends StatelessWidget {
 }
 
 class _NavigationPanel extends StatelessWidget {
-  const _NavigationPanel({super.key});
+  const _NavigationPanel({
+    required this.apps,
+    required this.selectedPackage,
+    required this.onAppSelected,
+    required this.onReload,
+    required this.onOpen,
+    super.key,
+  });
+
+  final List<_NavigationApp> apps;
+  final String? selectedPackage;
+  final ValueChanged<_NavigationApp> onAppSelected;
+  final VoidCallback onReload;
+  final VoidCallback onOpen;
+
+  _NavigationApp? get _selectedApp {
+    for (final app in apps) {
+      if (app.packageName == selectedPackage) return app;
+    }
+    return apps.isEmpty ? null : apps.first;
+  }
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final selectedApp = _selectedApp;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(28),
@@ -1435,7 +1882,17 @@ class _NavigationPanel extends StatelessWidget {
               ),
             ),
           ),
-          const Positioned(top: 16, left: 18, child: _NavigationAppPicker()),
+          Positioned(
+            top: 16,
+            left: 18,
+            right: 188,
+            child: _NavigationAppPicker(
+              apps: apps,
+              selectedPackage: selectedApp?.packageName,
+              onAppSelected: onAppSelected,
+              onReload: onReload,
+            ),
+          ),
           Positioned(
             top: 22,
             right: 22,
@@ -1459,65 +1916,24 @@ class _NavigationPanel extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Icon(
-                Icons.navigation_rounded,
-                color: _textPrimary,
-                size: 34,
+              child: IconButton(
+                tooltip: 'Open navigation',
+                onPressed: selectedApp == null ? null : onOpen,
+                icon: const Icon(
+                  Icons.navigation_rounded,
+                  color: _textPrimary,
+                  size: 34,
+                ),
               ),
             ),
           ),
           Positioned(
-            left: 26,
-            right: 26,
-            bottom: 28,
-            child: _GlassCard(
-              padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.place_outlined,
-                    color: _accentSoftBlue,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Navigation',
-                          style: _sharp(
-                            context,
-                            Theme.of(context).textTheme.titleMedium,
-                            color: _textPrimary,
-                            weight: FontWeight.w700,
-                            size: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Choose your preferred map app from the floating picker.',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _sharp(
-                            context,
-                            Theme.of(context).textTheme.bodySmall,
-                            color: _textMuted,
-                            weight: FontWeight.w500,
-                            size: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const _MapStatusPill(
-                    icon: Icons.route_outlined,
-                    label: 'No route',
-                  ),
-                ],
-              ),
+            top: 84,
+            right: 22,
+            width: 244,
+            child: _SelectedNavigationAppPanel(
+              app: selectedApp,
+              onOpen: selectedApp == null ? null : onOpen,
             ),
           ),
         ],
@@ -1527,18 +1943,35 @@ class _NavigationPanel extends StatelessWidget {
 }
 
 class _NavigationAppPicker extends StatelessWidget {
-  const _NavigationAppPicker();
+  const _NavigationAppPicker({
+    required this.apps,
+    required this.selectedPackage,
+    required this.onAppSelected,
+    required this.onReload,
+  });
+
+  final List<_NavigationApp> apps;
+  final String? selectedPackage;
+  final ValueChanged<_NavigationApp> onAppSelected;
+  final VoidCallback onReload;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    _NavigationApp? selectedApp;
+    for (final app in apps) {
+      if (app.packageName == selectedPackage) {
+        selectedApp = app;
+        break;
+      }
+    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          height: 48,
+          constraints: const BoxConstraints(minHeight: 48),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: light
@@ -1551,11 +1984,12 @@ class _NavigationAppPicker extends StatelessWidget {
                   : Colors.white.withValues(alpha: 0.08),
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Icon(Icons.apps_outlined, color: _accentSoftBlue, size: 19),
-              const SizedBox(width: 8),
               Text(
                 'Navigation app',
                 style: _sharp(
@@ -1566,17 +2000,48 @@ class _NavigationAppPicker extends StatelessWidget {
                   size: 13,
                 ),
               ),
-              const SizedBox(width: 10),
-              const _NavigationAppChip(label: 'BYD'),
-              const SizedBox(width: 7),
-              const _NavigationAppChip(label: 'Google'),
-              const SizedBox(width: 7),
-              const _NavigationAppChip(label: 'Waze'),
-              const SizedBox(width: 6),
-              Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: _tone(context, _textSecondary),
-                size: 20,
+              _NavigationTopIconButton(
+                icon: Icons.refresh_rounded,
+                tooltip: 'Reload navigation apps',
+                onTap: onReload,
+              ),
+              for (final app in apps.take(5))
+                _NavigationAppChip(
+                  label: app.label,
+                  selected: app.packageName == selectedPackage,
+                  onTap: () => onAppSelected(app),
+                ),
+              PopupMenuButton<_NavigationApp>(
+                tooltip: 'Choose navigation app',
+                enabled: apps.isNotEmpty,
+                onSelected: onAppSelected,
+                itemBuilder: (context) => [
+                  for (final app in apps)
+                    PopupMenuItem<_NavigationApp>(
+                      value: app,
+                      child: Text(app.label),
+                    ),
+                ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      selectedApp == null ? 'Choose' : 'Change',
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.labelSmall,
+                        color: _textSecondary,
+                        weight: FontWeight.w700,
+                        size: 11.5,
+                      ),
+                    ),
+                    Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: _tone(context, _textSecondary),
+                      size: 20,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1586,43 +2051,219 @@ class _NavigationAppPicker extends StatelessWidget {
   }
 }
 
-class _NavigationAppChip extends StatelessWidget {
-  const _NavigationAppChip({required this.label});
+class _NavigationTopIconButton extends StatelessWidget {
+  const _NavigationTopIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
-  final String label;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final selected = label == 'BYD';
-    final light = _isLight(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: selected
-            ? _accentSoftBlue.withValues(alpha: 0.18)
-            : light
-            ? Colors.white.withValues(alpha: 0.66)
-            : Colors.white.withValues(alpha: 0.06),
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: selected
-              ? _accentSoftBlue.withValues(alpha: 0.30)
-              : light
-              ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
-              : Colors.white.withValues(alpha: 0.055),
+        onTap: onTap,
+        child: Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(
+              alpha: _isLight(context) ? 0.54 : 0.07,
+            ),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: _isLight(context)
+                  ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                  : Colors.white.withValues(alpha: 0.055),
+            ),
+          ),
+          child: Icon(icon, color: _tone(context, _textSecondary), size: 17),
         ),
       ),
-      child: Text(
-        label,
-        style: _sharp(
-          context,
-          Theme.of(context).textTheme.labelSmall,
+    );
+  }
+}
+
+class _SelectedNavigationAppPanel extends StatelessWidget {
+  const _SelectedNavigationAppPanel({required this.app, required this.onOpen});
+
+  final _NavigationApp? app;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = this.app;
+
+    return _GlassCard(
+      padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: _accentSoftBlue.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _accentSoftBlue.withValues(alpha: 0.24),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.map_outlined,
+                  color: _accentSoftBlue,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      app?.label ?? 'No map app',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.titleMedium,
+                        color: _textPrimary,
+                        weight: FontWeight.w700,
+                        size: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      app == null
+                          ? 'Reload apps from the top bar'
+                          : 'Default navigation',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.bodySmall,
+                        color: _textMuted,
+                        weight: FontWeight.w500,
+                        size: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: _NavigationPanelButton(
+              icon: Icons.open_in_new_rounded,
+              label: 'Open',
+              onPressed: onOpen,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavigationAppChip extends StatelessWidget {
+  const _NavigationAppChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
           color: selected
-              ? (_isLight(context) ? _premiumLightText : _textPrimary)
-              : (_isLight(context) ? _premiumLightMuted : _textMuted),
-          weight: selected ? FontWeight.w700 : FontWeight.w500,
-          size: 11.5,
+              ? _accentSoftBlue.withValues(alpha: 0.18)
+              : light
+              ? Colors.white.withValues(alpha: 0.66)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? _accentSoftBlue.withValues(alpha: 0.30)
+                : light
+                ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                : Colors.white.withValues(alpha: 0.055),
+          ),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.labelSmall,
+            color: selected
+                ? (_isLight(context) ? _premiumLightText : _textPrimary)
+                : (_isLight(context) ? _premiumLightMuted : _textMuted),
+            weight: selected ? FontWeight.w700 : FontWeight.w500,
+            size: 11.5,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavigationPanelButton extends StatelessWidget {
+  const _NavigationPanelButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: _accentSoftBlue.withValues(alpha: 0.16),
+          foregroundColor: _tone(context, _textPrimary),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 17),
+        label: Text(
+          label,
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.labelSmall,
+            color: _textPrimary,
+            weight: FontWeight.w800,
+            size: 11.5,
+          ),
         ),
       ),
     );
@@ -1748,6 +2389,8 @@ class _SettingsPanel extends StatelessWidget {
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
+    required this.launchNavigationWithLauncher,
+    required this.onLaunchNavigationWithLauncherChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
     super.key,
@@ -1757,6 +2400,8 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
+  final bool launchNavigationWithLauncher;
+  final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -1827,6 +2472,9 @@ class _SettingsPanel extends StatelessWidget {
                     onVehicleColorChanged: onVehicleColorChanged,
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
+                    launchNavigationWithLauncher: launchNavigationWithLauncher,
+                    onLaunchNavigationWithLauncherChanged:
+                        onLaunchNavigationWithLauncherChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
                   ),
@@ -1848,6 +2496,8 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
+    required this.launchNavigationWithLauncher,
+    required this.onLaunchNavigationWithLauncherChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
   });
@@ -1856,6 +2506,8 @@ class _SettingsMainColumn extends StatelessWidget {
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
+  final bool launchNavigationWithLauncher;
+  final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -1951,29 +2603,30 @@ class _SettingsMainColumn extends StatelessWidget {
           _GlassCard(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
             child: Column(
-              children: const [
-                _SettingsSwitchRow(
+              children: [
+                const _SettingsSwitchRow(
                   icon: Icons.home_outlined,
                   title: 'Default launcher',
                   subtitle:
                       'Open this launcher when the vehicle head unit starts.',
                   value: true,
                 ),
-                SizedBox(height: 12),
-                _SettingsSwitchRow(
+                const SizedBox(height: 12),
+                const _SettingsSwitchRow(
                   icon: Icons.screen_rotation_alt_outlined,
                   title: 'Force landscape',
                   subtitle:
                       'Keep the launcher optimized for the 15.6 inch display.',
                   value: true,
                 ),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 _SettingsSwitchRow(
-                  icon: Icons.motion_photos_auto_outlined,
-                  title: 'Vehicle animation',
+                  icon: Icons.map_outlined,
+                  title: 'Launch navigation',
                   subtitle:
-                      'Animate the vehicle preview when the launcher opens.',
-                  value: true,
+                      'Open the default map app when this launcher starts.',
+                  value: launchNavigationWithLauncher,
+                  onChanged: onLaunchNavigationWithLauncherChanged,
                 ),
               ],
             ),
@@ -1984,8 +2637,55 @@ class _SettingsMainColumn extends StatelessWidget {
   }
 }
 
-class _SettingsPermissionColumn extends StatelessWidget {
+class _SettingsPermissionColumn extends StatefulWidget {
   const _SettingsPermissionColumn();
+
+  @override
+  State<_SettingsPermissionColumn> createState() =>
+      _SettingsPermissionColumnState();
+}
+
+class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
+    with WidgetsBindingObserver {
+  bool _musicAccessGranted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshMusicAccess();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshMusicAccess();
+    }
+  }
+
+  Future<void> _refreshMusicAccess() async {
+    try {
+      final data = await _musicChannel.invokeMapMethod<String, dynamic>(
+        'getState',
+      );
+      if (!mounted) return;
+      setState(() => _musicAccessGranted = data?['hasPermission'] == true);
+    } catch (_) {}
+  }
+
+  void _openMusicAccess() {
+    unawaited(
+      _musicChannel
+          .invokeMethod<Object?>('openNotificationListenerSettings')
+          .catchError((Object _) => null),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1993,40 +2693,51 @@ class _SettingsPermissionColumn extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          _SettingsSectionTitle(
+        children: [
+          const _SettingsSectionTitle(
             icon: Icons.admin_panel_settings_outlined,
             title: 'System permissions',
             subtitle:
                 'Required for overlay, bridge, vehicle data and launcher behavior.',
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           _PermissionRow(
+            icon: Icons.library_music_outlined,
+            title: 'Music access',
+            status: _musicAccessGranted ? 'Ready' : 'Needed',
+            highlighted: !_musicAccessGranted,
+          ),
+          const SizedBox(height: 10),
+          const _PermissionRow(
             icon: Icons.layers_outlined,
             title: 'System overlay',
             status: 'Needed',
             highlighted: true,
           ),
-          SizedBox(height: 10),
-          _PermissionRow(
+          const SizedBox(height: 10),
+          const _PermissionRow(
             icon: Icons.directions_car_outlined,
             title: 'Vehicle bridge',
             status: 'Ready',
           ),
-          SizedBox(height: 10),
-          _PermissionRow(
+          const SizedBox(height: 10),
+          const _PermissionRow(
             icon: Icons.usb_outlined,
             title: 'ADB bridge',
             status: 'Optional',
           ),
-          SizedBox(height: 10),
-          _PermissionRow(
+          const SizedBox(height: 10),
+          const _PermissionRow(
             icon: Icons.network_check_outlined,
             title: 'Internet',
             status: 'Granted',
           ),
-          Spacer(),
-          _SettingsActionButton(),
+          const Spacer(),
+          _SettingsActionButton(
+            icon: Icons.notifications_active_outlined,
+            label: 'Open music access',
+            onPressed: _openMusicAccess,
+          ),
         ],
       ),
     );
@@ -2391,12 +3102,14 @@ class _SettingsSwitchRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.value,
+    this.onChanged,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final bool value;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2453,7 +3166,7 @@ class _SettingsSwitchRow extends StatelessWidget {
             value: value,
             activeThumbColor: _accentSoftBlue,
             activeTrackColor: _accentSoftBlue.withValues(alpha: 0.25),
-            onChanged: (_) {},
+            onChanged: onChanged,
           ),
         ],
       ),
@@ -2534,7 +3247,15 @@ class _PermissionRow extends StatelessWidget {
 }
 
 class _SettingsActionButton extends StatelessWidget {
-  const _SettingsActionButton();
+  const _SettingsActionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -2553,10 +3274,10 @@ class _SettingsActionButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        onPressed: () {},
-        icon: const Icon(Icons.open_in_new_outlined, size: 18),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
         label: Text(
-          'Open system settings',
+          label,
           style: _sharp(
             context,
             Theme.of(context).textTheme.labelLarge,

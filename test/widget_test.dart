@@ -31,10 +31,10 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
 
     await tester.tap(find.text('Navigation'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Navigation app'), findsOneWidget);
-    expect(find.text('BYD'), findsOneWidget);
+    expect(find.text('BYD'), findsWidgets);
     expect(find.text('Google'), findsOneWidget);
     expect(find.text('Waze'), findsOneWidget);
     expect(find.text('Fuel'), findsOneWidget);
@@ -42,7 +42,7 @@ void main() {
     expect(find.text('TPMS'), findsNothing);
 
     await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Vehicle color'), findsOneWidget);
     expect(find.text('Appearance'), findsOneWidget);
