@@ -76,7 +76,7 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
       theme: _launcherTheme(Brightness.light),
       darkTheme: _launcherTheme(Brightness.dark),
       home: LauncherHomePage(
-        enable3dModel: true,
+        enable3dModel: _themePreferenceLoaded,
         themeMode: _themeMode,
         onThemeModeChanged: _setThemeMode,
       ),
@@ -126,6 +126,8 @@ ThemeData _launcherTheme(Brightness brightness) {
 enum _VehicleView { status, rear }
 
 enum _LauncherTab { status, map, settings }
+
+enum _VehicleGear { p, r, n, d }
 
 enum _VehicleRenderQuality { low, medium, high }
 
@@ -226,9 +228,14 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   _LauncherTab _activeTab = _LauncherTab.status;
   _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
   Color _vehicleColor = const Color(0xFFE9EEF4);
-  bool _drivingMode = false;
+  _VehicleGear _selectedGear = _VehicleGear.p;
   bool _vehiclePreferencesLoaded = false;
   double _vehicleSpeedKmh = 0;
+
+  bool get _roadMotionActive =>
+      _selectedGear == _VehicleGear.d || _selectedGear == _VehicleGear.r;
+
+  bool get _reverseRoadMotion => _selectedGear == _VehicleGear.r;
 
   @override
   void initState() {
@@ -237,7 +244,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   }
 
   String get _cameraOrbit {
-    if (_drivingMode) {
+    if (_roadMotionActive) {
       return '180deg 78deg 99%';
     }
 
@@ -284,9 +291,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                       SizedBox(
                         width: sidebarWidth,
                         child: _LeftDashboard(
-                          drivingMode: _drivingMode,
+                          selectedGear: _selectedGear,
                           vehicleSpeedKmh: _vehicleSpeedKmh,
-                          onDrivingModeChanged: _setDrivingMode,
+                          onGearChanged: _setGear,
                         ),
                       ),
                       Expanded(
@@ -298,7 +305,8 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           activeTab: _activeTab,
                           vehicleColor: _vehicleColor,
                           renderQuality: _renderQuality,
-                          drivingMode: _drivingMode,
+                          roadMotionActive: _roadMotionActive,
+                          reverseRoadMotion: _reverseRoadMotion,
                           vehicleSpeedKmh: _vehicleSpeedKmh,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
@@ -323,11 +331,21 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     setState(() => _activeTab = tab);
   }
 
-  void _setDrivingMode(bool value) {
+  void _setGear(_VehicleGear gear) {
     setState(() {
-      _drivingMode = value;
-      _vehicleSpeedKmh = value ? 24 : 0;
-      if (value) {
+      _selectedGear = gear;
+      _vehicleSpeedKmh = switch (gear) {
+        _VehicleGear.d => 24,
+        _VehicleGear.r => 8,
+        _VehicleGear.p || _VehicleGear.n => 0,
+      };
+
+      if (gear == _VehicleGear.d || gear == _VehicleGear.r) {
+        _activeTab = _LauncherTab.status;
+        _view = _VehicleView.status;
+      }
+
+      if (gear == _VehicleGear.p || gear == _VehicleGear.n) {
         _activeTab = _LauncherTab.status;
         _view = _VehicleView.status;
       }
@@ -364,14 +382,14 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
 
 class _LeftDashboard extends StatelessWidget {
   const _LeftDashboard({
-    required this.drivingMode,
+    required this.selectedGear,
     required this.vehicleSpeedKmh,
-    required this.onDrivingModeChanged,
+    required this.onGearChanged,
   });
 
-  final bool drivingMode;
+  final _VehicleGear selectedGear;
   final double vehicleSpeedKmh;
-  final ValueChanged<bool> onDrivingModeChanged;
+  final ValueChanged<_VehicleGear> onGearChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -427,9 +445,9 @@ class _LeftDashboard extends StatelessWidget {
                   const _StatusBar(),
                   const SizedBox(height: 10),
                   _SpeedCluster(
-                    drivingMode: drivingMode,
+                    selectedGear: selectedGear,
                     vehicleSpeedKmh: vehicleSpeedKmh,
-                    onDrivingModeChanged: onDrivingModeChanged,
+                    onGearChanged: onGearChanged,
                   ),
                   const SizedBox(height: 20),
                   const SizedBox(height: 168, child: _MediaWidget()),
@@ -508,14 +526,14 @@ class _StatusBar extends StatelessWidget {
 
 class _SpeedCluster extends StatelessWidget {
   const _SpeedCluster({
-    required this.drivingMode,
+    required this.selectedGear,
     required this.vehicleSpeedKmh,
-    required this.onDrivingModeChanged,
+    required this.onGearChanged,
   });
 
-  final bool drivingMode;
+  final _VehicleGear selectedGear;
   final double vehicleSpeedKmh;
-  final ValueChanged<bool> onDrivingModeChanged;
+  final ValueChanged<_VehicleGear> onGearChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -572,15 +590,23 @@ class _SpeedCluster extends StatelessWidget {
             children: [
               _GearText(
                 'P',
-                active: !drivingMode,
-                onTap: () => onDrivingModeChanged(false),
+                active: selectedGear == _VehicleGear.p,
+                onTap: () => onGearChanged(_VehicleGear.p),
               ),
-              _GearText('R'),
-              _GearText('N'),
+              _GearText(
+                'R',
+                active: selectedGear == _VehicleGear.r,
+                onTap: () => onGearChanged(_VehicleGear.r),
+              ),
+              _GearText(
+                'N',
+                active: selectedGear == _VehicleGear.n,
+                onTap: () => onGearChanged(_VehicleGear.n),
+              ),
               _GearText(
                 'D',
-                active: drivingMode,
-                onTap: () => onDrivingModeChanged(!drivingMode),
+                active: selectedGear == _VehicleGear.d,
+                onTap: () => onGearChanged(_VehicleGear.d),
               ),
               const SizedBox(width: 10),
               Container(
@@ -1211,7 +1237,8 @@ class _VehicleCanvas extends StatelessWidget {
     required this.activeTab,
     required this.vehicleColor,
     required this.renderQuality,
-    required this.drivingMode,
+    required this.roadMotionActive,
+    required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
     required this.onViewChanged,
     required this.onTabChanged,
@@ -1227,7 +1254,8 @@ class _VehicleCanvas extends StatelessWidget {
   final _LauncherTab activeTab;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
-  final bool drivingMode;
+  final bool roadMotionActive;
+  final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
@@ -1256,7 +1284,8 @@ class _VehicleCanvas extends StatelessWidget {
                   cameraOrbit: cameraOrbit,
                   vehicleColor: vehicleColor,
                   renderQuality: renderQuality,
-                  drivingMode: drivingMode,
+                  roadMotionActive: roadMotionActive,
+                  reverseRoadMotion: reverseRoadMotion,
                   vehicleSpeedKmh: vehicleSpeedKmh,
                 ),
               ),
@@ -1326,7 +1355,8 @@ class _VehicleStage extends StatelessWidget {
     required this.cameraOrbit,
     required this.vehicleColor,
     required this.renderQuality,
-    required this.drivingMode,
+    required this.roadMotionActive,
+    required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
   });
 
@@ -1334,7 +1364,8 @@ class _VehicleStage extends StatelessWidget {
   final String cameraOrbit;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
-  final bool drivingMode;
+  final bool roadMotionActive;
+  final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
 
   @override
@@ -1346,7 +1377,8 @@ class _VehicleStage extends StatelessWidget {
           cameraOrbit: cameraOrbit,
           vehicleColor: vehicleColor,
           renderQuality: renderQuality,
-          drivingMode: drivingMode,
+          roadMotionActive: roadMotionActive,
+          reverseRoadMotion: reverseRoadMotion,
           vehicleSpeedKmh: vehicleSpeedKmh,
         ),
       ),
@@ -2748,7 +2780,8 @@ class _VehicleHero extends StatefulWidget {
     required this.cameraOrbit,
     required this.vehicleColor,
     required this.renderQuality,
-    required this.drivingMode,
+    required this.roadMotionActive,
+    required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
   });
 
@@ -2756,7 +2789,8 @@ class _VehicleHero extends StatefulWidget {
   final String cameraOrbit;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
-  final bool drivingMode;
+  final bool roadMotionActive;
+  final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
 
   @override
@@ -2795,10 +2829,14 @@ class _VehicleHeroState extends State<_VehicleHero> {
       return;
     }
 
+    if (widget.roadMotionActive && _selectedHotspot == _VehicleHotspot.trunk) {
+      _selectedHotspot = null;
+    }
+
     if (oldWidget.vehicleColor != widget.vehicleColor ||
         oldWidget.enable3dModel != widget.enable3dModel ||
         oldWidget.renderQuality != widget.renderQuality ||
-        oldWidget.drivingMode != widget.drivingMode) {
+        oldWidget.roadMotionActive != widget.roadMotionActive) {
       _applyVehicleColor();
       _scheduleColorApply();
     }
@@ -2827,12 +2865,13 @@ class _VehicleHeroState extends State<_VehicleHero> {
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: widget.drivingMode ? null : _showHotspots,
+      onTap: _showHotspots,
       child: Stack(
         fit: StackFit.expand,
         children: [
           _DrivingRoadLayer(
-            active: widget.drivingMode,
+            active: widget.roadMotionActive,
+            reverse: widget.reverseRoadMotion,
             speedKmh: widget.vehicleSpeedKmh,
           ),
           TweenAnimationBuilder<double>(
@@ -2841,7 +2880,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
             curve: Curves.easeOutCubic,
             builder: (context, focusT, child) {
               return Transform.translate(
-                offset: Offset(focusOffset.dx * focusT, focusOffset.dy * focusT),
+                offset: Offset(
+                  focusOffset.dx * focusT,
+                  focusOffset.dy * focusT,
+                ),
                 child: Transform.scale(
                   scale: 1 + (focusScale - 1) * focusT,
                   alignment: Alignment.center,
@@ -2855,59 +2897,63 @@ class _VehicleHeroState extends State<_VehicleHero> {
                     cameraOrbit: focusedOrbit,
                     vehicleColor: widget.vehicleColor,
                     renderQuality: widget.renderQuality,
-                    drivingMode: widget.drivingMode,
+                    drivingMode: widget.roadMotionActive,
                     backgroundColor: sceneBackground,
                   )
                 : ModelViewer(
-              src: _vehicleModelAsset,
-              alt: '2024 BYD Seal U DM-i 3D model',
-              loading: Loading.eager,
-              reveal: Reveal.auto,
-              backgroundColor: Colors.transparent,
-              cameraControls: true,
-              autoRotate: false,
-              disablePan: true,
-              disableTap: true,
-              disableZoom: true,
-              interactionPrompt: InteractionPrompt.none,
-                  cameraOrbit: focusedOrbit,
-                  minCameraOrbit: 'auto 42deg 64%',
-              maxCameraOrbit: 'auto 86deg 120%',
-              fieldOfView: '19deg',
-              minFieldOfView: '19deg',
-              maxFieldOfView: '19deg',
-              exposure: 0.78,
-              shadowIntensity: 0.30,
-              relatedCss:
-                  'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
-                  'model-viewer { background: transparent !important; background-color: transparent !important; '
-                  '--poster-color: transparent; }',
-                  onWebViewCreated: (controller) {
-                    _webViewController = controller;
-                    _scheduleColorApply();
-                  },
-                ),
+                    src: _vehicleModelAsset,
+                    alt: '2024 BYD Seal U DM-i 3D model',
+                    loading: Loading.eager,
+                    reveal: Reveal.auto,
+                    backgroundColor: Colors.transparent,
+                    cameraControls: true,
+                    autoRotate: false,
+                    disablePan: true,
+                    disableTap: true,
+                    disableZoom: true,
+                    interactionPrompt: InteractionPrompt.none,
+                    cameraOrbit: focusedOrbit,
+                    minCameraOrbit: 'auto 42deg 64%',
+                    maxCameraOrbit: 'auto 86deg 120%',
+                    fieldOfView: '19deg',
+                    minFieldOfView: '19deg',
+                    maxFieldOfView: '19deg',
+                    exposure: 0.78,
+                    shadowIntensity: 0.30,
+                    relatedCss:
+                        'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                        'model-viewer { background: transparent !important; background-color: transparent !important; '
+                        '--poster-color: transparent; }',
+                    onWebViewCreated: (controller) {
+                      _webViewController = controller;
+                      _scheduleColorApply();
+                    },
+                  ),
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
           _VehicleHotspotLayer(
-            visible: _hotspotsVisible && !widget.drivingMode,
+            visible: _hotspotsVisible,
             selectedHotspot: _selectedHotspot,
             levels: _hotspotLevels,
             onHotspotTap: _selectHotspot,
             onSetLevel: _setHotspotLevel,
             onDismiss: _hideHotspots,
             animationSeed: _hotspotAnimationSeed,
+            allowTrunk: !widget.roadMotionActive,
           ),
         ],
       ),
     );
   }
 
-
   String get _focusedCameraOrbit {
+    if (widget.roadMotionActive) {
+      return widget.cameraOrbit;
+    }
+
     final hotspot = _selectedHotspot;
-    if (widget.drivingMode || hotspot == null) {
+    if (hotspot == null) {
       return widget.cameraOrbit;
     }
 
@@ -2922,6 +2968,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   Offset get _focusOffset {
+    if (widget.roadMotionActive) {
+      return Offset.zero;
+    }
+
     final hotspot = _selectedHotspot;
     if (hotspot == null) {
       return Offset.zero;
@@ -2938,6 +2988,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   double get _focusScale {
+    if (widget.roadMotionActive) {
+      return 1.0;
+    }
+
     final hotspot = _selectedHotspot;
     if (hotspot == null) return 1.0;
 
@@ -2967,6 +3021,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   void _selectHotspot(_VehicleHotspot hotspot) {
+    if (widget.roadMotionActive && hotspot == _VehicleHotspot.trunk) {
+      return;
+    }
     setState(() {
       _hotspotsVisible = true;
       _selectedHotspot = hotspot;
@@ -2976,6 +3033,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   void _setHotspotLevel(_VehicleHotspot hotspot, double level) {
+    if (widget.roadMotionActive && hotspot == _VehicleHotspot.trunk) {
+      return;
+    }
     setState(() {
       _hotspotLevels[hotspot] = level.clamp(0.0, 1.0);
       _selectedHotspot = hotspot;
@@ -3021,7 +3081,6 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 }
 
-
 class _VehicleHotspotLayer extends StatelessWidget {
   const _VehicleHotspotLayer({
     required this.visible,
@@ -3031,6 +3090,7 @@ class _VehicleHotspotLayer extends StatelessWidget {
     required this.onSetLevel,
     required this.onDismiss,
     required this.animationSeed,
+    required this.allowTrunk,
   });
 
   final bool visible;
@@ -3040,10 +3100,13 @@ class _VehicleHotspotLayer extends StatelessWidget {
   final void Function(_VehicleHotspot hotspot, double level) onSetLevel;
   final VoidCallback onDismiss;
   final int animationSeed;
+  final bool allowTrunk;
 
   @override
   Widget build(BuildContext context) {
-    final selected = selectedHotspot;
+    final selected = !allowTrunk && selectedHotspot == _VehicleHotspot.trunk
+        ? null
+        : selectedHotspot;
 
     return IgnorePointer(
       ignoring: !visible,
@@ -3054,7 +3117,10 @@ class _VehicleHotspotLayer extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             Offset point(double x, double y) {
-              return Offset(constraints.maxWidth * x, constraints.maxHeight * y);
+              return Offset(
+                constraints.maxWidth * x,
+                constraints.maxHeight * y,
+              );
             }
 
             final spots = <_HotspotSpec>[
@@ -3108,6 +3174,11 @@ class _VehicleHotspotLayer extends StatelessWidget {
                 cardAlignment: Alignment.centerLeft,
               ),
             ];
+            final visibleSpots = allowTrunk
+                ? spots
+                : spots
+                      .where((spot) => spot.hotspot != _VehicleHotspot.trunk)
+                      .toList(growable: false);
 
             return Stack(
               children: [
@@ -3136,9 +3207,11 @@ class _VehicleHotspotLayer extends StatelessWidget {
                 if (selected != null)
                   _HotspotFocusRipple(
                     key: ValueKey('ripple-${selected.name}-$animationSeed'),
-                    position: spots.firstWhere((spot) => spot.hotspot == selected).position,
+                    position: visibleSpots
+                        .firstWhere((spot) => spot.hotspot == selected)
+                        .position,
                   ),
-                for (final spec in spots)
+                for (final spec in visibleSpots)
                   Positioned(
                     left: spec.position.dx - (spec.wide ? 42 : 24),
                     top: spec.position.dy - (spec.wide ? 18 : 24),
@@ -3152,7 +3225,9 @@ class _VehicleHotspotLayer extends StatelessWidget {
                   ),
                 if (selected != null)
                   _HotspotControlCardPositioner(
-                    selected: spots.firstWhere((spot) => spot.hotspot == selected),
+                    selected: visibleSpots.firstWhere(
+                      (spot) => spot.hotspot == selected,
+                    ),
                     constraints: constraints,
                     progress: levels[selected] ?? 0,
                     onSetLevel: (level) => onSetLevel(selected, level),
@@ -3166,7 +3241,6 @@ class _VehicleHotspotLayer extends StatelessWidget {
     );
   }
 }
-
 
 class _HotspotFocusRipple extends StatelessWidget {
   const _HotspotFocusRipple({super.key, required this.position});
@@ -3281,16 +3355,22 @@ class _VehicleHotspotButton extends StatelessWidget {
               gradient: RadialGradient(
                 colors: [
                   _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.28),
-                  const Color(0xFF08111B).withValues(alpha: light ? 0.34 : 0.72),
+                  const Color(
+                    0xFF08111B,
+                  ).withValues(alpha: light ? 0.34 : 0.72),
                 ],
               ),
               border: Border.all(
-                color: _accentSoftBlue.withValues(alpha: selected ? 0.76 : 0.44),
+                color: _accentSoftBlue.withValues(
+                  alpha: selected ? 0.76 : 0.44,
+                ),
                 width: selected ? 1.6 : 1.1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.26),
+                  color: _accentSoftBlue.withValues(
+                    alpha: selected ? 0.44 : 0.26,
+                  ),
                   blurRadius: selected ? 24 : 16,
                   spreadRadius: selected ? 2 : 0,
                 ),
@@ -3329,7 +3409,11 @@ class _VehicleHotspotButton extends StatelessWidget {
                           letterSpacing: 0.4,
                         ),
                       )
-                    : Icon(spec.icon, color: _tone(context, _textPrimary), size: 20),
+                    : Icon(
+                        spec.icon,
+                        color: _tone(context, _textPrimary),
+                        size: 20,
+                      ),
               ],
             ),
           ),
@@ -3358,16 +3442,17 @@ class _HotspotControlCardPositioner extends StatelessWidget {
   Widget build(BuildContext context) {
     const cardWidth = 236.0;
     final placeRight = selected.position.dx < constraints.maxWidth * 0.56;
-    final left = (placeRight
-            ? (selected.position.dx + 34).clamp(
-                12.0,
-                constraints.maxWidth - cardWidth - 12,
-              )
-            : (selected.position.dx - cardWidth - 34).clamp(
-                12.0,
-                constraints.maxWidth - cardWidth - 12,
-              ))
-        .toDouble();
+    final left =
+        (placeRight
+                ? (selected.position.dx + 34).clamp(
+                    12.0,
+                    constraints.maxWidth - cardWidth - 12,
+                  )
+                : (selected.position.dx - cardWidth - 34).clamp(
+                    12.0,
+                    constraints.maxWidth - cardWidth - 12,
+                  ))
+            .toDouble();
     final top = (selected.position.dy - 58)
         .clamp(12.0, constraints.maxHeight - 146.0)
         .toDouble();
@@ -3424,116 +3509,121 @@ class _HotspotControlCard extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(22),
         child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-          decoration: BoxDecoration(
-            color: light
-                ? Colors.white.withValues(alpha: 0.88)
-                : const Color(0xFF07101A).withValues(alpha: 0.78),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+            decoration: BoxDecoration(
               color: light
-                  ? _premiumLightStroke.withValues(alpha: 0.90)
-                  : Colors.white.withValues(alpha: 0.08),
+                  ? Colors.white.withValues(alpha: 0.88)
+                  : const Color(0xFF07101A).withValues(alpha: 0.78),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: light
+                    ? _premiumLightStroke.withValues(alpha: 0.90)
+                    : Colors.white.withValues(alpha: 0.08),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: light ? 0.10 : 0.22),
+                  blurRadius: 26,
+                  offset: const Offset(0, 14),
+                ),
+              ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.10 : 0.22),
-                blurRadius: 26,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: _accentSoftBlue.withValues(alpha: 0.14),
-                      shape: BoxShape.circle,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: _accentSoftBlue.withValues(alpha: 0.14),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(spec.icon, color: _accentSoftBlue, size: 18),
                     ),
-                    child: Icon(spec.icon, color: _accentSoftBlue, size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          spec.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _sharp(
-                            context,
-                            Theme.of(context).textTheme.labelLarge,
-                            color: _textPrimary,
-                            weight: FontWeight.w800,
-                            size: 13,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            spec.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: _sharp(
+                              context,
+                              Theme.of(context).textTheme.labelLarge,
+                              color: _textPrimary,
+                              weight: FontWeight.w800,
+                              size: 13,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${(progress * 100).round()}% open',
-                          style: _sharp(
-                            context,
-                            Theme.of(context).textTheme.labelSmall,
-                            color: _textMuted,
-                            weight: FontWeight.w600,
-                            size: 11,
+                          const SizedBox(height: 2),
+                          Text(
+                            '${(progress * 100).round()}% open',
+                            style: _sharp(
+                              context,
+                              Theme.of(context).textTheme.labelSmall,
+                              color: _textMuted,
+                              weight: FontWeight.w600,
+                              size: 11,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 3,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                  ],
                 ),
-                child: Slider(
-                  value: progress,
-                  min: 0,
-                  max: 1,
-                  onChanged: onSetLevel,
+                const SizedBox(height: 12),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 7,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 14,
+                    ),
+                  ),
+                  child: Slider(
+                    value: progress,
+                    min: 0,
+                    max: 1,
+                    onChanged: onSetLevel,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Expanded(
-                    child: _HotspotActionButton(
-                      label: 'Close',
-                      onTap: () => onSetLevel(0),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _HotspotActionButton(
+                        label: 'Close',
+                        onTap: () => onSetLevel(0),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _HotspotActionButton(
-                      label: 'Open',
-                      highlighted: true,
-                      onTap: () => onSetLevel(1),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _HotspotActionButton(
+                        label: 'Open',
+                        highlighted: true,
+                        onTap: () => onSetLevel(1),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
+
 class _HotspotActionButton extends StatelessWidget {
   const _HotspotActionButton({
     required this.label,
@@ -3556,7 +3646,9 @@ class _HotspotActionButton extends StatelessWidget {
               : Colors.white.withValues(alpha: _isLight(context) ? 0.52 : 0.08),
           foregroundColor: _tone(context, _textPrimary),
           padding: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         onPressed: onTap,
         child: Text(
@@ -3857,9 +3949,14 @@ Color _vehicleSceneBackground(BuildContext context) {
 }
 
 class _DrivingRoadLayer extends StatefulWidget {
-  const _DrivingRoadLayer({required this.active, required this.speedKmh});
+  const _DrivingRoadLayer({
+    required this.active,
+    required this.reverse,
+    required this.speedKmh,
+  });
 
   final bool active;
+  final bool reverse;
   final double speedKmh;
 
   @override
@@ -3892,7 +3989,8 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
   @override
   void didUpdateWidget(covariant _DrivingRoadLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.speedKmh != oldWidget.speedKmh) {
+    if (widget.speedKmh != oldWidget.speedKmh ||
+        widget.reverse != oldWidget.reverse) {
       _motionController.duration = _roadMotionDuration(widget.speedKmh);
       if (widget.active && !_motionController.isAnimating) {
         _motionController.repeat();
@@ -3944,6 +4042,7 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
               painter: _DrivingRoadPainter(
                 progress: _motionController.value,
                 light: _isLight(context),
+                reverse: widget.reverse,
               ),
             ),
           );
@@ -3960,13 +4059,19 @@ Duration _roadMotionDuration(double speedKmh) {
 }
 
 class _DrivingRoadPainter extends CustomPainter {
-  const _DrivingRoadPainter({required this.progress, required this.light});
+  const _DrivingRoadPainter({
+    required this.progress,
+    required this.light,
+    this.reverse = false,
+  });
 
   final double progress;
   final bool light;
+  final bool reverse;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final motionProgress = reverse ? 1.0 - progress : progress;
     final glowCenter = Offset(size.width * 0.55, size.height * 0.52);
     final glowPaint = Paint()
       ..shader =
@@ -4106,7 +4211,7 @@ class _DrivingRoadPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     for (var i = -2; i < 7; i++) {
-      final t = ((i + progress * 2.2) / 7).clamp(0.0, 1.0);
+      final t = ((i + motionProgress * 2.2) / 7).clamp(0.0, 1.0);
       final center = centerAt(t);
       final segment = lerpDouble(7, 48, t)!;
       final distanceFade = Curves.easeOut.transform(t).clamp(0.0, 1.0);
@@ -4129,7 +4234,7 @@ class _DrivingRoadPainter extends CustomPainter {
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 8; i++) {
-      final t = ((i / 8) + progress) % 1.0;
+      final t = ((i / 8) + motionProgress) % 1.0;
       final left = roadPoint(t, -1);
       final right = roadPoint(t, 1);
       canvas.drawLine(left, left + const Offset(-22, -34), speedPaint);
@@ -4140,7 +4245,9 @@ class _DrivingRoadPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DrivingRoadPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.light != light;
+    return oldDelegate.progress != progress ||
+        oldDelegate.light != light ||
+        oldDelegate.reverse != reverse;
   }
 }
 
