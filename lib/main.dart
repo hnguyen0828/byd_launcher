@@ -19,6 +19,8 @@ const String _launchNavigationWithLauncherPreferenceKey =
 const MethodChannel _musicChannel = MethodChannel('byd/music');
 const EventChannel _musicEvents = EventChannel('byd/music/events');
 const MethodChannel _navigationChannel = MethodChannel('byd/navigation');
+const MethodChannel _navigationVdChannel = MethodChannel('byd/navigation_vd');
+const MethodChannel _permissionChannel = MethodChannel('byd/permissions');
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
@@ -2000,11 +2002,9 @@ class _EmbeddedNavigationSurface extends StatelessWidget {
                 subtitle: 'Install a navigation app, then tap reload above.',
               )
             : defaultTargetPlatform == TargetPlatform.android
-            ? AndroidView(
-                key: ValueKey('navigation-embed-${app.packageName}'),
-                viewType: 'byd/navigation_embed',
-                creationParams: {'packageName': app.packageName},
-                creationParamsCodec: const StandardMessageCodec(),
+            ? _NavigationVirtualDisplayView(
+                key: ValueKey('navigation-vd-${app.packageName}'),
+                app: app,
               )
             : _EmbeddedNavigationFallback(
                 icon: Icons.map_outlined,
@@ -2013,6 +2013,167 @@ class _EmbeddedNavigationSurface extends StatelessWidget {
                 onTap: onOpen,
               ),
       ),
+    );
+  }
+}
+
+class _NavigationVirtualDisplayView extends StatefulWidget {
+  const _NavigationVirtualDisplayView({super.key, required this.app});
+
+  final _NavigationApp app;
+
+  @override
+  State<_NavigationVirtualDisplayView> createState() =>
+      _NavigationVirtualDisplayViewState();
+}
+
+class _NavigationVirtualDisplayViewState
+    extends State<_NavigationVirtualDisplayView> {
+  int? _textureId;
+  Size? _textureSize;
+  bool _launchOk = true;
+  Object? _error;
+
+  @override
+  void didUpdateWidget(covariant _NavigationVirtualDisplayView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.app.packageName != widget.app.packageName) {
+      _disposeSession();
+      _textureId = null;
+      _textureSize = null;
+      _error = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeSession();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final ratio = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.0);
+        final size = Size(
+          (constraints.maxWidth * ratio).clamp(1.0, 4096.0),
+          (constraints.maxHeight * ratio).clamp(1.0, 4096.0),
+        );
+        if (_textureSize != size && size.width > 1 && size.height > 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _createOrResize(size);
+            }
+          });
+        }
+
+        final textureId = _textureId;
+        if (textureId == null) {
+          return _EmbeddedNavigationFallback(
+            icon: Icons.map_outlined,
+            title: widget.app.label,
+            subtitle: _error == null
+                ? 'Starting embedded navigation...'
+                : 'Virtual display could not start.',
+          );
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanDown: (details) => _sendTouch('down', details.localPosition),
+          onPanUpdate: (details) => _sendTouch('move', details.localPosition),
+          onPanEnd: (_) => _sendTouch('up', null),
+          onPanCancel: () => _sendTouch('cancel', null),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Texture(textureId: textureId),
+              if (!_launchOk)
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: _MapStatusPill(
+                    icon: Icons.warning_amber_rounded,
+                    label: 'Virtual display blocked',
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _createOrResize(Size size) async {
+    final width = size.width.round();
+    final height = size.height.round();
+    final textureId = _textureId;
+    try {
+      if (textureId == null) {
+        final result = await _navigationVdChannel
+            .invokeMapMethod<String, dynamic>('create', {
+              'packageName': widget.app.packageName,
+              'width': width,
+              'height': height,
+              'densityDpi': (160 * MediaQuery.devicePixelRatioOf(context))
+                  .round()
+                  .clamp(160, 320),
+            });
+        if (!mounted) return;
+        setState(() {
+          _textureId = (result?['textureId'] as num?)?.toInt();
+          _launchOk = result?['launchOk'] != false;
+          _textureSize = size;
+          _error = null;
+        });
+      } else {
+        await _navigationVdChannel.invokeMethod<Object?>('resize', {
+          'textureId': textureId,
+          'width': width,
+          'height': height,
+        });
+        if (!mounted) return;
+        setState(() => _textureSize = size);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error);
+    }
+  }
+
+  void _sendTouch(String action, Offset? position) {
+    final textureId = _textureId;
+    if (textureId == null) return;
+    final box = context.findRenderObject() as RenderBox?;
+    final size = box?.size ?? Size.zero;
+    final textureSize = _textureSize;
+    final local = position ?? Offset(size.width / 2, size.height / 2);
+    final x = size.width <= 0 || textureSize == null
+        ? local.dx
+        : local.dx * textureSize.width / size.width;
+    final y = size.height <= 0 || textureSize == null
+        ? local.dy
+        : local.dy * textureSize.height / size.height;
+    unawaited(
+      _navigationVdChannel
+          .invokeMethod<Object?>('touch', {
+            'textureId': textureId,
+            'action': action,
+            'x': x,
+            'y': y,
+          })
+          .catchError((Object _) => null),
+    );
+  }
+
+  void _disposeSession() {
+    final textureId = _textureId;
+    if (textureId == null) return;
+    unawaited(
+      _navigationVdChannel
+          .invokeMethod<Object?>('dispose', {'textureId': textureId})
+          .catchError((Object _) => null),
     );
   }
 }
@@ -2658,13 +2819,15 @@ class _SettingsPermissionColumn extends StatefulWidget {
 
 class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     with WidgetsBindingObserver {
-  bool _musicAccessGranted = false;
+  Map<String, _PermissionStatus> _permissionStatuses =
+      _PermissionStatus.defaults;
+  bool _grantInProgress = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _refreshMusicAccess();
+    _refreshPermissionStatus();
   }
 
   @override
@@ -2676,30 +2839,57 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _refreshMusicAccess();
+      _refreshPermissionStatus();
     }
   }
 
-  Future<void> _refreshMusicAccess() async {
+  Future<void> _refreshPermissionStatus() async {
     try {
-      final data = await _musicChannel.invokeMapMethod<String, dynamic>(
-        'getState',
+      final data = await _permissionChannel.invokeMapMethod<String, dynamic>(
+        'getStatus',
       );
       if (!mounted) return;
-      setState(() => _musicAccessGranted = data?['hasPermission'] == true);
+      setState(() {
+        _permissionStatuses = _PermissionStatus.fromStatusMap(data);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _permissionStatuses = _PermissionStatus.defaults);
+    }
+  }
+
+  Future<void> _openPermissionSettings(String kind) async {
+    try {
+      await _permissionChannel.invokeMethod<Object?>('openPermissionSettings', {
+        'kind': kind,
+      });
     } catch (_) {}
   }
 
-  void _openMusicAccess() {
-    unawaited(
-      _musicChannel
-          .invokeMethod<Object?>('openNotificationListenerSettings')
-          .catchError((Object _) => null),
-    );
+  Future<void> _grantRecommendedPermissions() async {
+    if (_grantInProgress) return;
+    setState(() => _grantInProgress = true);
+    try {
+      await _permissionChannel.invokeMethod<Object?>(
+        'grantRecommendedPermissions',
+      );
+      await _refreshPermissionStatus();
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() => _grantInProgress = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final music = _permissionStatuses['musicAccess']!;
+    final overlay = _permissionStatuses['systemOverlay']!;
+    final vehicle = _permissionStatuses['vehicleData']!;
+    final navigation = _permissionStatuses['navigationEmbed']!;
+    final internet = _permissionStatuses['internet']!;
+
     return _GlassCard(
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
       child: Column(
@@ -2715,43 +2905,101 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
           _PermissionRow(
             icon: Icons.library_music_outlined,
             title: 'Music access',
-            status: _musicAccessGranted ? 'Ready' : 'Needed',
-            highlighted: !_musicAccessGranted,
+            status: music.status,
+            highlighted: !music.ready,
+            onTap: () => _openPermissionSettings('musicAccess'),
           ),
           const SizedBox(height: 10),
-          const _PermissionRow(
+          _PermissionRow(
             icon: Icons.layers_outlined,
             title: 'System overlay',
-            status: 'Needed',
-            highlighted: true,
+            status: overlay.status,
+            highlighted: !overlay.ready,
+            onTap: () => _openPermissionSettings('systemOverlay'),
           ),
           const SizedBox(height: 10),
-          const _PermissionRow(
+          _PermissionRow(
             icon: Icons.directions_car_outlined,
-            title: 'Vehicle bridge',
-            status: 'Ready',
+            title: 'Vehicle data',
+            status: vehicle.status,
+            highlighted: !vehicle.ready,
+            onTap: () => _openPermissionSettings('vehicleData'),
           ),
           const SizedBox(height: 10),
-          const _PermissionRow(
-            icon: Icons.usb_outlined,
-            title: 'ADB bridge',
-            status: 'Optional',
+          _PermissionRow(
+            icon: Icons.navigation_outlined,
+            title: 'Navigation embed',
+            status: navigation.status,
+            highlighted: !navigation.ready,
+            onTap: () => _openPermissionSettings('navigationEmbed'),
           ),
           const SizedBox(height: 10),
-          const _PermissionRow(
+          _PermissionRow(
             icon: Icons.network_check_outlined,
             title: 'Internet',
-            status: 'Granted',
+            status: internet.status,
+            highlighted: !internet.ready,
           ),
           const Spacer(),
           _SettingsActionButton(
-            icon: Icons.notifications_active_outlined,
-            label: 'Open music access',
-            onPressed: _openMusicAccess,
+            icon: Icons.admin_panel_settings_outlined,
+            label: _grantInProgress
+                ? 'Checking permissions'
+                : 'Grant recommended',
+            onPressed: _grantRecommendedPermissions,
           ),
         ],
       ),
     );
+  }
+}
+
+class _PermissionStatus {
+  const _PermissionStatus({
+    required this.ready,
+    required this.status,
+    this.systemOnly = false,
+  });
+
+  final bool ready;
+  final String status;
+  final bool systemOnly;
+
+  static const defaults = {
+    'musicAccess': _PermissionStatus(ready: false, status: 'Needed'),
+    'systemOverlay': _PermissionStatus(ready: false, status: 'Needed'),
+    'vehicleData': _PermissionStatus(
+      ready: false,
+      status: 'System only',
+      systemOnly: true,
+    ),
+    'navigationEmbed': _PermissionStatus(
+      ready: false,
+      status: 'System only',
+      systemOnly: true,
+    ),
+    'internet': _PermissionStatus(ready: true, status: 'Granted'),
+  };
+
+  static Map<String, _PermissionStatus> fromStatusMap(
+    Map<String, dynamic>? data,
+  ) {
+    final result = Map<String, _PermissionStatus>.from(defaults);
+    if (data == null) return result;
+
+    for (final entry in data.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        result[entry.key] = _PermissionStatus(
+          ready: value['ready'] == true,
+          status: value['status'] is String
+              ? value['status'] as String
+              : (value['ready'] == true ? 'Ready' : 'Needed'),
+          systemOnly: value['systemOnly'] == true,
+        );
+      }
+    }
+    return result;
   }
 }
 
@@ -3191,67 +3439,81 @@ class _PermissionRow extends StatelessWidget {
     required this.title,
     required this.status,
     this.highlighted = false,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String status;
   final bool highlighted;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: highlighted
-            ? const Color(0xFF78B7FF).withValues(alpha: 0.09)
-            : light
-            ? Colors.white.withValues(alpha: 0.58)
-            : Colors.black.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
           color: highlighted
-              ? _accentSoftBlue.withValues(alpha: 0.22)
+              ? const Color(0xFF78B7FF).withValues(alpha: 0.09)
               : light
-              ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
-              : Colors.white.withValues(alpha: 0.045),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
+              ? Colors.white.withValues(alpha: 0.58)
+              : Colors.black.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
             color: highlighted
-                ? _accentSoftBlue
-                : _tone(context, _textSecondary),
-            size: 21,
+                ? _accentSoftBlue.withValues(alpha: 0.22)
+                : light
+                ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
+                : Colors.white.withValues(alpha: 0.045),
           ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Text(
-              title,
-              style: _sharp(
-                context,
-                Theme.of(context).textTheme.bodyMedium,
-                color: _textPrimary,
-                weight: FontWeight.w600,
-                size: 13.5,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: highlighted
+                  ? _accentSoftBlue
+                  : _tone(context, _textSecondary),
+              size: 21,
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Text(
+                title,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.bodyMedium,
+                  color: _textPrimary,
+                  weight: FontWeight.w600,
+                  size: 13.5,
+                ),
               ),
             ),
-          ),
-          Text(
-            status,
-            style: _sharp(
-              context,
-              Theme.of(context).textTheme.labelSmall,
-              color: highlighted ? _accentSoftBlue : _textMuted,
-              weight: FontWeight.w700,
-              size: 11.5,
+            Text(
+              status,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelSmall,
+                color: highlighted ? _accentSoftBlue : _textMuted,
+                weight: FontWeight.w700,
+                size: 11.5,
+              ),
             ),
-          ),
-        ],
+            if (onTap != null) ...[
+              const SizedBox(width: 5),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: _tone(context, _textMuted),
+                size: 18,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

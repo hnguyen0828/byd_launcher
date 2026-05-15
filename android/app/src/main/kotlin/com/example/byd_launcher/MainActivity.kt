@@ -3,9 +3,10 @@ package com.example.byd_launcher
 import byd.VehicleBridge
 import byd.MusicBridge
 import byd.NavigationBridge
-import byd.NavigationEmbedViewFactory
+import byd.NavigationVirtualDisplayPlugin
 import byd.NativeVehicleScenePlugin
 import byd.NativeVehicleTexturePlugin
+import byd.PermissionBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -19,6 +20,11 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         VehicleBridge.register(flutterEngine.dartExecutor.binaryMessenger)
+        PermissionBridge.register(
+            flutterEngine.dartExecutor.binaryMessenger,
+            applicationContext,
+            this,
+        )
         MusicBridge.register(
             flutterEngine.dartExecutor.binaryMessenger,
             applicationContext,
@@ -27,9 +33,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             applicationContext,
         )
-        flutterEngine.platformViewsController.registry.registerViewFactory(
-            "byd/navigation_embed",
-            NavigationEmbedViewFactory(),
+        NavigationVirtualDisplayPlugin.register(
+            flutterEngine,
+            applicationContext,
+            this,
         )
         NativeVehicleScenePlugin.register(flutterEngine)
         NativeVehicleTexturePlugin.register(flutterEngine, applicationContext)
