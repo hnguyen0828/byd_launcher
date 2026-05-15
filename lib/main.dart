@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i.glb';
+const bool _preferNativeVehicleRenderer = true;
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
@@ -2475,9 +2477,14 @@ class _VehicleHeroState extends State<_VehicleHero> {
     }
 
     final light = _isLight(context);
+    final sceneBackground = _vehicleSceneBackground(context);
+    final useNativeRenderer =
+        _preferNativeVehicleRenderer &&
+        defaultTargetPlatform == TargetPlatform.android;
 
     return DecoratedBox(
       decoration: BoxDecoration(
+        color: sceneBackground,
         gradient: RadialGradient(
           center: const Alignment(0.10, 0.08),
           radius: 0.78,
@@ -2501,36 +2508,45 @@ class _VehicleHeroState extends State<_VehicleHero> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            ModelViewer(
-              src: _vehicleModelAsset,
-              alt: '2024 BYD Seal U DM-i 3D model',
-              loading: Loading.eager,
-              reveal: Reveal.auto,
-              backgroundColor: Colors.transparent,
-              cameraControls: true,
-              autoRotate: false,
-              disablePan: true,
-              disableTap: true,
-              disableZoom: true,
-              interactionPrompt: InteractionPrompt.none,
-              cameraOrbit: widget.cameraOrbit,
-              minCameraOrbit: 'auto 42deg 64%',
-              maxCameraOrbit: 'auto 86deg 120%',
-              fieldOfView: '19deg',
-              minFieldOfView: '19deg',
-              maxFieldOfView: '19deg',
-              exposure: 0.78,
-              shadowIntensity: 0.30,
-              relatedCss:
-                  'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
-                  'model-viewer { background: transparent !important; background-color: transparent !important; '
-                  '--poster-color: transparent; }',
-              onWebViewCreated: (controller) {
-                _webViewController = controller;
-                _scheduleColorApply();
-              },
-            ),
-            const _ModelStartupCover(),
+            if (useNativeRenderer)
+              _NativeVehicleScene(
+                asset: _vehicleModelAsset,
+                cameraOrbit: widget.cameraOrbit,
+                vehicleColor: widget.vehicleColor,
+                backgroundColor: sceneBackground,
+              )
+            else
+              ModelViewer(
+                src: _vehicleModelAsset,
+                alt: '2024 BYD Seal U DM-i 3D model',
+                loading: Loading.eager,
+                reveal: Reveal.auto,
+                backgroundColor: Colors.transparent,
+                cameraControls: true,
+                autoRotate: false,
+                disablePan: true,
+                disableTap: true,
+                disableZoom: true,
+                interactionPrompt: InteractionPrompt.none,
+                cameraOrbit: widget.cameraOrbit,
+                minCameraOrbit: 'auto 42deg 64%',
+                maxCameraOrbit: 'auto 86deg 120%',
+                fieldOfView: '19deg',
+                minFieldOfView: '19deg',
+                maxFieldOfView: '19deg',
+                exposure: 0.78,
+                shadowIntensity: 0.30,
+                relatedCss:
+                    'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                    'model-viewer { background: transparent !important; background-color: transparent !important; '
+                    '--poster-color: transparent; }',
+                onWebViewCreated: (controller) {
+                  _webViewController = controller;
+                  _scheduleColorApply();
+                },
+              ),
+            if (useNativeRenderer) const _NativeSceneLightWash(),
+            if (!useNativeRenderer) const _ModelStartupCover(),
           ],
         ),
       ),
@@ -2566,6 +2582,288 @@ class _VehicleHeroState extends State<_VehicleHero> {
     } on Object {
       // WebView may not be ready while model-viewer is still loading.
     }
+  }
+}
+
+class _NativeVehicleScene extends StatefulWidget {
+  const _NativeVehicleScene({
+    required this.asset,
+    required this.cameraOrbit,
+    required this.vehicleColor,
+    required this.backgroundColor,
+  });
+
+  final String asset;
+  final String cameraOrbit;
+  final Color vehicleColor;
+  final Color backgroundColor;
+
+  @override
+  State<_NativeVehicleScene> createState() => _NativeVehicleSceneState();
+}
+
+class _NativeVehicleSceneState extends State<_NativeVehicleScene> {
+  static const MethodChannel _channel = MethodChannel(
+    'byd/native_vehicle_texture',
+  );
+
+  int? _textureId;
+  Size? _textureSize;
+  Object? _error;
+  late _NativeOrbit _orbit;
+
+  @override
+  void initState() {
+    super.initState();
+    _orbit = _NativeOrbit.parse(widget.cameraOrbit);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NativeVehicleScene oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cameraOrbit != widget.cameraOrbit) {
+      _orbit = _NativeOrbit.parse(widget.cameraOrbit);
+      _updateNativeTexture();
+    }
+    if (oldWidget.vehicleColor != widget.vehicleColor) {
+      _updateNativeTexture();
+    }
+    if (oldWidget.asset != widget.asset ||
+        oldWidget.backgroundColor != widget.backgroundColor) {
+      _recreateForCurrentSize();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeNativeTexture();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final renderScale = (MediaQuery.devicePixelRatioOf(context) * 1.25)
+            .clamp(1.5, 2.25)
+            .toDouble();
+        final size = Size(
+          (constraints.maxWidth * renderScale).clamp(1.0, 4096.0),
+          (constraints.maxHeight * renderScale).clamp(1.0, 4096.0),
+        );
+        if (_textureSize != size && size.width > 1 && size.height > 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _createNativeTexture(size);
+            }
+          });
+        }
+
+        final textureId = _textureId;
+        if (textureId != null) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: _handleOrbitDrag,
+            child: Texture(textureId: textureId),
+          );
+        }
+
+        if (_error != null) {
+          return ModelViewer(
+            src: widget.asset,
+            alt: '2024 BYD Seal U DM-i 3D model',
+            loading: Loading.eager,
+            reveal: Reveal.auto,
+            backgroundColor: Colors.transparent,
+            cameraControls: true,
+            autoRotate: false,
+            disablePan: true,
+            disableTap: true,
+            disableZoom: true,
+            interactionPrompt: InteractionPrompt.none,
+            cameraOrbit: widget.cameraOrbit,
+            fieldOfView: '19deg',
+            exposure: 0.78,
+            shadowIntensity: 0.30,
+            relatedCss:
+                'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                'model-viewer { background: transparent !important; background-color: transparent !important; '
+                '--poster-color: transparent; }',
+          );
+        }
+
+        return const SizedBox.expand();
+      },
+    );
+  }
+
+  Future<void> _recreateForCurrentSize() async {
+    final size = _textureSize;
+    if (size != null) {
+      await _createNativeTexture(size);
+    }
+  }
+
+  Future<void> _createNativeTexture(Size size) async {
+    _textureSize = size;
+    await _disposeNativeTexture();
+    try {
+      final textureId = await _channel.invokeMethod<int>('create', {
+        'asset': widget.asset,
+        'cameraOrbit': _orbit.toCameraOrbit(),
+        'color': widget.vehicleColor.toARGB32(),
+        'backgroundColor': widget.backgroundColor.toARGB32(),
+        'width': size.width.round(),
+        'height': size.height.round(),
+      });
+      if (!mounted) {
+        if (textureId != null) {
+          await _channel.invokeMethod<void>('dispose', {
+            'textureId': textureId,
+          });
+        }
+        return;
+      }
+      setState(() {
+        _textureId = textureId;
+        _error = null;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _textureId = null;
+        _error = error;
+      });
+    }
+  }
+
+  Future<void> _disposeNativeTexture() async {
+    final textureId = _textureId;
+    _textureId = null;
+    if (textureId != null) {
+      try {
+        await _channel.invokeMethod<void>('dispose', {'textureId': textureId});
+      } on Object {
+        // Native texture may already be gone after an Android lifecycle change.
+      }
+    }
+  }
+
+  void _handleOrbitDrag(DragUpdateDetails details) {
+    _orbit = _orbit.dragged(details.delta);
+    _updateNativeTexture();
+  }
+
+  Future<void> _updateNativeTexture() async {
+    final textureId = _textureId;
+    if (textureId == null) {
+      return;
+    }
+    try {
+      await _channel.invokeMethod<void>('update', {
+        'textureId': textureId,
+        'cameraOrbit': _orbit.toCameraOrbit(),
+        'color': widget.vehicleColor.toARGB32(),
+      });
+    } on Object {
+      // Renderer updates are best-effort; Android can drop the texture on lifecycle changes.
+    }
+  }
+}
+
+class _NativeOrbit {
+  const _NativeOrbit({
+    required this.theta,
+    required this.phi,
+    required this.radiusPercent,
+  });
+
+  factory _NativeOrbit.parse(String value) {
+    final parts = value.split(' ');
+    double clean(int index, String suffix, double fallback) {
+      return double.tryParse(
+            parts.elementAtOrNull(index)?.replaceAll(suffix, '') ?? '',
+          ) ??
+          fallback;
+    }
+
+    return _NativeOrbit(
+      theta: clean(0, 'deg', 318),
+      phi: clean(1, 'deg', 70),
+      radiusPercent: clean(2, '%', 86),
+    );
+  }
+
+  final double theta;
+  final double phi;
+  final double radiusPercent;
+
+  _NativeOrbit dragged(Offset delta) {
+    return _NativeOrbit(
+      theta: (theta - delta.dx * 0.32) % 360,
+      phi: (phi + delta.dy * 0.18).clamp(42.0, 82.0),
+      radiusPercent: radiusPercent,
+    );
+  }
+
+  String toCameraOrbit() {
+    return '${theta.toStringAsFixed(2)}deg ${phi.toStringAsFixed(2)}deg '
+        '${radiusPercent.toStringAsFixed(2)}%';
+  }
+}
+
+Color _vehicleSceneBackground(BuildContext context) {
+  return _isLight(context) ? const Color(0xFFEAF2FA) : const Color(0xFF070B12);
+}
+
+class _NativeSceneLightWash extends StatelessWidget {
+  const _NativeSceneLightWash();
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0.06, 0.03),
+            radius: 0.82,
+            colors: light
+                ? [
+                    Colors.white.withValues(alpha: 0.22),
+                    _accentSoftBlue.withValues(alpha: 0.05),
+                    Colors.transparent,
+                  ]
+                : [
+                    _accentSoftBlue.withValues(alpha: 0.12),
+                    const Color(0xFF1A2A3A).withValues(alpha: 0.08),
+                    Colors.transparent,
+                  ],
+            stops: const [0.0, 0.42, 1.0],
+          ),
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: light
+                  ? [
+                      Colors.white.withValues(alpha: 0.10),
+                      Colors.transparent,
+                      const Color(0xFFBFD1E3).withValues(alpha: 0.08),
+                    ]
+                  : [
+                      Colors.white.withValues(alpha: 0.035),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.14),
+                    ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

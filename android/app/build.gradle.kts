@@ -45,4 +45,7 @@ flutter {
 
 dependencies {
     implementation(files("libs/byd-auto-api-stubs.jar"))
+    implementation("com.google.android.filament:filament-android:1.57.1")
+    implementation("com.google.android.filament:gltfio-android:1.57.1")
+    implementation("com.google.android.filament:filament-utils-android:1.57.1")
 }
