@@ -1150,7 +1150,7 @@ class _TpmsCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _GlassCard(
+    return Container(
       padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       child: Column(
         children: [
@@ -6082,10 +6082,12 @@ class _GlassCard extends StatelessWidget {
   const _GlassCard({
     required this.child,
     this.padding = const EdgeInsets.all(14),
+    this.showBorder = true,
   });
 
   final Widget child;
   final EdgeInsets padding;
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -6116,12 +6118,14 @@ class _GlassCard extends StatelessWidget {
                     ],
             ),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: light
-                  ? const Color(0xFFE7EEF6).withValues(alpha: 0.96)
-                  : Colors.white.withValues(alpha: 0.065),
-              width: light ? 1.1 : 1,
-            ),
+            border: showBorder
+                ? Border.all(
+                    color: light
+                        ? const Color(0xFFE7EEF6).withValues(alpha: 0.96)
+                        : Colors.white.withValues(alpha: 0.065),
+                    width: light ? 1.1 : 1,
+                  )
+                : null,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: light ? 0.055 : 0.13),
