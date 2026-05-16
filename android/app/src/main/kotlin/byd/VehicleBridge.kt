@@ -40,6 +40,7 @@ class VehicleBridge {
 
         fun register(binaryMessenger: BinaryMessenger, context: Context) {
             appContext = context.applicationContext
+            FileLogger.log(appContext, "VehicleBridge registered; package=${appContext.packageName}")
             MethodChannel(binaryMessenger, CHANNEL_NAME).setMethodCallHandler(::handleMethodCall)
             EventChannel(binaryMessenger, EVENT_CHANNEL_NAME).setStreamHandler(
                 object : EventChannel.StreamHandler {
@@ -57,6 +58,7 @@ class VehicleBridge {
         }
 
         private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
+            FileLogger.log(appContext, "VehicleBridge method: ${call.method}")
             when (call.method) {
                 "ping" -> result.success(true)
                 "getVehicleSnapshot" -> result.success(getVehicleSnapshot())
@@ -65,8 +67,10 @@ class VehicleBridge {
         }
 
         private fun getVehicleSnapshot(): Map<String, Any?> {
+            FileLogger.log(appContext, "Reading vehicle snapshot")
             ensureDeviceInstances()
             val bodyworkDevice = safe { BYDAutoBodyworkDevice.getInstance(appContext) }
+            FileLogger.log(appContext, "Device availability: speed=${speedDevice != null}, statistic=${statisticDevice != null}, tyre=${tyreDevice != null}, gearbox=${gearboxDevice != null}, ac=${acDevice != null}, bodywork=${bodyworkDevice != null}")
 
             val fuelRange = safe { statisticDevice?.getFuelDrivingRangeValue() }
                 ?.takeIf { it in 0..4095 }
@@ -77,6 +81,12 @@ class VehicleBridge {
             val batteryPercent = safe { statisticDevice?.getElecPercentageValue() }
                 ?.takeIf { it in 0.0..100.0 }
             val totalRange = listOfNotNull(fuelRange, electricRange).takeIf { it.isNotEmpty() }?.sum()
+            val speedValue = safe { speedDevice?.getCurrentSpeed() }?.takeIf { it in 0.0..300.0 }
+            val gearValue = safe { gearboxDevice?.getGearboxAutoModeType() }?.let(::gearLabel)
+            val outsideTemp = safe {
+                acDevice?.getTemprature(BYDAutoAcDevice.AC_TEMPERATURE_OUT)
+            }?.takeIf { it != BYDAutoAcDevice.AC_TEMP_INVALID && it in -40..80 }
+            FileLogger.log(appContext, "Vehicle values: speed=$speedValue, gear=$gearValue, fuelRange=$fuelRange, electricRange=$electricRange, fuelPercent=$fuelPercent, batteryPercent=$batteryPercent, outsideTemp=$outsideTemp")
 
             return mapOf(
                 "available" to listOf(
@@ -87,17 +97,14 @@ class VehicleBridge {
                     acDevice,
                     bodyworkDevice,
                 ).any { it != null },
-                "speedKmh" to safe { speedDevice?.getCurrentSpeed() }
-                    ?.takeIf { it in 0.0..300.0 },
-                "gear" to safe { gearboxDevice?.getGearboxAutoModeType() }?.let(::gearLabel),
+                "speedKmh" to speedValue,
+                "gear" to gearValue,
                 "rangeKm" to totalRange,
                 "fuelRangeKm" to fuelRange,
                 "electricRangeKm" to electricRange,
                 "fuelPercent" to fuelPercent,
                 "batteryPercent" to batteryPercent,
-                "outsideTemperatureC" to safe {
-                    acDevice?.getTemprature(BYDAutoAcDevice.AC_TEMPERATURE_OUT)
-                }?.takeIf { it != BYDAutoAcDevice.AC_TEMP_INVALID && it in -40..80 },
+                "outsideTemperatureC" to outsideTemp,
                 "powerLevel" to safe { bodyworkDevice?.getPowerLevel() },
                 "tpms" to mapOf(
                     "systemState" to safe { tyreDevice?.getTyreSystemState() },
@@ -111,15 +118,21 @@ class VehicleBridge {
         }
 
         private fun ensureDeviceInstances() {
+            FileLogger.log(appContext, "Ensuring BYD device instances")
             if (speedDevice == null) speedDevice = safe { BYDAutoSpeedDevice.getInstance(appContext) }
             if (statisticDevice == null) statisticDevice = safe { BYDAutoStatisticDevice.getInstance(appContext) }
             if (tyreDevice == null) tyreDevice = safe { BYDAutoTyreDevice.getInstance(appContext) }
             if (gearboxDevice == null) gearboxDevice = safe { BYDAutoGearboxDevice.getInstance(appContext) }
             if (acDevice == null) acDevice = safe { BYDAutoAcDevice.getInstance(appContext) }
+            FileLogger.log(appContext, "BYD devices after ensure: speed=${speedDevice != null}, statistic=${statisticDevice != null}, tyre=${tyreDevice != null}, gearbox=${gearboxDevice != null}, ac=${acDevice != null}")
         }
 
         private fun ensureListenersRegistered() {
-            if (listenersRegistered) return
+            if (listenersRegistered) {
+                FileLogger.log(appContext, "BYD listeners already registered")
+                return
+            }
+            FileLogger.log(appContext, "Registering BYD listeners")
             listenersRegistered = true
             ensureDeviceInstances()
             speedListener = safe { createSpeedListener() }
@@ -132,6 +145,7 @@ class VehicleBridge {
             tyreListener?.let { listener -> safe { tyreDevice?.registerListener(listener) } }
             gearboxListener?.let { listener -> safe { gearboxDevice?.registerListener(listener) } }
             acListener?.let { listener -> safe { acDevice?.registerListener(listener) } }
+            FileLogger.log(appContext, "BYD listener registration attempted")
         }
 
         private fun emitSnapshot() {
@@ -144,7 +158,7 @@ class VehicleBridge {
 
         private fun createSpeedListener(): AbsBYDAutoSpeedListener {
             return object : AbsBYDAutoSpeedListener() {
-                override fun onSpeedChanged(speed: Double) = emitSnapshot()
+                override fun onSpeedChanged(speed: Double) { FileLogger.log(appContext, "BYD speed changed: $speed"); emitSnapshot() }
                 override fun onAccelerateDeepnessChanged(value: Int) = emitSnapshot()
                 override fun onBrakeDeepnessChanged(value: Int) = emitSnapshot()
             }
@@ -161,7 +175,7 @@ class VehicleBridge {
 
         private fun createTyreListener(): AbsBYDAutoTyreListener {
             return object : AbsBYDAutoTyreListener() {
-                override fun onTyrePressureValueChanged(area: Int, value: Int) = emitSnapshot()
+                override fun onTyrePressureValueChanged(area: Int, value: Int) { FileLogger.log(appContext, "BYD tyre pressure changed: area=$area value=$value"); emitSnapshot() }
                 override fun onTyrePressureStateChanged(area: Int, value: Int) = emitSnapshot()
                 override fun onTyreAirLeakStateChanged(area: Int, value: Int) = emitSnapshot()
                 override fun onTyreSignalStateChanged(area: Int, value: Int) = emitSnapshot()
@@ -171,7 +185,7 @@ class VehicleBridge {
 
         private fun createGearboxListener(): AbsBYDAutoGearboxListener {
             return object : AbsBYDAutoGearboxListener() {
-                override fun onGearboxAutoModeTypeChanged(value: Int) = emitSnapshot()
+                override fun onGearboxAutoModeTypeChanged(value: Int) { FileLogger.log(appContext, "BYD gear changed: $value"); emitSnapshot() }
             }
         }
 
@@ -186,6 +200,7 @@ class VehicleBridge {
         private fun tyreSnapshot(device: BYDAutoTyreDevice?, area: Int): Map<String, Any?> {
             val pressureRaw = safe { device?.getTyrePressureValue(area) }
                 ?.takeIf { it in BYDAutoTyreDevice.TYRE_PRESSURE_VALUE_MIN..BYDAutoTyreDevice.TYRE_PRESSURE_VALUE_MAX }
+            FileLogger.log(appContext, "TPMS area=$area pressureRaw=$pressureRaw")
             return mapOf(
                 "pressureKpa" to pressureRaw,
                 "pressureBar" to pressureRaw?.let { it / 100.0 },
@@ -210,7 +225,14 @@ class VehicleBridge {
         private inline fun <T> safe(block: () -> T): T? {
             return try {
                 block()
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                try {
+                    FileLogger.log(
+                        appContext,
+                        "Vehicle API exception: ${e.javaClass.simpleName}: ${e.message}"
+                    )
+                } catch (_: Throwable) {
+                }
                 null
             }
         }

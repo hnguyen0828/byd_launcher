@@ -18,6 +18,7 @@ object AdbBridge {
 
     fun register(binaryMessenger: BinaryMessenger, context: Context) {
         appContext = context.applicationContext
+        FileLogger.log(appContext, "AdbBridge registered; package=${appContext.packageName}")
         MethodChannel(binaryMessenger, CHANNEL).setMethodCallHandler(::handleMethodCall)
     }
 
@@ -36,10 +37,23 @@ object AdbBridge {
      * - On BYD images that expose a shell bridge/privileged context, they can succeed silently.
      */
     fun runKinexStylePermissionSetup(context: Context): Map<String, Any?> {
+        FileLogger.log(context, "Starting Kinex-style permission setup; package=${context.packageName}")
         val commands = permissionCommands(context)
-        val results = commands.map { command -> runShell(command) }
+        FileLogger.log(context, "Permission command count: ${commands.size}")
+        val results = commands.map { command ->
+            FileLogger.log(context, "Running shell command: $command")
+            runShell(command)
+        }
+        results.forEach { result ->
+            FileLogger.log(
+                context,
+                "CMD result | exit=${result.exitCode} | started=${result.started} | command=${result.command} | output=${result.output}"
+            )
+        }
         val successCount = results.count { it.exitCode == 0 }
         val failed = results.filter { it.exitCode != 0 }
+
+        FileLogger.log(context, "Permission setup finished; success=$successCount/${results.size}; failed=${failed.size}")
 
         return mapOf(
             "ok" to failed.isEmpty(),
@@ -109,6 +123,9 @@ object AdbBridge {
                 output = output.take(4000),
             )
         } catch (error: Throwable) {
+            if (::appContext.isInitialized) {
+                FileLogger.log(appContext, "Shell command failed to start: $command | ${error.javaClass.simpleName}: ${error.message}")
+            }
             ShellCommandResult(
                 command = command,
                 started = false,

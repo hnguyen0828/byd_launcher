@@ -19,16 +19,19 @@ import java.io.ByteArrayOutputStream
 class MusicNotificationListenerService : android.service.notification.NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
+        try { FileLogger.log(applicationContext, "MusicNotificationListenerService connected") } catch (_: Throwable) {}
         MusicBridge.refreshFromNotificationListener()
     }
 
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification?) {
         super.onNotificationPosted(sbn)
+        try { FileLogger.log(applicationContext, "Notification posted: ${sbn?.packageName}") } catch (_: Throwable) {}
         MusicBridge.refreshFromNotificationListener()
     }
 
     override fun onNotificationRemoved(sbn: android.service.notification.StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
+        try { FileLogger.log(applicationContext, "Notification removed: ${sbn?.packageName}") } catch (_: Throwable) {}
         MusicBridge.refreshFromNotificationListener()
     }
 }
@@ -60,6 +63,7 @@ object MusicBridge {
 
     fun register(binaryMessenger: BinaryMessenger, context: Context) {
         appContext = context.applicationContext
+        FileLogger.log(appContext, "MusicBridge registered; package=${appContext.packageName}")
 
         MethodChannel(binaryMessenger, METHOD_CHANNEL).setMethodCallHandler(::handleMethodCall)
         EventChannel(binaryMessenger, EVENT_CHANNEL).setStreamHandler(
@@ -78,11 +82,13 @@ object MusicBridge {
 
     fun refreshFromNotificationListener() {
         if (::appContext.isInitialized) {
+            FileLogger.log(appContext, "Notification listener event received; refreshing music state")
             emitCurrentState()
         }
     }
 
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        FileLogger.log(appContext, "MusicBridge method: ${call.method}")
         when (call.method) {
             "getState" -> result.success(currentStateMap())
             "playPause" -> {
@@ -129,8 +135,11 @@ object MusicBridge {
     }
 
     private fun currentStateMap(): Map<String, Any?> {
+        FileLogger.log(appContext, "Reading music state")
         val hasPermission = isNotificationListenerEnabled()
+        FileLogger.log(appContext, "Music notification listener enabled: $hasPermission")
         val controller = selectController()
+        FileLogger.log(appContext, "Media controller exists: ${controller != null}; package=${controller?.packageName}")
         val metadata = controller?.metadata
         val playbackState = controller?.playbackState
         val actions = playbackState?.actions ?: 0L
@@ -177,7 +186,8 @@ object MusicBridge {
         return try {
             appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            FileLogger.log(appContext, "Open music app failed: ${e.javaClass.simpleName}: ${e.message}")
             false
         }
     }
@@ -193,9 +203,12 @@ object MusicBridge {
         val controllers =
             try {
                 manager.getActiveSessions(component)
-            } catch (_: SecurityException) {
+            } catch (e: SecurityException) {
+                FileLogger.log(appContext, "Media session security exception: ${e.javaClass.simpleName}: ${e.message}")
                 emptyList()
             }
+
+        FileLogger.log(appContext, "Active media sessions count: ${controllers.size}")
 
         val selected = controllers.firstOrNull {
             it.playbackState?.state == PlaybackState.STATE_PLAYING

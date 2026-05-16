@@ -23,11 +23,13 @@ object PermissionBridge {
 
     fun register(binaryMessenger: BinaryMessenger, context: Context, activity: Activity?) {
         appContext = context.applicationContext
+        FileLogger.log(appContext, "PermissionBridge registered; package=${appContext.packageName}")
         this.activity = activity
         MethodChannel(binaryMessenger, CHANNEL).setMethodCallHandler(::handleMethodCall)
     }
 
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        FileLogger.log(appContext, "PermissionBridge method: ${call.method}")
         when (call.method) {
             "getStatus" -> result.success(statusMap())
             "openPermissionSettings" -> {
@@ -44,26 +46,37 @@ object PermissionBridge {
     }
 
     private fun runOneTapPermissionSetup(): Map<String, Any?> {
+        FileLogger.log(appContext, "Grant all permissions clicked")
+        FileLogger.log(appContext, "Status before grant: ${rawStatusMap()}")
         requestPostNotificationsIfNeeded()
 
         val shellReport = AdbBridge.runKinexStylePermissionSetup(appContext)
+        FileLogger.log(appContext, "Shell report: $shellReport")
 
         // Fallback: if shell-level commands did not fully enable user-grantable permissions,
         // open the next relevant Settings page just like Kinex's visible permission flow.
+        FileLogger.log(appContext, "Overlay status after shell: ${Settings.canDrawOverlays(appContext)}")
+        FileLogger.log(appContext, "Notification listener status after shell: ${isNotificationListenerEnabled()}")
+
         if (!Settings.canDrawOverlays(appContext)) {
+            FileLogger.log(appContext, "Opening overlay settings fallback")
             openOverlaySettings()
         } else if (!isNotificationListenerEnabled()) {
+            FileLogger.log(appContext, "Opening notification listener settings fallback")
             openNotificationListenerSettings(preferDetail = true)
         }
 
+        val after = rawStatusMap()
+        FileLogger.log(appContext, "Status after grant flow: $after")
         return mapOf(
             "shell" to shellReport,
-            "statusAfter" to rawStatusMap(),
+            "statusAfter" to after,
         )
     }
 
     private fun statusMap(): Map<String, Any?> {
         val raw = rawStatusMap()
+        FileLogger.log(appContext, "Permission status requested: $raw")
         return mapOf(
             "musicAccess" to permissionItem(
                 ready = raw.musicReady,
@@ -139,11 +152,18 @@ object PermissionBridge {
     }
 
     private fun requestPostNotificationsIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33) return
+        if (Build.VERSION.SDK_INT < 33) {
+            FileLogger.log(appContext, "POST_NOTIFICATIONS not required on SDK ${Build.VERSION.SDK_INT}")
+            return
+        }
         val currentActivity = activity ?: return
         if (appContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        ) return
+        ) {
+            FileLogger.log(appContext, "POST_NOTIFICATIONS already granted")
+            return
+        }
+        FileLogger.log(appContext, "Requesting POST_NOTIFICATIONS runtime permission")
         currentActivity.requestPermissions(
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             REQUEST_POST_NOTIFICATIONS,
@@ -151,6 +171,7 @@ object PermissionBridge {
     }
 
     private fun openOverlaySettings() {
+        FileLogger.log(appContext, "Opening overlay settings")
         val intent = Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:${appContext.packageName}"),
@@ -159,6 +180,7 @@ object PermissionBridge {
     }
 
     private fun openNotificationListenerSettings(preferDetail: Boolean) {
+        FileLogger.log(appContext, "Opening notification listener settings; preferDetail=$preferDetail")
         val component = ComponentName(appContext, MusicNotificationListenerService::class.java)
         val intent = if (preferDetail && Build.VERSION.SDK_INT >= 30) {
             Intent("android.settings.NOTIFICATION_LISTENER_DETAIL_SETTINGS").apply {
@@ -179,6 +201,7 @@ object PermissionBridge {
     }
 
     private fun openAppDetailsSettings() {
+        FileLogger.log(appContext, "Opening app details settings")
         val intent = Intent(
             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
             Uri.parse("package:${appContext.packageName}"),
