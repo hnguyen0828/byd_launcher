@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -4092,6 +4093,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
             onDismiss: _hideHotspots,
             animationSeed: _hotspotAnimationSeed,
             allowTrunk: !widget.roadMotionActive,
+            cameraOrbit: focusedOrbit,
+            focusOffset: focusOffset,
+            focusScale: focusScale,
+            focusActive: _selectedHotspot != null && !widget.roadMotionActive,
           ),
         ],
       ),
@@ -4242,6 +4247,10 @@ class _VehicleHotspotLayer extends StatelessWidget {
     required this.onDismiss,
     required this.animationSeed,
     required this.allowTrunk,
+    required this.cameraOrbit,
+    required this.focusOffset,
+    required this.focusScale,
+    required this.focusActive,
   });
 
   final bool visible;
@@ -4252,6 +4261,191 @@ class _VehicleHotspotLayer extends StatelessWidget {
   final VoidCallback onDismiss;
   final int animationSeed;
   final bool allowTrunk;
+  final String cameraOrbit;
+  final Offset focusOffset;
+  final double focusScale;
+  final bool focusActive;
+
+
+  List<_HotspotSpec> _buildProjectedHotspots({
+    required BoxConstraints constraints,
+    required String cameraOrbit,
+    required Offset focusOffset,
+    required double focusScale,
+  }) {
+    final yaw = _cameraOrbitYawRadians(cameraOrbit);
+    final pitch = _cameraOrbitPitchDegrees(cameraOrbit);
+    final pitchTopDownT = ((72.0 - pitch) / 34.0).clamp(0.0, 1.0);
+    final vehicleCenter = Offset(
+      constraints.maxWidth * 0.50,
+      constraints.maxHeight * (0.455 + pitchTopDownT * 0.035),
+    );
+    final horizontalRadius = constraints.maxWidth * (0.235 + pitchTopDownT * 0.018);
+    final lengthRadius = constraints.maxHeight * (0.145 + pitchTopDownT * 0.038);
+    final heightLift = constraints.maxHeight * (0.155 + pitchTopDownT * 0.030);
+
+    Offset project(double carX, double carY, double carZ) {
+      final cosYaw = math.cos(yaw);
+      final sinYaw = math.sin(yaw);
+
+      // carX = left/right, carZ = rear/front.  We rotate this top-view point
+      // by the current camera yaw, then apply a small height lift for glass / roof.
+      // This is intentionally a screen-space projection, because the native
+      // renderer and model-viewer do not expose exact 3D-to-2D anchor points.
+      final rotatedX = carX * cosYaw - carZ * sinYaw;
+      final rotatedZ = carX * sinYaw + carZ * cosYaw;
+      final perspective = (1.0 + rotatedZ * 0.10).clamp(0.86, 1.16);
+      final local = Offset(
+        rotatedX * horizontalRadius / perspective,
+        rotatedZ * lengthRadius - carY * heightLift,
+      );
+      return vehicleCenter + local * focusScale + focusOffset;
+    }
+
+    Alignment sideAlignment(double carX, double carZ) {
+      final cosYaw = math.cos(yaw);
+      final sinYaw = math.sin(yaw);
+      final rotatedX = carX * cosYaw - carZ * sinYaw;
+      return rotatedX < 0 ? Alignment.centerLeft : Alignment.centerRight;
+    }
+
+    final rawSpots = <_HotspotSpec>[
+      _HotspotSpec(
+        hotspot: _VehicleHotspot.frontLeftWindow,
+        label: 'Front Left Window',
+        shortLabel: 'FL',
+        icon: Icons.window_outlined,
+        position: project(-0.50, 0.20, -0.34),
+        cardAlignment: sideAlignment(-0.50, -0.34),
+      ),
+      _HotspotSpec(
+        hotspot: _VehicleHotspot.frontRightWindow,
+        label: 'Front Right Window',
+        shortLabel: 'FR',
+        icon: Icons.window_outlined,
+        position: project(0.50, 0.20, -0.34),
+        cardAlignment: sideAlignment(0.50, -0.34),
+      ),
+      _HotspotSpec(
+        hotspot: _VehicleHotspot.rearLeftWindow,
+        label: 'Rear Left Window',
+        shortLabel: 'RL',
+        icon: Icons.window_outlined,
+        position: project(-0.50, 0.19, 0.22),
+        cardAlignment: sideAlignment(-0.50, 0.22),
+      ),
+      _HotspotSpec(
+        hotspot: _VehicleHotspot.rearRightWindow,
+        label: 'Rear Right Window',
+        shortLabel: 'RR',
+        icon: Icons.window_outlined,
+        position: project(0.50, 0.19, 0.22),
+        cardAlignment: sideAlignment(0.50, 0.22),
+      ),
+      _HotspotSpec(
+        hotspot: _VehicleHotspot.sunroof,
+        label: 'Sunroof',
+        shortLabel: 'Roof',
+        icon: Icons.roofing_outlined,
+        position: project(0.0, 0.78, -0.02),
+        wide: true,
+        cardAlignment: Alignment.topCenter,
+      ),
+      _HotspotSpec(
+        hotspot: _VehicleHotspot.trunk,
+        label: 'Trunk',
+        shortLabel: 'Trunk',
+        icon: Icons.airport_shuttle_outlined,
+        position: project(0.0, 0.06, 0.64),
+        cardAlignment: Alignment.centerLeft,
+      ),
+    ];
+
+    return _spreadOverlappingHotspots(rawSpots, constraints);
+  }
+
+  List<_HotspotSpec> _spreadOverlappingHotspots(
+    List<_HotspotSpec> spots,
+    BoxConstraints constraints,
+  ) {
+    final adjusted = spots.toList(growable: true);
+    const minDistance = 58.0;
+
+    for (var pass = 0; pass < 7; pass++) {
+      for (var i = 0; i < adjusted.length; i++) {
+        for (var j = i + 1; j < adjusted.length; j++) {
+          final a = adjusted[i];
+          final b = adjusted[j];
+          final delta = b.position - a.position;
+          final distance = delta.distance;
+          if (distance >= minDistance) continue;
+
+          final direction = distance < 0.01
+              ? Offset((j.isEven ? 1 : -1).toDouble(), 0.35)
+              : delta / distance;
+          final push = (minDistance - distance) * 0.52;
+          adjusted[i] = a.copyWith(
+            position: _clampHotspotPosition(
+              a.position - direction * push,
+              constraints,
+              a.wide,
+            ),
+          );
+          adjusted[j] = b.copyWith(
+            position: _clampHotspotPosition(
+              b.position + direction * push,
+              constraints,
+              b.wide,
+            ),
+          );
+        }
+      }
+    }
+
+    return adjusted
+        .map(
+          (spot) => spot.copyWith(
+            position: _clampHotspotPosition(
+              spot.position,
+              constraints,
+              spot.wide,
+            ),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Offset _clampHotspotPosition(
+    Offset position,
+    BoxConstraints constraints,
+    bool wide,
+  ) {
+    final horizontalPadding = wide ? 54.0 : 34.0;
+    const verticalPadding = 34.0;
+    return Offset(
+      position.dx.clamp(
+        horizontalPadding,
+        constraints.maxWidth - horizontalPadding,
+      ).toDouble(),
+      position.dy.clamp(
+        verticalPadding,
+        constraints.maxHeight - verticalPadding,
+      ).toDouble(),
+    );
+  }
+
+  double _cameraOrbitYawRadians(String orbit) {
+    final tokens = orbit.trim().split(RegExp(r'\s+'));
+    final token = tokens.isEmpty ? '318deg' : tokens.first;
+    final numeric = double.tryParse(token.replaceAll('deg', '')) ?? 318.0;
+    return numeric * math.pi / 180.0;
+  }
+
+  double _cameraOrbitPitchDegrees(String orbit) {
+    final tokens = orbit.trim().split(RegExp(r'\s+'));
+    if (tokens.length < 2) return 70.0;
+    return double.tryParse(tokens[1].replaceAll('deg', '')) ?? 70.0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4267,64 +4461,12 @@ class _VehicleHotspotLayer extends StatelessWidget {
         curve: Curves.easeOutCubic,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            Offset point(double x, double y) {
-              return Offset(
-                constraints.maxWidth * x,
-                constraints.maxHeight * y,
-              );
-            }
-
-            final spots = <_HotspotSpec>[
-              _HotspotSpec(
-                hotspot: _VehicleHotspot.frontLeftWindow,
-                label: 'Front Left Window',
-                shortLabel: 'FL',
-                icon: Icons.window_outlined,
-                position: point(0.46, 0.45),
-                cardAlignment: Alignment.centerLeft,
-              ),
-              _HotspotSpec(
-                hotspot: _VehicleHotspot.frontRightWindow,
-                label: 'Front Right Window',
-                shortLabel: 'FR',
-                icon: Icons.window_outlined,
-                position: point(0.63, 0.44),
-                cardAlignment: Alignment.centerRight,
-              ),
-              _HotspotSpec(
-                hotspot: _VehicleHotspot.rearLeftWindow,
-                label: 'Rear Left Window',
-                shortLabel: 'RL',
-                icon: Icons.window_outlined,
-                position: point(0.39, 0.38),
-                cardAlignment: Alignment.centerLeft,
-              ),
-              _HotspotSpec(
-                hotspot: _VehicleHotspot.rearRightWindow,
-                label: 'Rear Right Window',
-                shortLabel: 'RR',
-                icon: Icons.window_outlined,
-                position: point(0.55, 0.36),
-                cardAlignment: Alignment.centerRight,
-              ),
-              _HotspotSpec(
-                hotspot: _VehicleHotspot.sunroof,
-                label: 'Sunroof',
-                shortLabel: 'Roof',
-                icon: Icons.roofing_outlined,
-                position: point(0.50, 0.29),
-                wide: true,
-                cardAlignment: Alignment.topCenter,
-              ),
-              _HotspotSpec(
-                hotspot: _VehicleHotspot.trunk,
-                label: 'Trunk',
-                shortLabel: 'Trunk',
-                icon: Icons.airport_shuttle_outlined,
-                position: point(0.31, 0.47),
-                cardAlignment: Alignment.centerLeft,
-              ),
-            ];
+            final spots = _buildProjectedHotspots(
+              constraints: constraints,
+              cameraOrbit: cameraOrbit,
+              focusOffset: focusActive ? focusOffset : Offset.zero,
+              focusScale: focusActive ? focusScale : 1.0,
+            );
             final visibleSpots = allowTrunk
                 ? spots
                 : spots
@@ -4347,7 +4489,8 @@ class _VehicleHotspotLayer extends StatelessWidget {
                           center: const Alignment(0.12, -0.10),
                           radius: 0.62,
                           colors: [
-                            Colors.black.withValues(alpha: 0.10),
+                            (_isLight(context) ? Colors.white : Colors.black)
+                                .withValues(alpha: _isLight(context) ? 0.12 : 0.10),
                             Colors.transparent,
                           ],
                         ),
@@ -4419,12 +4562,18 @@ class _HotspotFocusRipple extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: _accentSoftBlue.withValues(alpha: 0.72),
+                      color: (_isLight(context)
+                              ? const Color(0xFF5AA9FF)
+                              : _accentSoftBlue)
+                          .withValues(alpha: 0.72),
                       width: 1.4,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: _accentSoftBlue.withValues(alpha: 0.28),
+                        color: (_isLight(context)
+                                ? const Color(0xFF5AA9FF)
+                                : _accentSoftBlue)
+                            .withValues(alpha: _isLight(context) ? 0.18 : 0.28),
                         blurRadius: 24,
                         spreadRadius: 2,
                       ),
@@ -4458,6 +4607,18 @@ class _HotspotSpec {
   final Offset position;
   final Alignment cardAlignment;
   final bool wide;
+
+  _HotspotSpec copyWith({Offset? position, Alignment? cardAlignment}) {
+    return _HotspotSpec(
+      hotspot: hotspot,
+      label: label,
+      shortLabel: shortLabel,
+      icon: icon,
+      position: position ?? this.position,
+      cardAlignment: cardAlignment ?? this.cardAlignment,
+      wide: wide,
+    );
+  }
 }
 
 class _VehicleHotspotButton extends StatelessWidget {
@@ -4503,31 +4664,44 @@ class _VehicleHotspotButton extends StatelessWidget {
             height: height,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              gradient: RadialGradient(
-                colors: [
-                  _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.28),
-                  const Color(
-                    0xFF08111B,
-                  ).withValues(alpha: light ? 0.34 : 0.72),
-                ],
-              ),
+              gradient: light
+                  ? RadialGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: selected ? 0.98 : 0.90),
+                        const Color(0xFFEAF3FC).withValues(alpha: 0.92),
+                      ],
+                    )
+                  : RadialGradient(
+                      colors: [
+                        _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.28),
+                        const Color(0xFF08111B).withValues(alpha: 0.72),
+                      ],
+                    ),
               border: Border.all(
-                color: _accentSoftBlue.withValues(
-                  alpha: selected ? 0.76 : 0.44,
-                ),
+                color: light
+                    ? const Color(0xFF9ACBFF).withValues(
+                        alpha: selected ? 0.86 : 0.58,
+                      )
+                    : _accentSoftBlue.withValues(
+                        alpha: selected ? 0.76 : 0.44,
+                      ),
                 width: selected ? 1.6 : 1.1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: _accentSoftBlue.withValues(
-                    alpha: selected ? 0.44 : 0.26,
-                  ),
+                  color: light
+                      ? const Color(0xFF5AA9FF).withValues(
+                          alpha: selected ? 0.24 : 0.14,
+                        )
+                      : _accentSoftBlue.withValues(
+                          alpha: selected ? 0.44 : 0.26,
+                        ),
                   blurRadius: selected ? 24 : 16,
                   spreadRadius: selected ? 2 : 0,
                 ),
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: light ? 0.10 : 0.22),
-                  blurRadius: 18,
+                  color: Colors.black.withValues(alpha: light ? 0.12 : 0.22),
+                  blurRadius: light ? 20 : 18,
                   offset: const Offset(0, 8),
                 ),
               ],
@@ -4544,7 +4718,7 @@ class _VehicleHotspotButton extends StatelessWidget {
                       value: animatedProgress,
                       strokeWidth: 2.2,
                       color: const Color(0xFF64E58A),
-                      backgroundColor: Colors.white.withValues(alpha: 0.10),
+                      backgroundColor: (light ? const Color(0xFFD6E5F4) : Colors.white).withValues(alpha: light ? 0.86 : 0.10),
                     );
                   },
                 ),
@@ -4554,7 +4728,7 @@ class _VehicleHotspotButton extends StatelessWidget {
                         style: _sharp(
                           context,
                           Theme.of(context).textTheme.labelSmall,
-                          color: _textPrimary,
+                          color: light ? const Color(0xFF1F4F7A) : _textPrimary,
                           weight: FontWeight.w800,
                           size: 11,
                           letterSpacing: 0.4,
@@ -4562,7 +4736,7 @@ class _VehicleHotspotButton extends StatelessWidget {
                       )
                     : Icon(
                         spec.icon,
-                        color: _tone(context, _textPrimary),
+                        color: light ? const Color(0xFF1F4F7A) : _tone(context, _textPrimary),
                         size: 20,
                       ),
               ],
