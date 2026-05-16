@@ -1614,9 +1614,7 @@ class _MediaWidgetState extends State<_MediaWidget>
               const SizedBox(width: 22),
               InkWell(
                 customBorder: const CircleBorder(),
-                onTap: _state.hasController
-                    ? () => _invoke('playPause')
-                    : _openMusicApp,
+                onTap: () => _invoke('playPause'),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOutCubic,
