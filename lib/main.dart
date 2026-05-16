@@ -438,6 +438,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           effectiveGear: _effectiveGear,
                           vehicleSpeedKmh: _effectiveSpeedKmh,
                           vehicleSnapshot: _vehicleSnapshot,
+                          vehicleColor: _vehicleColor,
                           onGearChanged: _setGear,
                         ),
                       ),
@@ -453,7 +454,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           roadMotionActive: _roadMotionActive,
                           reverseRoadMotion: _reverseRoadMotion,
                           vehicleSpeedKmh: _effectiveSpeedKmh,
+                          effectiveGear: _effectiveGear,
                           vehicleSnapshot: _vehicleSnapshot,
+                          onGearChanged: _setGear,
                           onViewChanged: (view) => setState(() => _view = view),
                           onTabChanged: _handleTabChanged,
                           onVehicleColorChanged: _setVehicleColor,
@@ -660,6 +663,7 @@ class _LeftDashboard extends StatelessWidget {
     required this.effectiveGear,
     required this.vehicleSpeedKmh,
     required this.vehicleSnapshot,
+    required this.vehicleColor,
     required this.onGearChanged,
   });
 
@@ -667,6 +671,7 @@ class _LeftDashboard extends StatelessWidget {
   final _VehicleGear effectiveGear;
   final double vehicleSpeedKmh;
   final _VehicleSnapshot vehicleSnapshot;
+  final Color vehicleColor;
   final ValueChanged<_VehicleGear> onGearChanged;
 
   @override
@@ -724,12 +729,14 @@ class _LeftDashboard extends StatelessWidget {
                     outsideTemperatureC: vehicleSnapshot.outsideTemperatureC,
                   ),
                   const SizedBox(height: 10),
-                  _SpeedCluster(
-                    selectedGear: effectiveGear,
-                    vehicleSpeedKmh: vehicleSpeedKmh,
-                    onGearChanged: onGearChanged,
+                  SizedBox(
+                    height: 214,
+                    child: _TpmsCluster(
+                      vehicleColor: vehicleColor,
+                      snapshot: vehicleSnapshot,
+                    ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
                   const SizedBox(height: 168, child: _MediaWidget()),
                   const SizedBox(height: 10),
                   _EnergyStrip(snapshot: vehicleSnapshot),
@@ -994,6 +1001,147 @@ class _GearText extends StatelessWidget {
   }
 }
 
+
+class _PremiumSpeedGearCluster extends StatelessWidget {
+  const _PremiumSpeedGearCluster({
+    required this.selectedGear,
+    required this.vehicleSpeedKmh,
+    required this.onGearChanged,
+  });
+
+  final _VehicleGear selectedGear;
+  final double vehicleSpeedKmh;
+  final ValueChanged<_VehicleGear> onGearChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final ringColor = light
+        ? const Color(0xFF2F80ED).withValues(alpha: 0.20)
+        : _accentSoftBlue.withValues(alpha: 0.22);
+
+    return Padding(
+      padding: const EdgeInsets.all(4),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    _accentSoftBlue.withValues(alpha: light ? 0.12 : 0.10),
+                    Colors.transparent,
+                  ],
+                ),
+                border: Border.all(color: ringColor, width: 1.4),
+                boxShadow: [
+                  BoxShadow(
+                    color: _accentSoftBlue.withValues(alpha: light ? 0.14 : 0.08),
+                    blurRadius: 24,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: light
+                        ? Colors.white.withValues(alpha: 0.74)
+                        : Colors.white.withValues(alpha: 0.075),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: vehicleSpeedKmh),
+                duration: const Duration(milliseconds: 620),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) {
+                  return Text(
+                    value.round().toString(),
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.displayMedium,
+                      color: _textPrimary,
+                      weight: FontWeight.w300,
+                      size: 58,
+                      height: 0.86,
+                      letterSpacing: -1.8,
+                    ),
+                  );
+                },
+              ),
+              Text(
+                'km/h',
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textSecondary,
+                  weight: FontWeight.w600,
+                  size: 12,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: light
+                      ? Colors.white.withValues(alpha: 0.58)
+                      : Colors.black.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: light
+                        ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                        : Colors.white.withValues(alpha: 0.055),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _GearText(
+                      'P',
+                      active: selectedGear == _VehicleGear.p,
+                      onTap: () => onGearChanged(_VehicleGear.p),
+                    ),
+                    _GearText(
+                      'R',
+                      active: selectedGear == _VehicleGear.r,
+                      onTap: () => onGearChanged(_VehicleGear.r),
+                    ),
+                    _GearText(
+                      'N',
+                      active: selectedGear == _VehicleGear.n,
+                      onTap: () => onGearChanged(_VehicleGear.n),
+                    ),
+                    _GearText(
+                      'D',
+                      active: selectedGear == _VehicleGear.d,
+                      onTap: () => onGearChanged(_VehicleGear.d),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TpmsCluster extends StatelessWidget {
   const _TpmsCluster({required this.vehicleColor, required this.snapshot});
 
@@ -1018,29 +1166,11 @@ class _TpmsCluster extends StatelessWidget {
                 'TPMS',
                 style: _sharp(
                   context,
-                  Theme.of(context).textTheme.titleSmall,
-                  color: _textPrimary,
-                  weight: FontWeight.w700,
-                  size: 13,
-                  letterSpacing: 0.45,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF25D366).withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Normal',
-                  style: _sharp(
-                    context,
-                    Theme.of(context).textTheme.labelSmall,
-                    color: const Color(0xFF64E58A),
-                    weight: FontWeight.w600,
-                    size: 10,
-                  ),
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textMuted,
+                  weight: FontWeight.w500,
+                  size: 12,
+                  letterSpacing: 0.2,
                 ),
               ),
             ],
@@ -1049,13 +1179,20 @@ class _TpmsCluster extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
+                final carWidth = constraints.maxWidth >= 280 ? 96.0 : 82.0;
+                final lineWidth = constraints.maxWidth >= 280 ? 46.0 : 32.0;
+                final lineTop = constraints.maxHeight * 0.27;
+                final lineBottom = constraints.maxHeight * 0.27;
+                final leftLine = math.max(62.0, constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8);
+                final rightLine = math.max(62.0, constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8);
+
                 return Stack(
                   alignment: Alignment.center,
                   children: [
                     Positioned.fill(
                       child: Center(
                         child: SizedBox(
-                          width: 82,
+                          width: carWidth,
                           height: constraints.maxHeight * 0.94,
                           child: _TintedTpmsVehicleImage(
                             vehicleColor: vehicleColor,
@@ -1099,25 +1236,25 @@ class _TpmsCluster extends StatelessWidget {
                       ),
                     ),
 
-                    const Positioned(
-                      left: 62,
-                      top: 44,
-                      child: _TpmsLine(width: 32),
+                    Positioned(
+                      left: leftLine,
+                      top: lineTop,
+                      child: _TpmsLine(width: lineWidth),
                     ),
-                    const Positioned(
-                      right: 62,
-                      top: 44,
-                      child: _TpmsLine(width: 32, flip: true),
+                    Positioned(
+                      right: rightLine,
+                      top: lineTop,
+                      child: _TpmsLine(width: lineWidth, flip: true),
                     ),
-                    const Positioned(
-                      left: 62,
-                      bottom: 44,
-                      child: _TpmsLine(width: 32),
+                    Positioned(
+                      left: leftLine,
+                      bottom: lineBottom,
+                      child: _TpmsLine(width: lineWidth),
                     ),
-                    const Positioned(
-                      right: 62,
-                      bottom: 44,
-                      child: _TpmsLine(width: 32, flip: true),
+                    Positioned(
+                      right: rightLine,
+                      bottom: lineBottom,
+                      child: _TpmsLine(width: lineWidth, flip: true),
                     ),
                   ],
                 );
@@ -1797,7 +1934,11 @@ class _EnergyLevel extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(icon, color: _textSecondary, size: 16),
+            Icon(
+              icon,
+              color: _isLight(context) ? const Color(0xFF475569) : _textSecondary,
+              size: 16,
+            ),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
@@ -1832,7 +1973,9 @@ class _EnergyLevel extends StatelessWidget {
             value: progress,
             minHeight: 4,
             color: color,
-            backgroundColor: const Color(0xFF293241),
+            backgroundColor: _isLight(context)
+                ? const Color(0xFFD4E0EB)
+                : const Color(0xFF293241),
           ),
         ),
       ],
@@ -1851,7 +1994,9 @@ class _VehicleCanvas extends StatelessWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.effectiveGear,
     required this.vehicleSnapshot,
+    required this.onGearChanged,
     required this.onViewChanged,
     required this.onTabChanged,
     required this.onVehicleColorChanged,
@@ -1876,7 +2021,9 @@ class _VehicleCanvas extends StatelessWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final _VehicleGear effectiveGear;
   final _VehicleSnapshot vehicleSnapshot;
+  final ValueChanged<_VehicleGear> onGearChanged;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
@@ -1968,10 +2115,11 @@ class _VehicleCanvas extends StatelessWidget {
               top: 12,
               right: 0,
               width: 212,
-              height: 172,
-              child: _TpmsCluster(
-                vehicleColor: vehicleColor,
-                snapshot: vehicleSnapshot,
+              height: 212,
+              child: _PremiumSpeedGearCluster(
+                selectedGear: effectiveGear,
+                vehicleSpeedKmh: vehicleSpeedKmh,
+                onGearChanged: onGearChanged,
               ),
             ),
           Positioned(
@@ -4119,7 +4267,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
       _VehicleHotspot.rearLeftWindow => '286deg 66deg 68%',
       _VehicleHotspot.rearRightWindow => '064deg 66deg 68%',
       _VehicleHotspot.sunroof => '0deg 38deg 66%',
-      _VehicleHotspot.trunk => '172deg 66deg 68%',
+      _VehicleHotspot.trunk => '180deg 66deg 69%',
     };
   }
 
@@ -4139,7 +4287,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
       _VehicleHotspot.rearLeftWindow => const Offset(70, 8),
       _VehicleHotspot.rearRightWindow => const Offset(-70, 8),
       _VehicleHotspot.sunroof => const Offset(0, 46),
-      _VehicleHotspot.trunk => const Offset(78, 10),
+      _VehicleHotspot.trunk => const Offset(0, 12),
     };
   }
 
@@ -4356,8 +4504,11 @@ class _VehicleHotspotLayer extends StatelessWidget {
         label: 'Trunk',
         shortLabel: 'Trunk',
         icon: Icons.airport_shuttle_outlined,
-        position: project(0.0, 0.06, 0.64),
-        cardAlignment: Alignment.centerLeft,
+        // The Sealion 6 GLB is oriented with its tail on the negative Z side
+        // in this projected overlay. The old +Z anchor placed Trunk near the
+        // vehicle nose, so keep this anchor on the rear/tail end instead.
+        position: project(0.0, -0.02, -0.92),
+        cardAlignment: Alignment.topCenter,
       ),
     ];
 
