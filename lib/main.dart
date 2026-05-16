@@ -1001,6 +1001,7 @@ class _GearText extends StatelessWidget {
   }
 }
 
+
 class _PremiumSpeedGearCluster extends StatelessWidget {
   const _PremiumSpeedGearCluster({
     required this.selectedGear,
@@ -1037,9 +1038,7 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                 border: Border.all(color: ringColor, width: 1.4),
                 boxShadow: [
                   BoxShadow(
-                    color: _accentSoftBlue.withValues(
-                      alpha: light ? 0.14 : 0.08,
-                    ),
+                    color: _accentSoftBlue.withValues(alpha: light ? 0.14 : 0.08),
                     blurRadius: 24,
                     spreadRadius: 1,
                   ),
@@ -1184,14 +1183,8 @@ class _TpmsCluster extends StatelessWidget {
                 final lineWidth = constraints.maxWidth >= 280 ? 46.0 : 32.0;
                 final lineTop = constraints.maxHeight * 0.27;
                 final lineBottom = constraints.maxHeight * 0.27;
-                final leftLine = math.max(
-                  62.0,
-                  constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
-                );
-                final rightLine = math.max(
-                  62.0,
-                  constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
-                );
+                final leftLine = math.max(62.0, constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8);
+                final rightLine = math.max(62.0, constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8);
 
                 return Stack(
                   alignment: Alignment.center,
@@ -1943,9 +1936,7 @@ class _EnergyLevel extends StatelessWidget {
           children: [
             Icon(
               icon,
-              color: _isLight(context)
-                  ? const Color(0xFF475569)
-                  : _textSecondary,
+              color: _isLight(context) ? const Color(0xFF475569) : _textSecondary,
               size: 16,
             ),
             const SizedBox(width: 6),
@@ -3134,19 +3125,26 @@ class _SettingsPermissionColumn extends StatefulWidget {
 
 class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     with WidgetsBindingObserver {
-  Map<String, _PermissionStatus> _permissionStatuses =
+  static const String _permissionCachePrefix = 'launcher.permission.';
+  static Map<String, _PermissionStatus> _cachedPermissionStatuses =
       _PermissionStatus.defaults;
+
+  Map<String, _PermissionStatus> _permissionStatuses =
+      _cachedPermissionStatuses;
   bool _grantInProgress = false;
+  Timer? _permissionRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _refreshPermissionStatus();
+    _loadCachedPermissionStatus();
+    _schedulePermissionRefresh();
   }
 
   @override
   void dispose() {
+    _permissionRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -3154,22 +3152,131 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _refreshPermissionStatus();
+      _schedulePermissionRefresh();
     }
+  }
+
+  Future<void> _loadCachedPermissionStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = Map<String, _PermissionStatus>.from(
+        _cachedPermissionStatuses,
+      );
+
+      for (final key in cached.keys.toList()) {
+        final ready = prefs.getBool('$_permissionCachePrefix$key.ready');
+        final status = prefs.getString('$_permissionCachePrefix$key.status');
+        final systemOnly = prefs.getBool('$_permissionCachePrefix$key.systemOnly');
+
+        if (ready != null || status != null || systemOnly != null) {
+          final fallback = cached[key] ?? _PermissionStatus.defaults[key]!;
+          cached[key] = _PermissionStatus(
+            ready: ready ?? fallback.ready,
+            status: status ?? fallback.status,
+            systemOnly: systemOnly ?? fallback.systemOnly,
+          );
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _permissionStatuses = cached;
+        _cachedPermissionStatuses = cached;
+      });
+    } catch (_) {
+      // Keep in-memory cache when SharedPreferences is temporarily unavailable.
+    }
+  }
+
+  void _schedulePermissionRefresh() {
+    _permissionRefreshTimer?.cancel();
+    _permissionRefreshTimer = Timer(const Duration(milliseconds: 250), () {
+      unawaited(_refreshPermissionStatus());
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_refreshPermissionStatus());
+      }
+    });
+  }
+
+  Map<String, dynamic>? _normalizePermissionMap(Object? raw) {
+    if (raw is! Map) return null;
+    return raw.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  Map<String, _PermissionStatus> _mergePermissionStatuses(
+    Map<String, _PermissionStatus> current,
+    Map<String, _PermissionStatus> incoming,
+  ) {
+    final merged = Map<String, _PermissionStatus>.from(_PermissionStatus.defaults)
+      ..addAll(incoming);
+
+    for (final key in const ['musicAccess', 'systemOverlay']) {
+      final previous = current[key];
+      final next = merged[key];
+
+      // On BYD head units these checks can briefly return false while Settings
+      // or the notification/overlay service is rebinding. Avoid flashing a
+      // granted permission back to unchecked when the user just navigates away
+      // and returns to Settings.
+      if (previous?.ready == true && next?.ready != true) {
+        merged[key] = previous!;
+      }
+    }
+
+    return merged;
+  }
+
+  Future<void> _savePermissionStatusCache(
+    Map<String, _PermissionStatus> statuses,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final entry in statuses.entries) {
+        await prefs.setBool(
+          '$_permissionCachePrefix${entry.key}.ready',
+          entry.value.ready,
+        );
+        await prefs.setString(
+          '$_permissionCachePrefix${entry.key}.status',
+          entry.value.status,
+        );
+        await prefs.setBool(
+          '$_permissionCachePrefix${entry.key}.systemOnly',
+          entry.value.systemOnly,
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _applyPermissionStatusMap(
+    Object? raw, {
+    bool preserveGranted = true,
+  }) async {
+    final parsed = _PermissionStatus.fromStatusMap(_normalizePermissionMap(raw));
+    final merged = preserveGranted
+        ? _mergePermissionStatuses(_permissionStatuses, parsed)
+        : parsed;
+
+    _cachedPermissionStatuses = merged;
+    await _savePermissionStatusCache(merged);
+
+    if (!mounted) return;
+    setState(() => _permissionStatuses = merged);
   }
 
   Future<void> _refreshPermissionStatus() async {
     try {
-      final data = await _permissionChannel.invokeMapMethod<String, dynamic>(
-        'getStatus',
-      );
-      if (!mounted) return;
-      setState(() {
-        _permissionStatuses = _PermissionStatus.fromStatusMap(data);
-      });
+      final data = await _permissionChannel.invokeMethod<Object?>('getStatus');
+      await _applyPermissionStatusMap(data);
     } catch (_) {
+      // Do not reset to defaults on a transient channel failure. This was the
+      // reason Music/Overlay looked checked right after grant, then unchecked
+      // after leaving Settings and coming back.
       if (!mounted) return;
-      setState(() => _permissionStatuses = _PermissionStatus.defaults);
+      setState(() => _permissionStatuses = _cachedPermissionStatuses);
     }
   }
 
@@ -3177,11 +3284,19 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     if (_grantInProgress) return;
     setState(() => _grantInProgress = true);
     try {
-      await _permissionChannel.invokeMethod<Object?>(
+      final result = await _permissionChannel.invokeMethod<Object?>(
         'grantRecommendedPermissions',
       );
+      await _applyPermissionStatusMap(result);
       await _refreshPermissionStatus();
+      _permissionRefreshTimer?.cancel();
+      _permissionRefreshTimer = Timer(const Duration(milliseconds: 900), () {
+        if (mounted) {
+          unawaited(_refreshPermissionStatus());
+        }
+      });
     } catch (_) {
+      await _refreshPermissionStatus();
     } finally {
       if (mounted) {
         setState(() => _grantInProgress = false);
@@ -3196,13 +3311,9 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     final vehicle = _permissionStatuses['vehicleData']!;
     final navigation = _permissionStatuses['navigationEmbed']!;
     final internet = _permissionStatuses['internet']!;
-    final readyCount = [
-      music,
-      overlay,
-      vehicle,
-      navigation,
-      internet,
-    ].where((status) => status.ready).length;
+    final readyCount = [music, overlay, vehicle, navigation, internet]
+        .where((status) => status.ready)
+        .length;
     final allReady = readyCount == 5;
 
     return _GlassCard(
@@ -3231,11 +3342,22 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
             label: _grantInProgress
                 ? 'Checking permissions'
                 : allReady
-                ? 'Permissions ready'
-                : 'Grant all permissions',
+                    ? 'Permissions ready'
+                    : 'Grant all permissions',
             onPressed: _grantRecommendedPermissions,
           ),
           const SizedBox(height: 12),
+          Text(
+            'If BYD system permissions still show System only after tapping, the head unit may require shell/OEM whitelist. The app will still open the required setting page when direct grant is blocked.',
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.bodySmall,
+              color: _textMuted,
+              weight: FontWeight.w500,
+              size: 11.5,
+              height: 1.32,
+            ),
+          ),
         ],
       ),
     );
@@ -3357,10 +3479,7 @@ class _PermissionStatusChip extends StatelessWidget {
         border: Border.all(
           color: ready
               ? color.withValues(alpha: light ? 0.26 : 0.22)
-              : _tone(
-                  context,
-                  _textMuted,
-                ).withValues(alpha: light ? 0.18 : 0.14),
+              : _tone(context, _textMuted).withValues(alpha: light ? 0.18 : 0.14),
         ),
       ),
       child: Row(
@@ -4542,6 +4661,7 @@ class _VehicleHotspotLayer extends StatelessWidget {
   final double focusScale;
   final bool focusActive;
 
+
   List<_HotspotSpec> _buildProjectedHotspots({
     required BoxConstraints constraints,
     required String cameraOrbit,
@@ -4555,10 +4675,8 @@ class _VehicleHotspotLayer extends StatelessWidget {
       constraints.maxWidth * 0.50,
       constraints.maxHeight * (0.455 + pitchTopDownT * 0.035),
     );
-    final horizontalRadius =
-        constraints.maxWidth * (0.235 + pitchTopDownT * 0.018);
-    final lengthRadius =
-        constraints.maxHeight * (0.145 + pitchTopDownT * 0.038);
+    final horizontalRadius = constraints.maxWidth * (0.235 + pitchTopDownT * 0.018);
+    final lengthRadius = constraints.maxHeight * (0.145 + pitchTopDownT * 0.038);
     final heightLift = constraints.maxHeight * (0.155 + pitchTopDownT * 0.030);
 
     Offset project(double carX, double carY, double carZ) {
@@ -4703,12 +4821,14 @@ class _VehicleHotspotLayer extends StatelessWidget {
     final horizontalPadding = wide ? 54.0 : 34.0;
     const verticalPadding = 34.0;
     return Offset(
-      position.dx
-          .clamp(horizontalPadding, constraints.maxWidth - horizontalPadding)
-          .toDouble(),
-      position.dy
-          .clamp(verticalPadding, constraints.maxHeight - verticalPadding)
-          .toDouble(),
+      position.dx.clamp(
+        horizontalPadding,
+        constraints.maxWidth - horizontalPadding,
+      ).toDouble(),
+      position.dy.clamp(
+        verticalPadding,
+        constraints.maxHeight - verticalPadding,
+      ).toDouble(),
     );
   }
 
@@ -4768,9 +4888,7 @@ class _VehicleHotspotLayer extends StatelessWidget {
                           radius: 0.62,
                           colors: [
                             (_isLight(context) ? Colors.white : Colors.black)
-                                .withValues(
-                                  alpha: _isLight(context) ? 0.12 : 0.10,
-                                ),
+                                .withValues(alpha: _isLight(context) ? 0.12 : 0.10),
                             Colors.transparent,
                           ],
                         ),
@@ -4842,22 +4960,18 @@ class _HotspotFocusRipple extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color:
-                          (_isLight(context)
-                                  ? const Color(0xFF5AA9FF)
-                                  : _accentSoftBlue)
-                              .withValues(alpha: 0.72),
+                      color: (_isLight(context)
+                              ? const Color(0xFF5AA9FF)
+                              : _accentSoftBlue)
+                          .withValues(alpha: 0.72),
                       width: 1.4,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color:
-                            (_isLight(context)
-                                    ? const Color(0xFF5AA9FF)
-                                    : _accentSoftBlue)
-                                .withValues(
-                                  alpha: _isLight(context) ? 0.18 : 0.28,
-                                ),
+                        color: (_isLight(context)
+                                ? const Color(0xFF5AA9FF)
+                                : _accentSoftBlue)
+                            .withValues(alpha: _isLight(context) ? 0.18 : 0.28),
                         blurRadius: 24,
                         spreadRadius: 2,
                       ),
@@ -4957,26 +5071,26 @@ class _VehicleHotspotButton extends StatelessWidget {
                     )
                   : RadialGradient(
                       colors: [
-                        _accentSoftBlue.withValues(
-                          alpha: selected ? 0.44 : 0.28,
-                        ),
+                        _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.28),
                         const Color(0xFF08111B).withValues(alpha: 0.72),
                       ],
                     ),
               border: Border.all(
                 color: light
-                    ? const Color(
-                        0xFF9ACBFF,
-                      ).withValues(alpha: selected ? 0.86 : 0.58)
-                    : _accentSoftBlue.withValues(alpha: selected ? 0.76 : 0.44),
+                    ? const Color(0xFF9ACBFF).withValues(
+                        alpha: selected ? 0.86 : 0.58,
+                      )
+                    : _accentSoftBlue.withValues(
+                        alpha: selected ? 0.76 : 0.44,
+                      ),
                 width: selected ? 1.6 : 1.1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: light
-                      ? const Color(
-                          0xFF5AA9FF,
-                        ).withValues(alpha: selected ? 0.24 : 0.14)
+                      ? const Color(0xFF5AA9FF).withValues(
+                          alpha: selected ? 0.24 : 0.14,
+                        )
                       : _accentSoftBlue.withValues(
                           alpha: selected ? 0.44 : 0.26,
                         ),
@@ -5002,9 +5116,7 @@ class _VehicleHotspotButton extends StatelessWidget {
                       value: animatedProgress,
                       strokeWidth: 2.2,
                       color: const Color(0xFF64E58A),
-                      backgroundColor:
-                          (light ? const Color(0xFFD6E5F4) : Colors.white)
-                              .withValues(alpha: light ? 0.86 : 0.10),
+                      backgroundColor: (light ? const Color(0xFFD6E5F4) : Colors.white).withValues(alpha: light ? 0.86 : 0.10),
                     );
                   },
                 ),
@@ -5022,9 +5134,7 @@ class _VehicleHotspotButton extends StatelessWidget {
                       )
                     : Icon(
                         spec.icon,
-                        color: light
-                            ? const Color(0xFF1F4F7A)
-                            : _tone(context, _textPrimary),
+                        color: light ? const Color(0xFF1F4F7A) : _tone(context, _textPrimary),
                         size: 20,
                       ),
               ],
