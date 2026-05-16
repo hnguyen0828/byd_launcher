@@ -702,22 +702,22 @@ class _LeftDashboard extends StatelessWidget {
               borderRadius: BorderRadius.circular(28),
               border: Border.all(
                 color: light
-                    ? const Color(0xFFE0E8F2).withValues(alpha: 0.95)
+                    ? const Color(0xFFE7EEF6).withValues(alpha: 0.98)
                     : Colors.white.withValues(alpha: 0.065),
-                width: 1,
+                width: light ? 1.15 : 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: light ? 0.12 : 0.22),
-                  blurRadius: light ? 38 : 28,
-                  offset: const Offset(0, 18),
+                  color: Colors.black.withValues(alpha: light ? 0.07 : 0.22),
+                  blurRadius: light ? 22 : 28,
+                  offset: Offset(0, light ? 10 : 18),
                 ),
                 BoxShadow(
                   color: _accentSoftBlue.withValues(
-                    alpha: light ? 0.16 : 0.035,
+                    alpha: light ? 0.075 : 0.035,
                   ),
-                  blurRadius: light ? 44 : 34,
-                  spreadRadius: 1,
+                  blurRadius: light ? 26 : 34,
+                  spreadRadius: light ? -1 : 1,
                 ),
               ],
             ),
@@ -6095,8 +6095,8 @@ class _GlassCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
         filter: ImageFilter.blur(
-          sigmaX: light ? 18 : 14,
-          sigmaY: light ? 18 : 14,
+          sigmaX: light ? 14 : 14,
+          sigmaY: light ? 14 : 14,
         ),
         child: Container(
           width: double.infinity,
@@ -6118,21 +6118,21 @@ class _GlassCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: light
-                  ? const Color(0xFFE0E8F2).withValues(alpha: 0.92)
+                  ? const Color(0xFFE7EEF6).withValues(alpha: 0.96)
                   : Colors.white.withValues(alpha: 0.065),
-              width: 1,
+              width: light ? 1.1 : 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.105 : 0.13),
-                blurRadius: light ? 34 : 18,
-                offset: Offset(0, light ? 16 : 8),
+                color: Colors.black.withValues(alpha: light ? 0.055 : 0.13),
+                blurRadius: light ? 20 : 18,
+                offset: Offset(0, light ? 8 : 8),
               ),
               if (light)
                 BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: 0.10),
-                  blurRadius: 30,
-                  spreadRadius: -2,
+                  color: _accentSoftBlue.withValues(alpha: 0.055),
+                  blurRadius: 18,
+                  spreadRadius: -4,
                 ),
             ],
           ),
