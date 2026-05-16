@@ -2,6 +2,14 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.SYSTEM_OVERLAY_WINDOW"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_GET"/>
+    <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_COMMON"/>
+    <uses-permission android:name="android.permission.BYDAUTO_STATISTIC_GET"/>
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <uses-permission android:name="android.permission.BYDACQUISITION_SEND_BUFFER"/>
     <uses-permission android:name="android.permission.BYDACQUISITION_SEND_FILE"/>
     <uses-permission android:name="com.byd.ditrainer.permission.CORE"/>

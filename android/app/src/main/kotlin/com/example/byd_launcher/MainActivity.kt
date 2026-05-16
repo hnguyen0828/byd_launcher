@@ -7,6 +7,7 @@ import byd.NavigationVirtualDisplayPlugin
 import byd.NativeVehicleScenePlugin
 import byd.NativeVehicleTexturePlugin
 import byd.PermissionBridge
+import byd.AdbBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -27,6 +28,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             applicationContext,
             this,
+        )
+        AdbBridge.register(
+            flutterEngine.dartExecutor.binaryMessenger,
+            applicationContext,
         )
         MusicBridge.register(
             flutterEngine.dartExecutor.binaryMessenger,

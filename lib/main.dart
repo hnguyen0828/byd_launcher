@@ -1001,7 +1001,6 @@ class _GearText extends StatelessWidget {
   }
 }
 
-
 class _PremiumSpeedGearCluster extends StatelessWidget {
   const _PremiumSpeedGearCluster({
     required this.selectedGear,
@@ -1038,7 +1037,9 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                 border: Border.all(color: ringColor, width: 1.4),
                 boxShadow: [
                   BoxShadow(
-                    color: _accentSoftBlue.withValues(alpha: light ? 0.14 : 0.08),
+                    color: _accentSoftBlue.withValues(
+                      alpha: light ? 0.14 : 0.08,
+                    ),
                     blurRadius: 24,
                     spreadRadius: 1,
                   ),
@@ -1183,8 +1184,14 @@ class _TpmsCluster extends StatelessWidget {
                 final lineWidth = constraints.maxWidth >= 280 ? 46.0 : 32.0;
                 final lineTop = constraints.maxHeight * 0.27;
                 final lineBottom = constraints.maxHeight * 0.27;
-                final leftLine = math.max(62.0, constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8);
-                final rightLine = math.max(62.0, constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8);
+                final leftLine = math.max(
+                  62.0,
+                  constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
+                );
+                final rightLine = math.max(
+                  62.0,
+                  constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
+                );
 
                 return Stack(
                   alignment: Alignment.center,
@@ -1936,7 +1943,9 @@ class _EnergyLevel extends StatelessWidget {
           children: [
             Icon(
               icon,
-              color: _isLight(context) ? const Color(0xFF475569) : _textSecondary,
+              color: _isLight(context)
+                  ? const Color(0xFF475569)
+                  : _textSecondary,
               size: 16,
             ),
             const SizedBox(width: 6),
@@ -3164,14 +3173,6 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     }
   }
 
-  Future<void> _openPermissionSettings(String kind) async {
-    try {
-      await _permissionChannel.invokeMethod<Object?>('openPermissionSettings', {
-        'kind': kind,
-      });
-    } catch (_) {}
-  }
-
   Future<void> _grantRecommendedPermissions() async {
     if (_grantInProgress) return;
     setState(() => _grantInProgress = true);
@@ -3195,6 +3196,14 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     final vehicle = _permissionStatuses['vehicleData']!;
     final navigation = _permissionStatuses['navigationEmbed']!;
     final internet = _permissionStatuses['internet']!;
+    final readyCount = [
+      music,
+      overlay,
+      vehicle,
+      navigation,
+      internet,
+    ].where((status) => status.ready).length;
+    final allReady = readyCount == 5;
 
     return _GlassCard(
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
@@ -3205,54 +3214,173 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
             icon: Icons.admin_panel_settings_outlined,
             title: 'System permissions',
             subtitle:
-                'Required for overlay, bridge, vehicle data and launcher behavior.',
+                'One tap setup for music, overlay, vehicle data and launcher bridge.',
           ),
           const SizedBox(height: 16),
-          _PermissionRow(
-            icon: Icons.library_music_outlined,
-            title: 'Music access',
-            status: music.status,
-            highlighted: !music.ready,
-            onTap: () => _openPermissionSettings('musicAccess'),
+          _PermissionSummaryPanel(
+            readyCount: readyCount,
+            totalCount: 5,
+            allReady: allReady,
+            statuses: _permissionStatuses,
           ),
-          const SizedBox(height: 10),
-          _PermissionRow(
-            icon: Icons.layers_outlined,
-            title: 'System overlay',
-            status: overlay.status,
-            highlighted: !overlay.ready,
-            onTap: () => _openPermissionSettings('systemOverlay'),
-          ),
-          const SizedBox(height: 10),
-          _PermissionRow(
-            icon: Icons.directions_car_outlined,
-            title: 'Vehicle data',
-            status: vehicle.status,
-            highlighted: !vehicle.ready,
-            onTap: () => _openPermissionSettings('vehicleData'),
-          ),
-          const SizedBox(height: 10),
-          _PermissionRow(
-            icon: Icons.navigation_outlined,
-            title: 'Navigation embed',
-            status: navigation.status,
-            highlighted: !navigation.ready,
-            onTap: () => _openPermissionSettings('navigationEmbed'),
-          ),
-          const SizedBox(height: 10),
-          _PermissionRow(
-            icon: Icons.network_check_outlined,
-            title: 'Internet',
-            status: internet.status,
-            highlighted: !internet.ready,
-          ),
-          const Spacer(),
+          const SizedBox(height: 16),
           _SettingsActionButton(
-            icon: Icons.admin_panel_settings_outlined,
+            icon: allReady
+                ? Icons.verified_user_outlined
+                : Icons.admin_panel_settings_outlined,
             label: _grantInProgress
                 ? 'Checking permissions'
-                : 'Grant recommended',
+                : allReady
+                ? 'Permissions ready'
+                : 'Grant all permissions',
             onPressed: _grantRecommendedPermissions,
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionSummaryPanel extends StatelessWidget {
+  const _PermissionSummaryPanel({
+    required this.readyCount,
+    required this.totalCount,
+    required this.allReady,
+    required this.statuses,
+  });
+
+  final int readyCount;
+  final int totalCount;
+  final bool allReady;
+  final Map<String, _PermissionStatus> statuses;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final borderColor = allReady
+        ? const Color(0xFF25D366).withValues(alpha: light ? 0.30 : 0.24)
+        : _accentSoftBlue.withValues(alpha: light ? 0.24 : 0.20);
+    final backgroundColor = allReady
+        ? const Color(0xFF25D366).withValues(alpha: light ? 0.10 : 0.08)
+        : _accentSoftBlue.withValues(alpha: light ? 0.10 : 0.07);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                allReady
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.pending_actions_outlined,
+                color: allReady ? const Color(0xFF25D366) : _accentSoftBlue,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  allReady
+                      ? 'All permissions are ready'
+                      : '$readyCount/$totalCount permissions ready',
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.titleSmall,
+                    color: _textPrimary,
+                    weight: FontWeight.w700,
+                    size: 14.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _PermissionStatusChip(
+                label: 'Music',
+                status: statuses['musicAccess']!,
+              ),
+              _PermissionStatusChip(
+                label: 'Overlay',
+                status: statuses['systemOverlay']!,
+              ),
+              _PermissionStatusChip(
+                label: 'Vehicle',
+                status: statuses['vehicleData']!,
+              ),
+              _PermissionStatusChip(
+                label: 'Navigation',
+                status: statuses['navigationEmbed']!,
+              ),
+              _PermissionStatusChip(
+                label: 'Internet',
+                status: statuses['internet']!,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionStatusChip extends StatelessWidget {
+  const _PermissionStatusChip({required this.label, required this.status});
+
+  final String label;
+  final _PermissionStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final ready = status.ready;
+    final color = ready ? const Color(0xFF25D366) : _accentSoftBlue;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: ready
+            ? color.withValues(alpha: light ? 0.11 : 0.10)
+            : Colors.white.withValues(alpha: light ? 0.58 : 0.055),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: ready
+              ? color.withValues(alpha: light ? 0.26 : 0.22)
+              : _tone(
+                  context,
+                  _textMuted,
+                ).withValues(alpha: light ? 0.18 : 0.14),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            ready ? Icons.check_rounded : Icons.lock_outline_rounded,
+            color: ready ? color : _tone(context, _textMuted),
+            size: 14,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.labelSmall,
+              color: ready ? _textPrimary : _textMuted,
+              weight: FontWeight.w600,
+              size: 11.5,
+            ),
           ),
         ],
       ),
@@ -4414,7 +4542,6 @@ class _VehicleHotspotLayer extends StatelessWidget {
   final double focusScale;
   final bool focusActive;
 
-
   List<_HotspotSpec> _buildProjectedHotspots({
     required BoxConstraints constraints,
     required String cameraOrbit,
@@ -4428,8 +4555,10 @@ class _VehicleHotspotLayer extends StatelessWidget {
       constraints.maxWidth * 0.50,
       constraints.maxHeight * (0.455 + pitchTopDownT * 0.035),
     );
-    final horizontalRadius = constraints.maxWidth * (0.235 + pitchTopDownT * 0.018);
-    final lengthRadius = constraints.maxHeight * (0.145 + pitchTopDownT * 0.038);
+    final horizontalRadius =
+        constraints.maxWidth * (0.235 + pitchTopDownT * 0.018);
+    final lengthRadius =
+        constraints.maxHeight * (0.145 + pitchTopDownT * 0.038);
     final heightLift = constraints.maxHeight * (0.155 + pitchTopDownT * 0.030);
 
     Offset project(double carX, double carY, double carZ) {
@@ -4574,14 +4703,12 @@ class _VehicleHotspotLayer extends StatelessWidget {
     final horizontalPadding = wide ? 54.0 : 34.0;
     const verticalPadding = 34.0;
     return Offset(
-      position.dx.clamp(
-        horizontalPadding,
-        constraints.maxWidth - horizontalPadding,
-      ).toDouble(),
-      position.dy.clamp(
-        verticalPadding,
-        constraints.maxHeight - verticalPadding,
-      ).toDouble(),
+      position.dx
+          .clamp(horizontalPadding, constraints.maxWidth - horizontalPadding)
+          .toDouble(),
+      position.dy
+          .clamp(verticalPadding, constraints.maxHeight - verticalPadding)
+          .toDouble(),
     );
   }
 
@@ -4641,7 +4768,9 @@ class _VehicleHotspotLayer extends StatelessWidget {
                           radius: 0.62,
                           colors: [
                             (_isLight(context) ? Colors.white : Colors.black)
-                                .withValues(alpha: _isLight(context) ? 0.12 : 0.10),
+                                .withValues(
+                                  alpha: _isLight(context) ? 0.12 : 0.10,
+                                ),
                             Colors.transparent,
                           ],
                         ),
@@ -4713,18 +4842,22 @@ class _HotspotFocusRipple extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: (_isLight(context)
-                              ? const Color(0xFF5AA9FF)
-                              : _accentSoftBlue)
-                          .withValues(alpha: 0.72),
+                      color:
+                          (_isLight(context)
+                                  ? const Color(0xFF5AA9FF)
+                                  : _accentSoftBlue)
+                              .withValues(alpha: 0.72),
                       width: 1.4,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: (_isLight(context)
-                                ? const Color(0xFF5AA9FF)
-                                : _accentSoftBlue)
-                            .withValues(alpha: _isLight(context) ? 0.18 : 0.28),
+                        color:
+                            (_isLight(context)
+                                    ? const Color(0xFF5AA9FF)
+                                    : _accentSoftBlue)
+                                .withValues(
+                                  alpha: _isLight(context) ? 0.18 : 0.28,
+                                ),
                         blurRadius: 24,
                         spreadRadius: 2,
                       ),
@@ -4824,26 +4957,26 @@ class _VehicleHotspotButton extends StatelessWidget {
                     )
                   : RadialGradient(
                       colors: [
-                        _accentSoftBlue.withValues(alpha: selected ? 0.44 : 0.28),
+                        _accentSoftBlue.withValues(
+                          alpha: selected ? 0.44 : 0.28,
+                        ),
                         const Color(0xFF08111B).withValues(alpha: 0.72),
                       ],
                     ),
               border: Border.all(
                 color: light
-                    ? const Color(0xFF9ACBFF).withValues(
-                        alpha: selected ? 0.86 : 0.58,
-                      )
-                    : _accentSoftBlue.withValues(
-                        alpha: selected ? 0.76 : 0.44,
-                      ),
+                    ? const Color(
+                        0xFF9ACBFF,
+                      ).withValues(alpha: selected ? 0.86 : 0.58)
+                    : _accentSoftBlue.withValues(alpha: selected ? 0.76 : 0.44),
                 width: selected ? 1.6 : 1.1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: light
-                      ? const Color(0xFF5AA9FF).withValues(
-                          alpha: selected ? 0.24 : 0.14,
-                        )
+                      ? const Color(
+                          0xFF5AA9FF,
+                        ).withValues(alpha: selected ? 0.24 : 0.14)
                       : _accentSoftBlue.withValues(
                           alpha: selected ? 0.44 : 0.26,
                         ),
@@ -4869,7 +5002,9 @@ class _VehicleHotspotButton extends StatelessWidget {
                       value: animatedProgress,
                       strokeWidth: 2.2,
                       color: const Color(0xFF64E58A),
-                      backgroundColor: (light ? const Color(0xFFD6E5F4) : Colors.white).withValues(alpha: light ? 0.86 : 0.10),
+                      backgroundColor:
+                          (light ? const Color(0xFFD6E5F4) : Colors.white)
+                              .withValues(alpha: light ? 0.86 : 0.10),
                     );
                   },
                 ),
@@ -4887,7 +5022,9 @@ class _VehicleHotspotButton extends StatelessWidget {
                       )
                     : Icon(
                         spec.icon,
-                        color: light ? const Color(0xFF1F4F7A) : _tone(context, _textPrimary),
+                        color: light
+                            ? const Color(0xFF1F4F7A)
+                            : _tone(context, _textPrimary),
                         size: 20,
                       ),
               ],
