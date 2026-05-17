@@ -20,8 +20,10 @@ const String _launchNavigationWithLauncherPreferenceKey =
     'launcher.navigation.launchWithLauncher';
 const String _wallpaperFixedFolderPath =
     '/storage/emulated/0/Android/data/com.example.byd_launcher/files/wallpapers';
-const String _wallpaperIntervalPreferenceKey = 'launcher.wallpaper.intervalSeconds';
-const String _wallpaperButtonEnabledPreferenceKey = 'launcher.wallpaper.buttonEnabled';
+const String _wallpaperIntervalPreferenceKey =
+    'launcher.wallpaper.intervalSeconds';
+const String _wallpaperButtonEnabledPreferenceKey =
+    'launcher.wallpaper.buttonEnabled';
 const int _wallpaperDecodeWidth = 1920;
 const int _wallpaperDecodeHeight = 1080;
 const MethodChannel _musicChannel = MethodChannel('byd/music');
@@ -31,7 +33,6 @@ const EventChannel _vehicleEvents = EventChannel('byd.vehicle/events');
 const MethodChannel _navigationChannel = MethodChannel('byd/navigation');
 const MethodChannel _navigationVdChannel = MethodChannel('byd/navigation_vd');
 const MethodChannel _permissionChannel = MethodChannel('byd/permissions');
-const MethodChannel _wallpaperChannel = MethodChannel('byd/wallpapers');
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
@@ -347,7 +348,8 @@ class LauncherHomePage extends StatefulWidget {
   State<LauncherHomePage> createState() => _LauncherHomePageState();
 }
 
-class _LauncherHomePageState extends State<LauncherHomePage> {
+class _LauncherHomePageState extends State<LauncherHomePage>
+    with WidgetsBindingObserver {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
   _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
@@ -357,6 +359,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   List<_NavigationApp> _navigationApps = const [];
   String? _selectedNavigationPackage;
   bool _launchNavigationWithLauncher = false;
+  bool _defaultLauncherEnabled = false;
   bool _wallpaperButtonEnabled = true;
   String _wallpaperFolderPath = _wallpaperFixedFolderPath;
   int _wallpaperIntervalSeconds = 60;
@@ -381,9 +384,11 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadVehiclePreferences();
     _loadNavigationPreferences();
     _loadWallpaperPreferences();
+    _refreshDefaultLauncherStatus();
     _refreshVehicleSnapshot();
     _vehicleSnapshotSubscription = _vehicleEvents
         .receiveBroadcastStream()
@@ -396,10 +401,18 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _vehicleSnapshotTimer?.cancel();
     _wallpaperTimer?.cancel();
     _vehicleSnapshotSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshDefaultLauncherStatus();
+    }
   }
 
   String get _cameraOrbit {
@@ -482,6 +495,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                           selectedNavigationPackage: _selectedNavigationPackage,
                           launchNavigationWithLauncher:
                               _launchNavigationWithLauncher,
+                          defaultLauncherEnabled: _defaultLauncherEnabled,
                           onDefaultNavigationAppChanged:
                               _setDefaultNavigationApp,
                           onNavigationReloadRequested: _reloadNavigationApps,
@@ -489,12 +503,12 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                               _openDefaultNavigationApp,
                           onLaunchNavigationWithLauncherChanged:
                               _setLaunchNavigationWithLauncher,
+                          onDefaultLauncherChanged: _setDefaultLauncher,
                           wallpaperButtonEnabled: _wallpaperButtonEnabled,
-                          wallpaperFolderPath: _wallpaperFixedFolderPath,
+                          wallpaperFolderPath: _wallpaperFolderPath,
                           wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
                           wallpaperPaths: _wallpaperPaths,
                           wallpaperIndex: _wallpaperIndex,
-                          onWallpaperFolderPickRequested: _importWallpapers,
                           onWallpaperReloadRequested: _reloadWallpapers,
                           onWallpaperIntervalChanged: _setWallpaperInterval,
                           onWallpaperButtonEnabledChanged:
@@ -669,11 +683,34 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     await prefs.setBool(_launchNavigationWithLauncherPreferenceKey, value);
   }
 
+  Future<void> _refreshDefaultLauncherStatus() async {
+    try {
+      final enabled = await _permissionChannel.invokeMethod<bool>(
+        'isDefaultLauncher',
+      );
+      if (!mounted || enabled == null) return;
+      setState(() => _defaultLauncherEnabled = enabled);
+    } catch (_) {}
+  }
+
+  Future<void> _setDefaultLauncher(bool value) async {
+    try {
+      await _permissionChannel.invokeMethod<Object?>(
+        'openDefaultLauncherSettings',
+      );
+    } catch (_) {}
+
+    Future<void>.delayed(
+      const Duration(milliseconds: 700),
+      _refreshDefaultLauncherStatus,
+    );
+  }
 
   Future<void> _loadWallpaperPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final interval = prefs.getInt(_wallpaperIntervalPreferenceKey) ?? 60;
-    final buttonEnabled = prefs.getBool(_wallpaperButtonEnabledPreferenceKey) ?? true;
+    final buttonEnabled =
+        prefs.getBool(_wallpaperButtonEnabledPreferenceKey) ?? true;
 
     if (!mounted) return;
     setState(() {
@@ -689,34 +726,6 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     if (seconds < 10) return 10;
     if (seconds > 3600) return 3600;
     return seconds;
-  }
-
-  Future<void> _importWallpapers() async {
-    try {
-      await Directory(_wallpaperFixedFolderPath).create(recursive: true);
-      await _wallpaperChannel.invokeMethod<Object?>('importWallpapers', {
-        'targetFolder': _wallpaperFixedFolderPath,
-      });
-      await _reloadWallpapers();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ambient images imported')),
-      );
-    } on MissingPluginException {
-      await _reloadWallpapers();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Import requires native Android picker implementation'),
-        ),
-      );
-    } catch (_) {
-      await _reloadWallpapers();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not import wallpapers')),
-      );
-    }
   }
 
   Future<void> _reloadWallpapers() async {
@@ -739,7 +748,10 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
       }
       final paths = await directory
           .list(followLinks: false)
-          .where((entity) => entity is File && _isSupportedWallpaperPath(entity.path))
+          .where(
+            (entity) =>
+                entity is File && _isSupportedWallpaperPath(entity.path),
+          )
           .map((entity) => entity.path)
           .toList();
       paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -901,7 +913,8 @@ class _LeftDashboard extends StatelessWidget {
                   return Column(
                     children: [
                       _StatusBar(
-                        outsideTemperatureC: vehicleSnapshot.outsideTemperatureC,
+                        outsideTemperatureC:
+                            vehicleSnapshot.outsideTemperatureC,
                       ),
                       SizedBox(height: gapSmall),
                       SizedBox(
@@ -912,11 +925,12 @@ class _LeftDashboard extends StatelessWidget {
                         ),
                       ),
                       SizedBox(height: gapMedium),
-                      SizedBox(height: mediaHeight, child: const _MediaWidget()),
-                      SizedBox(height: gapSmall),
-                      Flexible(
-                        child: _EnergyStrip(snapshot: vehicleSnapshot),
+                      SizedBox(
+                        height: mediaHeight,
+                        child: const _MediaWidget(),
                       ),
+                      SizedBox(height: gapSmall),
+                      Flexible(child: _EnergyStrip(snapshot: vehicleSnapshot)),
                     ],
                   );
                 },
@@ -2200,16 +2214,17 @@ class _VehicleCanvas extends StatelessWidget {
     required this.navigationApps,
     required this.selectedNavigationPackage,
     required this.launchNavigationWithLauncher,
+    required this.defaultLauncherEnabled,
     required this.wallpaperButtonEnabled,
     required this.onDefaultNavigationAppChanged,
     required this.onNavigationReloadRequested,
     required this.onDefaultNavigationOpenRequested,
     required this.onLaunchNavigationWithLauncherChanged,
+    required this.onDefaultLauncherChanged,
     required this.wallpaperFolderPath,
     required this.wallpaperIntervalSeconds,
     required this.wallpaperPaths,
     required this.wallpaperIndex,
-    required this.onWallpaperFolderPickRequested,
     required this.onWallpaperReloadRequested,
     required this.onWallpaperIntervalChanged,
     required this.onWallpaperButtonEnabledChanged,
@@ -2236,16 +2251,17 @@ class _VehicleCanvas extends StatelessWidget {
   final List<_NavigationApp> navigationApps;
   final String? selectedNavigationPackage;
   final bool launchNavigationWithLauncher;
+  final bool defaultLauncherEnabled;
   final bool wallpaperButtonEnabled;
   final ValueChanged<_NavigationApp> onDefaultNavigationAppChanged;
   final VoidCallback onNavigationReloadRequested;
   final VoidCallback onDefaultNavigationOpenRequested;
   final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
+  final ValueChanged<bool> onDefaultLauncherChanged;
   final String? wallpaperFolderPath;
   final int wallpaperIntervalSeconds;
   final List<String> wallpaperPaths;
   final int wallpaperIndex;
-  final VoidCallback onWallpaperFolderPickRequested;
   final VoidCallback onWallpaperReloadRequested;
   final ValueChanged<int> onWallpaperIntervalChanged;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
@@ -2293,6 +2309,18 @@ class _VehicleCanvas extends StatelessWidget {
                 duration: const Duration(milliseconds: 240),
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeOutCubic,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ...previousChildren.map(
+                        (child) => Positioned.fill(child: child),
+                      ),
+                      if (currentChild != null)
+                        Positioned.fill(child: currentChild),
+                    ],
+                  );
+                },
                 child: switch (activeTab) {
                   _LauncherTab.settings => _SettingsPanel(
                     key: const ValueKey('settings'),
@@ -2301,14 +2329,14 @@ class _VehicleCanvas extends StatelessWidget {
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
+                    defaultLauncherEnabled: defaultLauncherEnabled,
                     hasNavigationApps: navigationApps.isNotEmpty,
                     onLaunchNavigationWithLauncherChanged:
                         onLaunchNavigationWithLauncherChanged,
+                    onDefaultLauncherChanged: onDefaultLauncherChanged,
                     wallpaperFolderPath: wallpaperFolderPath,
                     wallpaperIntervalSeconds: wallpaperIntervalSeconds,
                     wallpaperImageCount: wallpaperPaths.length,
-                    onWallpaperFolderPickRequested:
-                        onWallpaperFolderPickRequested,
                     onWallpaperReloadRequested: onWallpaperReloadRequested,
                     onWallpaperIntervalChanged: onWallpaperIntervalChanged,
                     wallpaperButtonEnabled: wallpaperButtonEnabled,
@@ -2365,6 +2393,7 @@ class _VehicleCanvas extends StatelessWidget {
               child: _BottomTabs(
                 activeTab: activeTab,
                 showWallpaperTab: wallpaperButtonEnabled,
+                ambientMode: wallpaperMode,
                 onTabChanged: onTabChanged,
               ),
             ),
@@ -3089,7 +3118,6 @@ class _MapGridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-
 class _WallpaperPanel extends StatefulWidget {
   const _WallpaperPanel({
     required this.folderPath,
@@ -3112,7 +3140,9 @@ class _WallpaperPanelState extends State<_WallpaperPanel> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _precacheVisibleImages());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _precacheVisibleImages(),
+    );
   }
 
   @override
@@ -3120,7 +3150,9 @@ class _WallpaperPanelState extends State<_WallpaperPanel> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.imageIndex != widget.imageIndex ||
         oldWidget.imagePaths != widget.imagePaths) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _precacheVisibleImages());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _precacheVisibleImages(),
+      );
     }
   }
 
@@ -3135,7 +3167,10 @@ class _WallpaperPanelState extends State<_WallpaperPanel> {
   }
 
   void _precacheWallpaper(String path) {
-    precacheImage(_wallpaperProvider(path), context).catchError((Object _) => null);
+    precacheImage(
+      _wallpaperProvider(path),
+      context,
+    ).catchError((Object _) => null);
   }
 
   ImageProvider _wallpaperProvider(String path) {
@@ -3158,56 +3193,67 @@ class _WallpaperPanelState extends State<_WallpaperPanel> {
     return Stack(
       fit: StackFit.expand,
       children: [
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 420),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeOutCubic,
-            child: imagePath != null
-                ? Image(
-                    key: ValueKey(imagePath),
-                    image: _wallpaperProvider(imagePath),
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    gaplessPlayback: true,
-                    errorBuilder: (context, error, stackTrace) =>
-                        _WallpaperEmptyState(
-                          folderPath: widget.folderPath,
-                          onReload: widget.onReload,
-                        ),
-                  )
-                : _WallpaperEmptyState(
-                    key: const ValueKey('wallpaper-empty'),
-                    folderPath: widget.folderPath,
-                    onReload: widget.onReload,
-                  ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.10),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.34),
-                    ],
-                  ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 420),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeOutCubic,
+          layoutBuilder: (currentChild, previousChildren) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                ...previousChildren.map(
+                  (child) => Positioned.fill(child: child),
+                ),
+                if (currentChild != null) Positioned.fill(child: currentChild),
+              ],
+            );
+          },
+          child: imagePath != null
+              ? Image(
+                  key: ValueKey(imagePath),
+                  image: _wallpaperProvider(imagePath),
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.low,
+                  gaplessPlayback: true,
+                  errorBuilder: (context, error, stackTrace) =>
+                      _WallpaperEmptyState(
+                        folderPath: widget.folderPath,
+                        onReload: widget.onReload,
+                      ),
+                )
+              : _WallpaperEmptyState(
+                  key: const ValueKey('wallpaper-empty'),
+                  folderPath: widget.folderPath,
+                  onReload: widget.onReload,
+                ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.10),
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.34),
+                  ],
                 ),
               ),
             ),
           ),
-          if (widget.imagePaths.length > 1)
-            Positioned(
-              right: 18,
-              top: 18,
-              child: _MapStatusPill(
-                icon: Icons.photo_library_outlined,
-                label: '${effectiveIndex + 1}/${widget.imagePaths.length}',
-              ),
+        ),
+        if (widget.imagePaths.length > 1)
+          Positioned(
+            right: 18,
+            top: 18,
+            child: _MapStatusPill(
+              icon: Icons.photo_library_outlined,
+              label: '${effectiveIndex + 1}/${widget.imagePaths.length}',
             ),
-        ],
+          ),
+      ],
     );
   }
 }
@@ -3242,7 +3288,11 @@ class _WallpaperEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.auto_awesome_outlined, color: _accentSoftBlue, size: 38),
+              const Icon(
+                Icons.auto_awesome_outlined,
+                color: _accentSoftBlue,
+                size: 38,
+              ),
               const SizedBox(height: 12),
               Text(
                 'No Ambient images found',
@@ -3256,7 +3306,7 @@ class _WallpaperEmptyState extends StatelessWidget {
               ),
               const SizedBox(height: 7),
               Text(
-                'Import JPG, PNG or WEBP images in Settings, then tap Refresh.',
+                'Place JPG, PNG or WEBP images in the Ambient folder, then tap Refresh.',
                 textAlign: TextAlign.center,
                 style: _sharp(
                   context,
@@ -3285,7 +3335,6 @@ class _WallpaperSettingsCard extends StatelessWidget {
     required this.folderPath,
     required this.intervalSeconds,
     required this.imageCount,
-    required this.onImport,
     required this.onReload,
     required this.onIntervalChanged,
     required this.buttonEnabled,
@@ -3295,7 +3344,6 @@ class _WallpaperSettingsCard extends StatelessWidget {
   final String? folderPath;
   final int intervalSeconds;
   final int imageCount;
-  final VoidCallback onImport;
   final VoidCallback onReload;
   final ValueChanged<int> onIntervalChanged;
   final bool buttonEnabled;
@@ -3309,7 +3357,7 @@ class _WallpaperSettingsCard extends StatelessWidget {
         const _SettingsSectionTitle(
           icon: Icons.auto_awesome_outlined,
           title: 'Ambient',
-          subtitle: 'Import images into the app Ambient folder. No storage permission needed.',
+          subtitle: 'Use images from the app Ambient folder.',
         ),
         const SizedBox(height: 14),
         Container(
@@ -3359,15 +3407,9 @@ class _WallpaperSettingsCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               _SmallSettingsButton(
-                icon: Icons.file_upload_outlined,
-                onTap: onImport,
-              ),
-              const SizedBox(width: 8),
-              _SmallSettingsButton(
                 icon: Icons.refresh_rounded,
                 onTap: onReload,
               ),
-
             ],
           ),
         ),
@@ -3456,7 +3498,9 @@ class _WallpaperIntervalChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
         decoration: BoxDecoration(
           color: selected
-              ? _accentSoftBlue.withValues(alpha: _isLight(context) ? 0.20 : 0.16)
+              ? _accentSoftBlue.withValues(
+                  alpha: _isLight(context) ? 0.20 : 0.16,
+                )
               : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
@@ -3495,7 +3539,9 @@ class _SmallSettingsButton extends StatelessWidget {
         width: 38,
         height: 38,
         decoration: BoxDecoration(
-          color: _accentSoftBlue.withValues(alpha: _isLight(context) ? 0.14 : 0.10),
+          color: _accentSoftBlue.withValues(
+            alpha: _isLight(context) ? 0.14 : 0.10,
+          ),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: _accentSoftBlue.withValues(alpha: 0.18)),
         ),
@@ -3506,7 +3552,11 @@ class _SmallSettingsButton extends StatelessWidget {
 }
 
 class _PremiumActionButton extends StatelessWidget {
-  const _PremiumActionButton({required this.icon, required this.label, required this.onTap});
+  const _PremiumActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
@@ -3520,7 +3570,9 @@ class _PremiumActionButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
         decoration: BoxDecoration(
-          color: _accentSoftBlue.withValues(alpha: _isLight(context) ? 0.18 : 0.14),
+          color: _accentSoftBlue.withValues(
+            alpha: _isLight(context) ? 0.18 : 0.14,
+          ),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: _accentSoftBlue.withValues(alpha: 0.26)),
         ),
@@ -3553,12 +3605,13 @@ class _SettingsPanel extends StatelessWidget {
     required this.renderQuality,
     required this.onRenderQualityChanged,
     required this.launchNavigationWithLauncher,
+    required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
     required this.onLaunchNavigationWithLauncherChanged,
+    required this.onDefaultLauncherChanged,
     required this.wallpaperFolderPath,
     required this.wallpaperIntervalSeconds,
     required this.wallpaperImageCount,
-    required this.onWallpaperFolderPickRequested,
     required this.onWallpaperReloadRequested,
     required this.onWallpaperIntervalChanged,
     required this.wallpaperButtonEnabled,
@@ -3573,12 +3626,13 @@ class _SettingsPanel extends StatelessWidget {
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final bool launchNavigationWithLauncher;
+  final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
   final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
+  final ValueChanged<bool> onDefaultLauncherChanged;
   final String? wallpaperFolderPath;
   final int wallpaperIntervalSeconds;
   final int wallpaperImageCount;
-  final VoidCallback onWallpaperFolderPickRequested;
   final VoidCallback onWallpaperReloadRequested;
   final ValueChanged<int> onWallpaperIntervalChanged;
   final bool wallpaperButtonEnabled;
@@ -3654,14 +3708,14 @@ class _SettingsPanel extends StatelessWidget {
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
+                    defaultLauncherEnabled: defaultLauncherEnabled,
                     hasNavigationApps: hasNavigationApps,
                     onLaunchNavigationWithLauncherChanged:
                         onLaunchNavigationWithLauncherChanged,
+                    onDefaultLauncherChanged: onDefaultLauncherChanged,
                     wallpaperFolderPath: wallpaperFolderPath,
                     wallpaperIntervalSeconds: wallpaperIntervalSeconds,
                     wallpaperImageCount: wallpaperImageCount,
-                    onWallpaperFolderPickRequested:
-                        onWallpaperFolderPickRequested,
                     onWallpaperReloadRequested: onWallpaperReloadRequested,
                     onWallpaperIntervalChanged: onWallpaperIntervalChanged,
                     wallpaperButtonEnabled: wallpaperButtonEnabled,
@@ -3689,12 +3743,13 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.renderQuality,
     required this.onRenderQualityChanged,
     required this.launchNavigationWithLauncher,
+    required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
     required this.onLaunchNavigationWithLauncherChanged,
+    required this.onDefaultLauncherChanged,
     required this.wallpaperFolderPath,
     required this.wallpaperIntervalSeconds,
     required this.wallpaperImageCount,
-    required this.onWallpaperFolderPickRequested,
     required this.onWallpaperReloadRequested,
     required this.onWallpaperIntervalChanged,
     required this.wallpaperButtonEnabled,
@@ -3708,12 +3763,13 @@ class _SettingsMainColumn extends StatelessWidget {
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final bool launchNavigationWithLauncher;
+  final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
   final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
+  final ValueChanged<bool> onDefaultLauncherChanged;
   final String? wallpaperFolderPath;
   final int wallpaperIntervalSeconds;
   final int wallpaperImageCount;
-  final VoidCallback onWallpaperFolderPickRequested;
   final VoidCallback onWallpaperReloadRequested;
   final ValueChanged<int> onWallpaperIntervalChanged;
   final bool wallpaperButtonEnabled;
@@ -3816,7 +3872,6 @@ class _SettingsMainColumn extends StatelessWidget {
               folderPath: wallpaperFolderPath,
               intervalSeconds: wallpaperIntervalSeconds,
               imageCount: wallpaperImageCount,
-              onImport: onWallpaperFolderPickRequested,
               onReload: onWallpaperReloadRequested,
               onIntervalChanged: onWallpaperIntervalChanged,
               buttonEnabled: wallpaperButtonEnabled,
@@ -3828,12 +3883,14 @@ class _SettingsMainColumn extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
             child: Column(
               children: [
-                const _SettingsSwitchRow(
+                _SettingsSwitchRow(
                   icon: Icons.home_outlined,
                   title: 'Default launcher',
-                  subtitle:
-                      'Open this launcher when the vehicle head unit starts.',
-                  value: true,
+                  subtitle: defaultLauncherEnabled
+                      ? 'This launcher opens when the vehicle head unit starts.'
+                      : 'Choose this app as the system Home launcher.',
+                  value: defaultLauncherEnabled,
+                  onChanged: onDefaultLauncherChanged,
                 ),
                 const SizedBox(height: 12),
                 const _SettingsSwitchRow(
@@ -6919,44 +6976,57 @@ class _BottomTabs extends StatelessWidget {
   const _BottomTabs({
     required this.activeTab,
     required this.showWallpaperTab,
+    required this.ambientMode,
     required this.onTabChanged,
   });
 
   final _LauncherTab activeTab;
   final bool showWallpaperTab;
+  final bool ambientMode;
   final ValueChanged<_LauncherTab> onTabChanged;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final containerColor = ambientMode
+        ? Colors.black.withValues(alpha: light ? 0.10 : 0.14)
+        : light
+        ? Colors.white.withValues(alpha: 0.88)
+        : const Color(0xFF07101A).withValues(alpha: 0.62);
+    final borderColor = ambientMode
+        ? Colors.white.withValues(alpha: light ? 0.26 : 0.18)
+        : light
+        ? _premiumLightStroke.withValues(alpha: 0.95)
+        : Colors.white.withValues(alpha: 0.07);
+    final shadowAlpha = ambientMode
+        ? (light ? 0.18 : 0.28)
+        : (light ? 0.10 : 0.26);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: ImageFilter.blur(
+          sigmaX: ambientMode ? 8 : 24,
+          sigmaY: ambientMode ? 8 : 24,
+        ),
         child: Container(
           height: 52,
           padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
-            color: light
-                ? Colors.white.withValues(alpha: 0.88)
-                : const Color(0xFF07101A).withValues(alpha: 0.62),
+            color: containerColor,
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: light
-                  ? _premiumLightStroke.withValues(alpha: 0.95)
-                  : Colors.white.withValues(alpha: 0.07),
-              width: 1,
-            ),
+            border: Border.all(color: borderColor, width: 1),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.10 : 0.26),
-                blurRadius: 30,
+                color: Colors.black.withValues(alpha: shadowAlpha),
+                blurRadius: ambientMode ? 34 : 30,
                 offset: const Offset(0, 14),
               ),
               BoxShadow(
-                color: _accentSoftBlue.withValues(alpha: light ? 0.10 : 0.05),
-                blurRadius: 26,
+                color: _accentSoftBlue.withValues(
+                  alpha: ambientMode ? 0.10 : (light ? 0.10 : 0.05),
+                ),
+                blurRadius: ambientMode ? 32 : 26,
                 spreadRadius: 1,
               ),
             ],
@@ -6968,12 +7038,14 @@ class _BottomTabs extends StatelessWidget {
                 icon: Icons.directions_car_filled_outlined,
                 label: 'Vehicle',
                 selected: activeTab == _LauncherTab.status,
+                ambientMode: ambientMode,
                 onTap: () => onTabChanged(_LauncherTab.status),
               ),
               _BottomTab(
                 icon: Icons.navigation_outlined,
                 label: 'Navigation',
                 selected: activeTab == _LauncherTab.map,
+                ambientMode: ambientMode,
                 onTap: () => onTabChanged(_LauncherTab.map),
               ),
               if (showWallpaperTab)
@@ -6981,12 +7053,14 @@ class _BottomTabs extends StatelessWidget {
                   icon: Icons.auto_awesome_outlined,
                   label: 'Ambient',
                   selected: activeTab == _LauncherTab.wallpaper,
+                  ambientMode: ambientMode,
                   onTap: () => onTabChanged(_LauncherTab.wallpaper),
                 ),
               _BottomTab(
                 icon: Icons.settings_outlined,
                 label: 'Settings',
                 selected: activeTab == _LauncherTab.settings,
+                ambientMode: ambientMode,
                 onTap: () => onTabChanged(_LauncherTab.settings),
               ),
             ],
@@ -7003,17 +7077,21 @@ class _BottomTab extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.selected = false,
+    this.ambientMode = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool selected;
+  final bool ambientMode;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
-    final color = selected
+    final color = ambientMode
+        ? (selected ? Colors.white : Colors.white.withValues(alpha: 0.74))
+        : selected
         ? (light ? const Color(0xFF1D4F86) : _tone(context, Colors.white))
         : _tone(context, const Color(0xFF9FAEBE));
 
@@ -7032,7 +7110,12 @@ class _BottomTab extends StatelessWidget {
               ? LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: light
+                  colors: ambientMode
+                      ? [
+                          Colors.white.withValues(alpha: 0.12),
+                          Colors.white.withValues(alpha: 0.03),
+                        ]
+                      : light
                       ? [
                           const Color(0xFFFFFFFF).withValues(alpha: 0.98),
                           const Color(0xFFE5F2FF).withValues(alpha: 0.98),
@@ -7045,7 +7128,9 @@ class _BottomTab extends StatelessWidget {
               : null,
           border: selected
               ? Border.all(
-                  color: light
+                  color: ambientMode
+                      ? Colors.white.withValues(alpha: 0.24)
+                      : light
                       ? const Color(0xFF78B7FF).withValues(alpha: 0.38)
                       : Colors.white.withValues(alpha: 0.08),
                   width: 1,
@@ -7054,15 +7139,17 @@ class _BottomTab extends StatelessWidget {
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: const Color(
-                      0xFF78B7FF,
-                    ).withValues(alpha: light ? 0.20 : 0.12),
-                    blurRadius: 18,
+                    color: const Color(0xFF78B7FF).withValues(
+                      alpha: ambientMode ? 0.10 : (light ? 0.20 : 0.12),
+                    ),
+                    blurRadius: ambientMode ? 22 : 18,
                     spreadRadius: 1,
                   ),
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: light ? 0.06 : 0.18),
-                    blurRadius: light ? 16 : 12,
+                    color: Colors.black.withValues(
+                      alpha: ambientMode ? 0.22 : (light ? 0.06 : 0.18),
+                    ),
+                    blurRadius: ambientMode ? 18 : (light ? 16 : 12),
                     offset: const Offset(0, 5),
                   ),
                 ]

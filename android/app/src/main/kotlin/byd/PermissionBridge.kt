@@ -2,6 +2,7 @@ package byd
 
 import android.Manifest
 import android.app.Activity
+import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ object PermissionBridge {
     private const val CHANNEL = "byd/permissions"
     private const val REQUEST_POST_NOTIFICATIONS = 8801
     private const val REQUEST_VEHICLE_PERMISSIONS = 8802
+    private const val REQUEST_DEFAULT_LAUNCHER = 8803
 
     private lateinit var appContext: Context
     private var activity: Activity? = null
@@ -40,6 +42,11 @@ object PermissionBridge {
             "grantRecommendedPermissions" -> {
                 lastGrantReport = runOneTapPermissionSetup()
                 result.success(statusMap())
+            }
+            "isDefaultLauncher" -> result.success(isDefaultLauncher())
+            "openDefaultLauncherSettings" -> {
+                openDefaultLauncherSettings()
+                result.success(null)
             }
             "getLastGrantReport" -> result.success(lastGrantReport)
             else -> result.notImplemented()
@@ -161,8 +168,61 @@ object PermissionBridge {
             "systemOverlay" -> openOverlaySettings()
             "vehicleData" -> openAppDetailsSettings()
             "navigationEmbed" -> openDeveloperOptions()
+            "defaultLauncher" -> openDefaultLauncherSettings()
             else -> openAppDetailsSettings()
         }
+    }
+
+    private fun isDefaultLauncher(): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+        }
+        val resolveInfo = appContext.packageManager.resolveActivity(
+            intent,
+            PackageManager.MATCH_DEFAULT_ONLY,
+        )
+        val packageName = resolveInfo?.activityInfo?.packageName
+        val isDefault = packageName == appContext.packageName
+        FileLogger.log(appContext, "Default launcher status: package=$packageName; isDefault=$isDefault")
+        return isDefault
+    }
+
+    private fun openDefaultLauncherSettings() {
+        FileLogger.log(appContext, "Opening default launcher settings")
+        val currentActivity = activity
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && currentActivity != null) {
+            val roleManager = appContext.getSystemService(RoleManager::class.java)
+            if (roleManager != null &&
+                roleManager.isRoleAvailable(RoleManager.ROLE_HOME) &&
+                !roleManager.isRoleHeld(RoleManager.ROLE_HOME)
+            ) {
+                try {
+                    currentActivity.startActivityForResult(
+                        roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME),
+                        REQUEST_DEFAULT_LAUNCHER,
+                    )
+                    return
+                } catch (error: Throwable) {
+                    FileLogger.log(appContext, "RoleManager HOME request failed: ${error.javaClass.simpleName}: ${error.message}")
+                }
+            }
+        }
+
+        val intents = listOf(
+            Intent(Settings.ACTION_HOME_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        for (intent in intents) {
+            try {
+                appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (error: Throwable) {
+                FileLogger.log(appContext, "Default launcher settings intent failed: ${error.javaClass.simpleName}: ${error.message}")
+            }
+        }
+
+        openAppDetailsSettings()
     }
 
     private fun requestVehiclePermissions(): Map<String, Any?> {
