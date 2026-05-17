@@ -118,6 +118,7 @@ private class VehicleTextureRenderer(
     private var paintColor = (params["color"] as? Number)?.toLong()
     private val quality = TextureRenderQuality.from(params["quality"] as? String)
     private var disposed = false
+    private var lastRenderFrameNanos = 0L
 
     init {
         Utils.init()
@@ -171,11 +172,26 @@ private class VehicleTextureRenderer(
 
     override fun doFrame(frameTimeNanos: Long) {
         if (disposed) return
-        updateCamera()
-        if (renderer.beginFrame(swapChain, frameTimeNanos)) {
-            renderer.render(view)
-            renderer.endFrame()
-            textureEntry.scheduleFrame()
+
+        // BYD headunits can kill the app when Filament renders at full 60fps
+        // while vehicle callbacks are also streaming. Cap native texture render to ~24fps
+        // and never let a renderer exception take down the process.
+        val minFrameIntervalNanos = 41_666_667L
+        if (lastRenderFrameNanos != 0L && frameTimeNanos - lastRenderFrameNanos < minFrameIntervalNanos) {
+            choreographer.postFrameCallback(this)
+            return
+        }
+        lastRenderFrameNanos = frameTimeNanos
+
+        try {
+            updateCamera()
+            if (renderer.beginFrame(swapChain, frameTimeNanos)) {
+                renderer.render(view)
+                renderer.endFrame()
+                textureEntry.scheduleFrame()
+            }
+        } catch (error: Throwable) {
+            try { FileLogger.log(context, "NativeVehicleTexture render error: ${error.javaClass.simpleName}: ${error.message}") } catch (_: Throwable) {}
         }
         choreographer.postFrameCallback(this)
     }
@@ -426,7 +442,7 @@ private enum class TextureRenderQuality(
         fun from(value: String?): TextureRenderQuality {
             return when (value?.lowercase()) {
                 "low" -> LOW
-                "high" -> HIGH
+                "high" -> MEDIUM
                 else -> MEDIUM
             }
         }

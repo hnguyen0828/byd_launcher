@@ -82,6 +82,7 @@ private class NativeVehicleSceneView(
     private var rimLight: Int = 0
     private var indirectLight: IndirectLight? = null
     private var disposed = false
+    private var lastRenderFrameNanos = 0L
 
     init {
         Utils.init()
@@ -144,9 +145,22 @@ private class NativeVehicleSceneView(
             return
         }
 
-        modelViewer?.let { viewer ->
-            updateCamera(viewer)
-            viewer.render(frameTimeNanos)
+        // Cap PlatformView render to ~24fps on BYD headunit to avoid GPU/process kill
+        // after the GLB is fully loaded.
+        val minFrameIntervalNanos = 41_666_667L
+        if (lastRenderFrameNanos != 0L && frameTimeNanos - lastRenderFrameNanos < minFrameIntervalNanos) {
+            choreographer.postFrameCallback(this)
+            return
+        }
+        lastRenderFrameNanos = frameTimeNanos
+
+        try {
+            modelViewer?.let { viewer ->
+                updateCamera(viewer)
+                viewer.render(frameTimeNanos)
+            }
+        } catch (error: Throwable) {
+            try { FileLogger.log(context, "NativeVehicleScene render error: ${error.javaClass.simpleName}: ${error.message}") } catch (_: Throwable) {}
         }
         choreographer.postFrameCallback(this)
     }

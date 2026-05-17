@@ -16,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 object PermissionBridge {
     private const val CHANNEL = "byd/permissions"
     private const val REQUEST_POST_NOTIFICATIONS = 8801
+    private const val REQUEST_VEHICLE_PERMISSIONS = 8802
 
     private lateinit var appContext: Context
     private var activity: Activity? = null
@@ -49,6 +50,8 @@ object PermissionBridge {
         FileLogger.log(appContext, "Grant all permissions clicked")
         FileLogger.log(appContext, "Status before grant: ${rawStatusMap()}")
         requestPostNotificationsIfNeeded()
+        val vehicleRequestReport = requestVehiclePermissions()
+        FileLogger.log(appContext, "Vehicle runtime permission request report: $vehicleRequestReport")
 
         val shellReport = AdbBridge.runKinexStylePermissionSetup(appContext)
         FileLogger.log(appContext, "Shell report: $shellReport")
@@ -69,6 +72,7 @@ object PermissionBridge {
         val after = rawStatusMap()
         FileLogger.log(appContext, "Status after grant flow: $after")
         return mapOf(
+            "vehicleRuntimeRequest" to vehicleRequestReport,
             "shell" to shellReport,
             "statusAfter" to after,
         )
@@ -117,6 +121,9 @@ object PermissionBridge {
             "android.permission.BYDAUTO_BODYWORK_GET",
             "android.permission.BYDAUTO_BODYWORK_COMMON",
             "android.permission.BYDAUTO_STATISTIC_GET",
+            "android.permission.BYDAUTO_SPEED_GET",
+            "android.permission.BYDAUTO_GEARBOX_GET",
+            "android.permission.BYDAUTO_AC_COMMON",
         )
         val navigationSystemReady = hasAnyPermissions(
             "android.permission.START_ACTIVITIES_FROM_BACKGROUND",
@@ -148,6 +155,82 @@ object PermissionBridge {
             "systemOverlay" -> openOverlaySettings()
             "vehicleData", "navigationEmbed" -> openAppDetailsSettings()
             else -> openAppDetailsSettings()
+        }
+    }
+
+    private fun requestVehiclePermissions(): Map<String, Any?> {
+        val currentActivity = activity
+        val permissions = vehicleRuntimePermissions()
+        val statesBefore = permissionGrantStates(permissions)
+        FileLogger.log(appContext, "Requesting BYD vehicle runtime permissions; activityAvailable=${currentActivity != null}; permissions=${permissions.joinToString()}")
+        FileLogger.log(appContext, "BYD vehicle permission states before request: $statesBefore")
+
+        if (currentActivity == null) {
+            FileLogger.log(appContext, "Cannot request BYD vehicle permissions because Activity is null")
+            return mapOf(
+                "requested" to false,
+                "reason" to "Activity is null",
+                "permissions" to permissions.toList(),
+                "statesBefore" to statesBefore,
+            )
+        }
+
+        val notGranted = permissions.filter {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                false
+            } else {
+                appContext.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+            }
+        }.toTypedArray()
+
+        if (notGranted.isEmpty()) {
+            FileLogger.log(appContext, "All BYD vehicle runtime permissions already appear granted")
+            return mapOf(
+                "requested" to false,
+                "reason" to "Already granted",
+                "permissions" to permissions.toList(),
+                "statesBefore" to statesBefore,
+            )
+        }
+
+        return try {
+            FileLogger.log(appContext, "Calling Activity.requestPermissions for BYD vehicle permissions: ${notGranted.joinToString()}")
+            currentActivity.requestPermissions(notGranted, REQUEST_VEHICLE_PERMISSIONS)
+            mapOf(
+                "requested" to true,
+                "requestCode" to REQUEST_VEHICLE_PERMISSIONS,
+                "permissions" to notGranted.toList(),
+                "statesBefore" to statesBefore,
+            )
+        } catch (error: Throwable) {
+            FileLogger.log(appContext, "BYD vehicle requestPermissions failed: ${error.javaClass.simpleName}: ${error.message}")
+            mapOf(
+                "requested" to false,
+                "reason" to "${error.javaClass.simpleName}: ${error.message}",
+                "permissions" to notGranted.toList(),
+                "statesBefore" to statesBefore,
+            )
+        }
+    }
+
+    private fun vehicleRuntimePermissions(): Array<String> = arrayOf(
+        "android.permission.BYDAUTO_BODYWORK_GET",
+        "android.permission.BYDAUTO_BODYWORK_COMMON",
+        "android.permission.BYDAUTO_STATISTIC_GET",
+        "android.permission.BYDAUTO_SPEED_GET",
+        "android.permission.BYDAUTO_GEARBOX_GET",
+        "android.permission.BYDAUTO_AC_COMMON",
+        "android.permission.BYDACQUISITION_SEND_BUFFER",
+        "android.permission.BYDACQUISITION_SEND_FILE",
+        "com.byd.ditrainer.permission.CORE",
+    )
+
+    private fun permissionGrantStates(permissions: Array<String>): Map<String, Boolean> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return permissions.associateWith { true }
+        }
+        return permissions.associateWith {
+            appContext.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
         }
     }
 

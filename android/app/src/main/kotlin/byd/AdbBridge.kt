@@ -97,6 +97,9 @@ object AdbBridge {
         commands += "pm grant $pkg android.permission.BYDAUTO_BODYWORK_GET"
         commands += "pm grant $pkg android.permission.BYDAUTO_BODYWORK_COMMON"
         commands += "pm grant $pkg android.permission.BYDAUTO_STATISTIC_GET"
+        commands += "pm grant $pkg android.permission.BYDAUTO_SPEED_GET"
+        commands += "pm grant $pkg android.permission.BYDAUTO_GEARBOX_GET"
+        commands += "pm grant $pkg android.permission.BYDAUTO_AC_COMMON"
 
         // Navigation embedding / input injection. Usually signature/system only.
         commands += "pm grant $pkg android.permission.WRITE_SECURE_SETTINGS"
