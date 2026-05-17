@@ -724,7 +724,7 @@ class _LauncherHomePageState extends State<LauncherHomePage>
   int _normalizeWallpaperInterval(int seconds) {
     if (seconds <= 0) return 0;
     if (seconds < 10) return 10;
-    if (seconds > 3600) return 3600;
+    if (seconds > 86400) return 86400;
     return seconds;
   }
 
@@ -3464,6 +3464,24 @@ class _WallpaperSettingsCard extends StatelessWidget {
             _WallpaperIntervalChip(
               label: '10m',
               seconds: 600,
+              selectedSeconds: intervalSeconds,
+              onSelected: onIntervalChanged,
+            ),
+            _WallpaperIntervalChip(
+              label: '1h',
+              seconds: 3600,
+              selectedSeconds: intervalSeconds,
+              onSelected: onIntervalChanged,
+            ),
+            _WallpaperIntervalChip(
+              label: '4h',
+              seconds: 14400,
+              selectedSeconds: intervalSeconds,
+              onSelected: onIntervalChanged,
+            ),
+            _WallpaperIntervalChip(
+              label: '1d',
+              seconds: 86400,
               selectedSeconds: intervalSeconds,
               onSelected: onIntervalChanged,
             ),
