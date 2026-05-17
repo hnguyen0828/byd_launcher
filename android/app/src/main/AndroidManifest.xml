@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_COMMON"/>
+    <uses-permission android:name="android.permission.BYDAUTO_DOORLOCK_GET"/>
+    <uses-permission android:name="android.permission.BYDAUTO_DOORLOCK_COMMON"/>
     <uses-permission android:name="android.permission.BYDAUTO_STATISTIC_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_SPEED_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_GEARBOX_GET"/>
@@ -23,9 +25,10 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
 
     <application
-        android:label="byd_launcher"
+        android:label="Kim Launcher"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true">
         <activity
@@ -63,7 +66,7 @@
         <service
             android:name="byd.MusicNotificationListenerService"
             android:exported="true"
-            android:label="BYD Launcher music"
+            android:label="Kim Launcher music"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService"/>

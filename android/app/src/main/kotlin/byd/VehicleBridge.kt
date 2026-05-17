@@ -11,6 +11,8 @@ import android.hardware.bydauto.ac.AbsBYDAutoAcListener
 import android.hardware.bydauto.ac.BYDAutoAcDevice
 import android.hardware.bydauto.bodywork.AbsBYDAutoBodyworkListener
 import android.hardware.bydauto.bodywork.BYDAutoBodyworkDevice
+import android.hardware.bydauto.doorlock.AbsBYDAutoDoorLockListener
+import android.hardware.bydauto.doorlock.BYDAutoDoorLockDevice
 import android.hardware.bydauto.gearbox.AbsBYDAutoGearboxListener
 import android.hardware.bydauto.gearbox.BYDAutoGearboxDevice
 import android.hardware.bydauto.speed.AbsBYDAutoSpeedListener
@@ -48,6 +50,7 @@ class VehicleBridge {
         private var attemptedGearboxDevice = false
         private var attemptedAcDevice = false
         private var attemptedBodyworkDevice = false
+        private var attemptedDoorLockDevice = false
 
         private var speedDevice: BYDAutoSpeedDevice? = null
         private var statisticDevice: BYDAutoStatisticDevice? = null
@@ -55,6 +58,7 @@ class VehicleBridge {
         private var gearboxDevice: BYDAutoGearboxDevice? = null
         private var acDevice: BYDAutoAcDevice? = null
         private var bodyworkDevice: BYDAutoBodyworkDevice? = null
+        private var doorLockDevice: BYDAutoDoorLockDevice? = null
         private var deviceManager: BYDAutoDeviceManager? = null
 
         private var speedListener: AbsBYDAutoSpeedListener? = null
@@ -63,6 +67,7 @@ class VehicleBridge {
         private var gearboxListener: AbsBYDAutoGearboxListener? = null
         private var acListener: AbsBYDAutoAcListener? = null
         private var bodyworkListener: AbsBYDAutoBodyworkListener? = null
+        private var doorLockListener: AbsBYDAutoDoorLockListener? = null
         private var globalManagerListener: BYDAutoManager.OnBYDAutoListener? = null
 
         private const val SNAPSHOT_EMIT_INTERVAL_MS = 3000L
@@ -100,10 +105,13 @@ class VehicleBridge {
         // Statistic events are noisy on BYD DiLink: the same device id can emit
         // transient/counter values. Keep only sane, debounced dashboard values.
         private var lastAcceptedFuelRangeKm: Int? = null
+        private var lastAcceptedElectricRangeKm: Int? = null
         private var lastAcceptedBatteryPercent: Int? = null
         private var lastAcceptedFuelPercent: Int? = null
         private var lastFuelRangeAcceptMs = 0L
+        private var lastElectricRangeAcceptMs = 0L
         private var lastBatteryPercentAcceptMs = 0L
+        private var lastFuelPercentAcceptMs = 0L
         private var cachedOutsideTemperatureC: Int? = null
         private var cachedTyreSystemState: Int? = null
         private var cachedTyreTemperatureState: Int? = null
@@ -150,7 +158,7 @@ class VehicleBridge {
                 "controlWindow" -> result.success(controlWindow(call))
                 "controlTrunk" -> result.success(controlTrunk(call))
                 "controlSunroof" -> result.success(controlSunroof(call))
-                "controlBodyworkRaw" -> result.success(controlBodyworkRaw(call))
+                "controlDoorLock" -> result.success(controlDoorLock(call))
                 else -> result.notImplemented()
             }
         }
@@ -175,10 +183,7 @@ class VehicleBridge {
             val area = (call.argument<Any>("area") as? Number)?.toInt()
                 ?: return mapOf("ok" to false, "error" to "Missing area")
             val state = stateFromAction(call.argument<String>("action"), call.argument<Int>("state"))
-            val ok = invokeBodyworkAny(
-                listOf("setBodyWindowCtrlState"),
-                listOf(arrayOf(area, state)),
-            )
+            val ok = postBodyworkEvent(area, state)
             FileLogger.log(appContext, "BODYWORK CONTROL window area=$area state=$state ok=$ok")
             return mapOf("ok" to ok, "area" to area, "state" to state)
         }
@@ -186,20 +191,9 @@ class VehicleBridge {
         private fun controlSunroof(call: MethodCall): Map<String, Any?> {
             ensureListenersRegistered()
             val action = call.argument<String>("action")
-            if (action == "stop") {
-                val stopped = invokeBodyworkAny(listOf("setMoonRoofAndSunshadeStop"), listOf(arrayOf<Int>()))
-                FileLogger.log(appContext, "BODYWORK CONTROL sunshade stop ok=$stopped")
-                return mapOf("ok" to stopped, "action" to action, "target" to "sunshade")
-            }
-
-            // Safety note: the launcher's "sunroof" action should control only the sunshade.
-            // Do not call setMoonRoofState() here, because that may command the glass roof motor.
-            // Kinex logs show setSunshadeState(int) is available, so use that as the only normal path.
+            // Safety note: control only the sunshade panel, not the moon-roof glass.
             val state = stateFromAction(action, call.argument<Int>("state"))
-            val ok = invokeBodyworkAny(
-                listOf("setSunshadeState"),
-                listOf(arrayOf(state)),
-            )
+            val ok = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_SUNSHADE_PANEL, state)
             FileLogger.log(appContext, "BODYWORK CONTROL sunshade state=$state ok=$ok")
             return mapOf("ok" to ok, "state" to state, "target" to "sunshade")
         }
@@ -208,44 +202,51 @@ class VehicleBridge {
             ensureListenersRegistered()
             val action = call.argument<String>("action")
             val state = stateFromAction(action, call.argument<Int>("state"))
-            // Public SDK on this firmware exposes getDoorState for luggage door, but the open/close
-            // setter name is not confirmed from Kinex logs. Try known/fallback names and log result.
-            val ok = invokeBodyworkAny(
-                listOf(
-                    "setBackDoorCtrlState",
-                    "setTrunkCtrlState",
-                    "setLuggageDoorState",
-                    "setLuggageDoorCtrlState",
-                    "setBackDoorState",
-                    "setCarBackDoorElectricMode",
-                ),
-                listOf(
-                    arrayOf(state),
-                    arrayOf(BODYWORK_LUGGAGE_DOOR, state),
-                ),
-            )
+            val ok = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR, state)
             FileLogger.log(appContext, "BODYWORK CONTROL trunk state=$state ok=$ok")
-            return mapOf("ok" to ok, "state" to state, "featureId" to BODYWORK_LUGGAGE_DOOR)
+            return mapOf("ok" to ok, "state" to state, "featureId" to BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR)
         }
 
-        private fun controlBodyworkRaw(call: MethodCall): Map<String, Any?> {
+        private fun controlDoorLock(call: MethodCall): Map<String, Any?> {
             ensureListenersRegistered()
-            val method = call.argument<String>("method")
-                ?: return mapOf("ok" to false, "error" to "Missing method")
-            val args = (call.argument<List<Any?>>("args") ?: emptyList()).mapNotNull { (it as? Number)?.toInt() }.toTypedArray()
-            val ok = invokeBodyworkAny(listOf(method), listOf(args))
-            FileLogger.log(appContext, "BODYWORK CONTROL raw method=$method args=${args.joinToString()} ok=$ok")
-            return mapOf("ok" to ok, "method" to method, "args" to args.toList())
+            val locked = call.argument<Boolean>("locked") ?: true
+            val state = if (locked) BYDAutoDoorLockDevice.DOOR_LOCK_STATE_LOCK else BYDAutoDoorLockDevice.DOOR_LOCK_STATE_UNLOCK
+            val areas = listOf(
+                BYDAutoDoorLockDevice.DOOR_LOCK_AREA_LEFT_FRONT,
+                BYDAutoDoorLockDevice.DOOR_LOCK_AREA_RIGHT_FRONT,
+                BYDAutoDoorLockDevice.DOOR_LOCK_AREA_LEFT_REAR,
+                BYDAutoDoorLockDevice.DOOR_LOCK_AREA_RIGHT_REAR,
+                BYDAutoDoorLockDevice.DOOR_LOCK_AREA_BACK,
+            )
+            var success = false
+            for (area in areas) {
+                success = postDoorLockEvent(area, state) || success
+            }
+            FileLogger.log(appContext, "DOORLOCK CONTROL locked=$locked state=$state ok=$success areas=${areas.joinToString()}")
+            return mapOf("ok" to success, "state" to state, "locked" to locked)
         }
 
         private fun stateFromAction(action: String?, explicitState: Int?): Int {
             if (explicitState != null) return explicitState
             return when (action?.lowercase()) {
-                "open", "up", "on" -> 1
-                "close", "down", "off" -> 0
-                "stop" -> 2
+                "open", "up", "on" -> BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN
+                "close", "down", "off", "stop" -> BYDAutoBodyworkDevice.BODYWORK_STATE_CLOSED
                 else -> 1
             }
+        }
+
+        private fun postBodyworkEvent(command: Int, state: Int): Boolean {
+            val device = bodyworkDevice ?: return false
+            return safe("bodywork postEvent command=$command state=$state") {
+                device.postEvent(command, state, 0, null)
+            } == true
+        }
+
+        private fun postDoorLockEvent(area: Int, state: Int): Boolean {
+            val device = doorLockDevice ?: return false
+            return safe("doorlock postEvent area=$area state=$state") {
+                device.postEvent(area, state, 0, null)
+            } == true
         }
 
         private fun invokeBodyworkAny(methodNames: List<String>, argSets: List<Array<Int>>): Boolean {
@@ -377,17 +378,22 @@ class VehicleBridge {
                     bodyworkDevice = createBodyworkDeviceReflectively()
                 }
             }
+            if (!attemptedDoorLockDevice) {
+                attemptedDoorLockDevice = true
+                doorLockDevice = safe("get doorlock device") { BYDAutoDoorLockDevice.getInstance(bydContext) }
+            }
             if (deviceManager == null) {
                 deviceManager = safe("get BYDAutoDeviceManager") { BYDAutoDeviceManager.getInstance(bydContext) }
             }
 
-            cachedAvailable = listOf(speedDevice, statisticDevice, tyreDevice, gearboxDevice, acDevice, bodyworkDevice).any { it != null }
+            cachedAvailable = listOf(speedDevice, statisticDevice, tyreDevice, gearboxDevice, acDevice, bodyworkDevice, doorLockDevice).any { it != null }
 
             FileLogger.log(
                 appContext,
                 "BYD devices for listener/probe mode: speed=${speedDevice != null}, " +
                     "statistic=${statisticDevice != null}, tyre=${tyreDevice != null}, " +
-                    "gearbox=${gearboxDevice != null}, ac=${acDevice != null}, bodywork=${bodyworkDevice != null}, manager=${deviceManager != null}"
+                    "gearbox=${gearboxDevice != null}, ac=${acDevice != null}, bodywork=${bodyworkDevice != null}, " +
+                    "doorlock=${doorLockDevice != null}, manager=${deviceManager != null}"
             )
 
             logDeviceMethods("speed", speedDevice)
@@ -396,6 +402,7 @@ class VehicleBridge {
             logDeviceMethods("gearbox", gearboxDevice)
             logDeviceMethods("ac", acDevice)
             logDeviceMethods("bodywork", bodyworkDevice)
+            logDeviceMethods("doorlock", doorLockDevice)
         }
 
         private fun ensureListenersRegistered() {
@@ -414,6 +421,7 @@ class VehicleBridge {
             gearboxListener = safe("create gearbox listener") { createGearboxListener() }
             acListener = safe("create ac listener") { createAcListener() }
             bodyworkListener = safe("create bodywork listener") { createBodyworkListener() }
+            doorLockListener = safe("create doorlock listener") { createDoorLockListener() }
 
             // Safe statistic mode:
             // - Keep typed listeners for speed/gear/tyre/bodywork.
@@ -431,6 +439,7 @@ class VehicleBridge {
             gearboxListener?.let { listener -> registerTyped("gearbox") { gearboxDevice?.registerListener(listener) } }
             acListener?.let { listener -> registerTyped("ac") { acDevice?.registerListener(listener) } }
             bodyworkListener?.let { listener -> registerTyped("bodywork") { bodyworkDevice?.registerListener(listener) } }
+            doorLockListener?.let { listener -> registerTyped("doorlock") { doorLockDevice?.registerListener(listener) } }
 
             FileLogger.log(appContext, "BYD next map listener registration completed/attempted")
         }
@@ -614,6 +623,42 @@ class VehicleBridge {
             return allow
         }
 
+        private fun acceptElectricRangeCandidate(km: Int): Boolean {
+            if (km !in 0..BYDAutoStatisticDevice.STATISTIC_ELEC_DRIVING_RANGE_MAX) return false
+            val now = SystemClock.elapsedRealtime()
+            val last = lastAcceptedElectricRangeKm
+            if (last == null) {
+                lastAcceptedElectricRangeKm = km
+                lastElectricRangeAcceptMs = now
+                return true
+            }
+            val delta = kotlin.math.abs(km - last)
+            val allow = delta <= 10 || now - lastElectricRangeAcceptMs >= 60_000L
+            if (allow) {
+                lastAcceptedElectricRangeKm = km
+                lastElectricRangeAcceptMs = now
+            }
+            return allow
+        }
+
+        private fun acceptFuelPercentCandidate(percent: Int): Boolean {
+            if (percent !in BYDAutoStatisticDevice.STATISTIC_FUEL_PERCENTAGE_MIN..BYDAutoStatisticDevice.STATISTIC_FUEL_PERCENTAGE_MAX) return false
+            val now = SystemClock.elapsedRealtime()
+            val last = lastAcceptedFuelPercent
+            if (last == null) {
+                lastAcceptedFuelPercent = percent
+                lastFuelPercentAcceptMs = now
+                return true
+            }
+            val delta = kotlin.math.abs(percent - last)
+            val allow = delta <= 2 || now - lastFuelPercentAcceptMs >= 60_000L
+            if (allow) {
+                lastAcceptedFuelPercent = percent
+                lastFuelPercentAcceptMs = now
+            }
+            return allow
+        }
+
         private fun handleTyreGlobalEvent(eventType: Int, rawValue: Double, data: Any?) {
             // TPMS often arrives inside the BYD data object rather than as the float/int
             // value. Keep a very low-rate diagnostic log so we can map it without
@@ -658,6 +703,7 @@ class VehicleBridge {
             enableDevice(manager, "gearbox", gearboxDevice)
             enableDevice(manager, "ac", acDevice)
             enableDevice(manager, "bodywork", bodyworkDevice)
+            enableDevice(manager, "doorlock", doorLockDevice)
         }
 
         private fun enableDevice(manager: BYDAutoDeviceManager, label: String, device: IBYDAutoDevice?) {
@@ -762,15 +808,29 @@ class VehicleBridge {
             return object : AbsBYDAutoStatisticListener() {
 
                 override fun onElecDrivingRangeChanged(value: Int) {
-                    // Range is intentionally not mapped until the exact combined range event is confirmed.
+                    val normalized = normalizeRangeKm(value)
+                    if (normalized != null && acceptElectricRangeCandidate(normalized)) {
+                        cachedElectricRangeKm = normalized
+                        logRealtime("CALLBACK electricRange raw=$value cached=$cachedElectricRangeKm")
+                        emitSnapshot()
+                    }
                 }
 
                 override fun onFuelDrivingRangeChanged(value: Int) {
-                    // Fuel/range is intentionally not mapped; Kinex logs have not exposed the exact combined range yet.
+                    val normalized = normalizeRangeKm(value)
+                    if (normalized != null && acceptFuelRangeCandidate(normalized)) {
+                        cachedFuelRangeKm = normalized
+                        logRealtime("CALLBACK fuelRange raw=$value cached=$cachedFuelRangeKm")
+                        emitSnapshot()
+                    }
                 }
 
                 override fun onFuelPercentageChanged(value: Int) {
-                    // Do not mirror this into battery/fuel UI until confirmed.
+                    if (acceptFuelPercentCandidate(value)) {
+                        cachedFuelPercent = value
+                        logRealtime("CALLBACK fuelPercent raw=$value cached=$cachedFuelPercent")
+                        emitSnapshot()
+                    }
                 }
 
                 override fun onElecPercentageChanged(value: Double) {
@@ -922,6 +982,15 @@ class VehicleBridge {
 
                 override fun onAlarmStateChanged(value: Int) {
                     logRealtime("BODYWORK CALLBACK alarmState=$value")
+                }
+            }
+        }
+
+        private fun createDoorLockListener(): AbsBYDAutoDoorLockListener {
+            return object : AbsBYDAutoDoorLockListener() {
+                override fun onDoorLockStatusChanged(area: Int, state: Int) {
+                    logRealtime("DOORLOCK CALLBACK area=$area state=$state")
+                    emitSnapshot()
                 }
             }
         }

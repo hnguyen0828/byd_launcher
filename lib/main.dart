@@ -10,20 +10,25 @@ import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i.glb';
+const String _defaultVehicleModelAsset =
+    'assets/models/2024_byd_seal_u_dm-i.glb';
 const bool _preferNativeVehicleRenderer = true;
 const String _themeModePreferenceKey = 'launcher.themeMode';
 const String _languagePreferenceKey = 'launcher.language';
+const String _vehicleModelPreferenceKey = 'launcher.vehicleModelAsset';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
 const String _layoutModePreferenceKey = 'launcher.layoutMode';
+const String _landscapeSidebarPositionPreferenceKey =
+    'launcher.landscapeSidebarPosition';
 const String _navigationDefaultPackagePreferenceKey =
     'launcher.navigation.defaultPackage';
 const String _launchNavigationWithLauncherPreferenceKey =
     'launcher.navigation.launchWithLauncher';
 const String _favoriteAppsPreferenceKey = 'launcher.favoriteApps';
+const int _favoriteAppsMaxCount = 10;
 const String _wallpaperFixedFolderPath =
-    '/storage/emulated/0/Android/data/com.example.byd_launcher/files/wallpapers';
+    '/storage/emulated/0/Android/data/com.kimkim/files/wallpapers';
 const String _wallpaperIntervalPreferenceKey =
     'launcher.wallpaper.intervalSeconds';
 const String _wallpaperButtonEnabledPreferenceKey =
@@ -45,6 +50,16 @@ const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Azure Blue', Color(0xFF1687FF)),
   _VehiclePaintOption('Stone Grey', Color(0xFF9AA0A4)),
   _VehiclePaintOption('Ruby Red', Color(0xFF9D1028)),
+];
+
+const List<String> _vehicleModelAssets = [
+  'assets/models/2024_byd_atto_3.glb',
+  'assets/models/2024_byd_dolphin.glb',
+  'assets/models/2024_byd_m6.glb',
+  'assets/models/2024_byd_seagull.glb',
+  'assets/models/2024_byd_seal.glb',
+  'assets/models/2024_byd_seal_5_dm-i.glb',
+  'assets/models/2024_byd_seal_u_dm-i.glb',
 ];
 
 class _VehicleSnapshot {
@@ -204,7 +219,7 @@ Future<void> _applyLayoutModeOrientation(_LauncherLayoutMode mode) {
 }
 
 void _preloadVehicleModelAssets() {
-  unawaited(rootBundle.load(_vehicleModelAsset));
+  unawaited(rootBundle.load(_defaultVehicleModelAsset));
   unawaited(
     rootBundle.load('packages/model_viewer_plus/assets/model-viewer.min.js'),
   );
@@ -237,7 +252,7 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
       language: _language,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: _localizedStrings[_language]?['appTitle'] ?? 'BYD Launcher',
+        title: _localizedStrings[_language]?['appTitle'] ?? 'Kim Launcher',
         themeMode: _themeMode,
         theme: _launcherTheme(Brightness.light),
         darkTheme: _launcherTheme(Brightness.dark),
@@ -314,6 +329,15 @@ enum _LauncherLayoutMode {
   final String label;
 }
 
+enum _LandscapeSidebarPosition {
+  left('Left'),
+  right('Right');
+
+  const _LandscapeSidebarPosition(this.label);
+
+  final String label;
+}
+
 enum _AppLanguage {
   en('English'),
   zh('中文'),
@@ -340,6 +364,35 @@ _LauncherLayoutMode _parseLayoutMode(String? value) {
     if (mode.name == value) return mode;
   }
   return _LauncherLayoutMode.landscape;
+}
+
+_LandscapeSidebarPosition _parseLandscapeSidebarPosition(String? value) {
+  for (final position in _LandscapeSidebarPosition.values) {
+    if (position.name == value) return position;
+  }
+  return _LandscapeSidebarPosition.left;
+}
+
+String _parseVehicleModelAsset(String? value) {
+  if (value != null && _vehicleModelAssets.contains(value)) {
+    return value;
+  }
+  return _defaultVehicleModelAsset;
+}
+
+String _vehicleModelLabel(String asset) {
+  final filename = asset.split('/').last;
+  final withoutExtension = filename.replaceFirst(RegExp(r'\.glb$'), '');
+  final withoutYear = withoutExtension.replaceFirst(RegExp(r'^\d{4}_'), '');
+  final words = withoutYear.split('_').where((word) => word.isNotEmpty);
+  return words.map(_capitalizeVehicleModelWord).join(' ');
+}
+
+String _capitalizeVehicleModelWord(String word) {
+  if (word.length <= 2 || word.contains('-')) {
+    return word.toUpperCase();
+  }
+  return word[0].toUpperCase() + word.substring(1);
 }
 
 enum _VehicleGear { p, r, n, d }
@@ -390,7 +443,7 @@ String _tx(BuildContext context, String key, Map<String, Object> values) {
 
 const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
   _AppLanguage.en: {
-    'appTitle': 'BYD Launcher',
+    'appTitle': 'Kim Launcher',
     'language': 'Language',
     'languageSubtitle': 'Choose the display language.',
     'vehicle': 'Vehicle',
@@ -401,6 +454,11 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'settingsSubtitle': 'Launcher and vehicle display preferences',
     'layout': 'Layout',
     'layoutSubtitle': 'Switch between landscape and portrait layouts.',
+    'sidebarPosition': 'Landscape sidebar',
+    'sidebarPositionSubtitle':
+        'Move the vehicle sidebar for left or right hand drive.',
+    'sidebarLeft': 'Left',
+    'sidebarRight': 'Right',
     'landscapeShort': 'Land',
     'portraitShort': 'Port',
     'defaultLauncher': 'Default launcher',
@@ -412,6 +470,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
         'Open the default map app when this launcher starts.',
     'launchNavigationMissing':
         'Install or reload a map app before enabling this.',
+    'vehicleModel': 'Vehicle model',
+    'vehicleModelSubtitle': 'Choose the 3D model shown on the home screen.',
     'vehicleColor': 'Vehicle color',
     'vehicleColorSubtitle':
         'Used by the launcher preview and future render states.',
@@ -435,7 +495,7 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'noLaunchableApps': 'No launchable apps found',
     'add': 'Add',
     'cancel': 'Cancel',
-    'saveCount': 'Save ({count}/4)',
+    'saveCount': 'Save ({count}/10)',
     'range': 'Range',
     'fuel': 'Fuel',
     'battery': 'Battery',
@@ -464,6 +524,11 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'settingsSubtitle': 'Tùy chọn launcher và hiển thị xe',
     'layout': 'Bố cục',
     'layoutSubtitle': 'Chuyển giữa bố cục ngang và dọc.',
+    'sidebarPosition': 'Vị trí sidebar ngang',
+    'sidebarPositionSubtitle':
+        'Đổi sidebar xe sang trái/phải cho xe tay lái nghịch.',
+    'sidebarLeft': 'Trái',
+    'sidebarRight': 'Phải',
     'landscapeShort': 'Ngang',
     'portraitShort': 'Dọc',
     'defaultLauncher': 'Launcher mặc định',
@@ -472,6 +537,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'launchNavigation': 'Mở dẫn đường',
     'launchNavigationReady': 'Mở app bản đồ mặc định khi launcher khởi động.',
     'launchNavigationMissing': 'Cài hoặc tải lại app bản đồ trước khi bật.',
+    'vehicleModel': 'Mẫu xe',
+    'vehicleModelSubtitle': 'Chọn model 3D hiển thị ở màn hình chính.',
     'vehicleColor': 'Màu xe',
     'vehicleColorSubtitle':
         'Dùng cho preview launcher và trạng thái render sau này.',
@@ -493,7 +560,7 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'noLaunchableApps': 'Không tìm thấy app có thể mở',
     'add': 'Thêm',
     'cancel': 'Huỷ',
-    'saveCount': 'Lưu ({count}/4)',
+    'saveCount': 'Lưu ({count}/10)',
     'range': 'Tầm hoạt động',
     'fuel': 'Xăng',
     'battery': 'Pin',
@@ -684,10 +751,13 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
   _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
+  String _vehicleModelAsset = _defaultVehicleModelAsset;
   Color _vehicleColor = const Color(0xFFE9EEF4);
   _VehicleGear _selectedGear = _VehicleGear.p;
   bool _vehiclePreferencesLoaded = false;
   _LauncherLayoutMode _layoutMode = _LauncherLayoutMode.landscape;
+  _LandscapeSidebarPosition _landscapeSidebarPosition =
+      _LandscapeSidebarPosition.left;
   List<_LauncherApp> _launcherApps = const [];
   List<String> _favoriteAppPackages = const [];
   List<_NavigationApp> _navigationApps = const [];
@@ -700,6 +770,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   List<String> _wallpaperPaths = const [];
   int _wallpaperIndex = 0;
   Timer? _wallpaperTimer;
+  Timer? _transitionLoadingTimer;
+  bool _transitionLoading = false;
   double _vehicleSpeedKmh = 0;
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
@@ -750,6 +822,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     WidgetsBinding.instance.removeObserver(this);
     _vehicleSnapshotTimer?.cancel();
     _wallpaperTimer?.cancel();
+    _transitionLoadingTimer?.cancel();
     _vehicleSnapshotSubscription?.cancel();
     super.dispose();
   }
@@ -797,85 +870,127 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                     ],
             ),
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 1100;
-              final sidebarWidth = compact ? 292.0 : 348.0;
-              final dashboard = _LeftDashboard(
-                selectedGear: _selectedGear,
-                effectiveGear: _effectiveGear,
-                vehicleSpeedKmh: _effectiveSpeedKmh,
-                vehicleSnapshot: _vehicleSnapshot,
-                vehicleColor: _vehicleColor,
-                favoriteApps: _favoriteApps,
-                onGearChanged: _setGear,
-                onFavoriteAppTap: _launchFavoriteApp,
-                onFavoriteAppsEdit: _editFavoriteApps,
-                onFavoriteAppRemove: _removeFavoriteApp,
-                onFavoriteAppsReorder: _reorderFavoriteApps,
-              );
-              final vehicleCanvas = _VehicleCanvas(
-                enable3dModel:
-                    widget.enable3dModel && _vehiclePreferencesLoaded,
-                cameraOrbit: _cameraOrbit,
-                view: _view,
-                activeTab: _activeTab,
-                vehicleColor: _vehicleColor,
-                renderQuality: _renderQuality,
-                layoutMode: _layoutMode,
-                roadMotionActive: _roadMotionActive,
-                reverseRoadMotion: _reverseRoadMotion,
-                vehicleSpeedKmh: _effectiveSpeedKmh,
-                effectiveGear: _effectiveGear,
-                vehicleSnapshot: _vehicleSnapshot,
-                onGearChanged: _setGear,
-                onViewChanged: (view) => setState(() => _view = view),
-                onTabChanged: _handleTabChanged,
-                onVehicleColorChanged: _setVehicleColor,
-                onRenderQualityChanged: _setRenderQuality,
-                onLayoutModeChanged: _setLayoutMode,
-                navigationApps: _navigationApps,
-                selectedNavigationPackage: _selectedNavigationPackage,
-                launchNavigationWithLauncher: _launchNavigationWithLauncher,
-                defaultLauncherEnabled: _defaultLauncherEnabled,
-                onDefaultNavigationAppChanged: _setDefaultNavigationApp,
-                onNavigationReloadRequested: _reloadNavigationApps,
-                onDefaultNavigationOpenRequested: _openDefaultNavigationApp,
-                onLaunchNavigationWithLauncherChanged:
-                    _setLaunchNavigationWithLauncher,
-                onDefaultLauncherChanged: _setDefaultLauncher,
-                wallpaperButtonEnabled: _wallpaperButtonEnabled,
-                wallpaperFolderPath: _wallpaperFolderPath,
-                wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
-                wallpaperPaths: _wallpaperPaths,
-                wallpaperIndex: _wallpaperIndex,
-                onWallpaperReloadRequested: _reloadWallpapers,
-                onWallpaperIntervalChanged: _setWallpaperInterval,
-                onWallpaperButtonEnabledChanged: _setWallpaperButtonEnabled,
-                themeMode: widget.themeMode,
-                onThemeModeChanged: widget.onThemeModeChanged,
-                language: widget.language,
-                onLanguageChanged: widget.onLanguageChanged,
-              );
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 1100;
+                    final sidebarWidth = compact ? 292.0 : 348.0;
+                    final dashboard = _LeftDashboard(
+                      selectedGear: _selectedGear,
+                      effectiveGear: _effectiveGear,
+                      vehicleSpeedKmh: _effectiveSpeedKmh,
+                      vehicleSnapshot: _vehicleSnapshot,
+                      vehicleColor: _vehicleColor,
+                      favoriteApps: _favoriteApps,
+                      onGearChanged: _setGear,
+                      onFavoriteAppTap: _launchFavoriteApp,
+                      onFavoriteAppsEdit: _editFavoriteApps,
+                      onFavoriteAppRemove: _removeFavoriteApp,
+                      onFavoriteAppsReorder: _reorderFavoriteApps,
+                    );
+                    final vehicleCanvas = _VehicleCanvas(
+                      enable3dModel:
+                          widget.enable3dModel && _vehiclePreferencesLoaded,
+                      cameraOrbit: _cameraOrbit,
+                      view: _view,
+                      activeTab: _activeTab,
+                      vehicleModelAsset: _vehicleModelAsset,
+                      vehicleColor: _vehicleColor,
+                      renderQuality: _renderQuality,
+                      layoutMode: _layoutMode,
+                      landscapeSidebarPosition: _landscapeSidebarPosition,
+                      onLandscapeSidebarPositionChanged:
+                          _setLandscapeSidebarPosition,
+                      roadMotionActive: _roadMotionActive,
+                      reverseRoadMotion: _reverseRoadMotion,
+                      vehicleSpeedKmh: _effectiveSpeedKmh,
+                      effectiveGear: _effectiveGear,
+                      vehicleSnapshot: _vehicleSnapshot,
+                      onGearChanged: _setGear,
+                      onViewChanged: (view) => setState(() => _view = view),
+                      onTabChanged: _handleTabChanged,
+                      onVehicleModelChanged: _setVehicleModel,
+                      onVehicleColorChanged: _setVehicleColor,
+                      onRenderQualityChanged: _setRenderQuality,
+                      onLayoutModeChanged: _setLayoutMode,
+                      navigationApps: _navigationApps,
+                      selectedNavigationPackage: _selectedNavigationPackage,
+                      launchNavigationWithLauncher:
+                          _launchNavigationWithLauncher,
+                      defaultLauncherEnabled: _defaultLauncherEnabled,
+                      onDefaultNavigationAppChanged: _setDefaultNavigationApp,
+                      onNavigationReloadRequested: _reloadNavigationApps,
+                      onDefaultNavigationOpenRequested:
+                          _openDefaultNavigationApp,
+                      onLaunchNavigationWithLauncherChanged:
+                          _setLaunchNavigationWithLauncher,
+                      onDefaultLauncherChanged: _setDefaultLauncher,
+                      wallpaperButtonEnabled: _wallpaperButtonEnabled,
+                      wallpaperFolderPath: _wallpaperFolderPath,
+                      wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
+                      wallpaperPaths: _wallpaperPaths,
+                      wallpaperIndex: _wallpaperIndex,
+                      onWallpaperReloadRequested: _reloadWallpapers,
+                      onWallpaperIntervalChanged: _setWallpaperInterval,
+                      onWallpaperButtonEnabledChanged:
+                          _setWallpaperButtonEnabled,
+                      themeMode: widget.themeMode,
+                      onThemeModeChanged: widget.onThemeModeChanged,
+                      language: widget.language,
+                      onLanguageChanged: widget.onLanguageChanged,
+                    );
 
-              if (_layoutMode == _LauncherLayoutMode.portrait) {
-                return Column(
-                  children: [
-                    Expanded(flex: 11, child: vehicleCanvas),
-                    if (_activeTab != _LauncherTab.wallpaper)
-                      SizedBox(height: 336, child: dashboard),
-                  ],
-                );
-              }
+                    if (_layoutMode == _LauncherLayoutMode.portrait) {
+                      return Column(
+                        children: [
+                          Expanded(child: vehicleCanvas),
+                          if (_activeTab == _LauncherTab.status)
+                            SizedBox(
+                              height: 292,
+                              child: _PortraitBottomDashboard(
+                                vehicleColor: _vehicleColor,
+                                vehicleSnapshot: _vehicleSnapshot,
+                                favoriteApps: _favoriteApps,
+                                onFavoriteAppTap: _launchFavoriteApp,
+                                onFavoriteAppsEdit: _editFavoriteApps,
+                                onFavoriteAppRemove: _removeFavoriteApp,
+                                onFavoriteAppsReorder: _reorderFavoriteApps,
+                              ),
+                            ),
+                        ],
+                      );
+                    }
 
-              return Row(
-                children: [
-                  if (_activeTab != _LauncherTab.wallpaper)
-                    SizedBox(width: sidebarWidth, child: dashboard),
-                  Expanded(child: vehicleCanvas),
-                ],
-              );
-            },
+                    final showSidebar = _activeTab != _LauncherTab.wallpaper;
+                    final sidebar = SizedBox(
+                      width: sidebarWidth,
+                      child: dashboard,
+                    );
+                    final canvas = Expanded(child: vehicleCanvas);
+                    final sidebarOnRight =
+                        _landscapeSidebarPosition ==
+                        _LandscapeSidebarPosition.right;
+
+                    return Row(
+                      children: [
+                        if (showSidebar && !sidebarOnRight) sidebar,
+                        canvas,
+                        if (showSidebar && sidebarOnRight) sidebar,
+                      ],
+                    );
+                  },
+                ),
+              ),
+              if (_transitionLoading)
+                Positioned.fill(
+                  child: _LauncherTransitionLoading(
+                    layoutMode: _layoutMode,
+                    activeTab: _activeTab,
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -883,8 +998,23 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   void _handleTabChanged(_LauncherTab tab) {
+    if (tab == _activeTab) return;
+    _showTransitionLoading();
     setState(() => _activeTab = tab);
     _scheduleWallpaperTimer();
+  }
+
+  void _showTransitionLoading({
+    Duration duration = const Duration(milliseconds: 620),
+  }) {
+    _transitionLoadingTimer?.cancel();
+    if (mounted) {
+      setState(() => _transitionLoading = true);
+    }
+    _transitionLoadingTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() => _transitionLoading = false);
+    });
   }
 
   void _setGear(_VehicleGear gear) {
@@ -911,6 +1041,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   Future<void> _loadVehiclePreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final storedColor = prefs.getInt(_vehicleColorPreferenceKey);
+    final storedModel = prefs.getString(_vehicleModelPreferenceKey);
     final storedQuality = prefs.getString(_renderQualityPreferenceKey);
 
     if (!mounted) return;
@@ -918,9 +1049,17 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       if (storedColor != null) {
         _vehicleColor = Color(storedColor);
       }
+      _vehicleModelAsset = _parseVehicleModelAsset(storedModel);
       _renderQuality = _parseRenderQuality(storedQuality);
       _vehiclePreferencesLoaded = true;
     });
+  }
+
+  Future<void> _setVehicleModel(String asset) async {
+    final parsedAsset = _parseVehicleModelAsset(asset);
+    setState(() => _vehicleModelAsset = parsedAsset);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_vehicleModelPreferenceKey, parsedAsset);
   }
 
   Future<void> _setVehicleColor(Color color) async {
@@ -940,16 +1079,34 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     final layoutMode = _parseLayoutMode(
       prefs.getString(_layoutModePreferenceKey),
     );
+    final sidebarPosition = _parseLandscapeSidebarPosition(
+      prefs.getString(_landscapeSidebarPositionPreferenceKey),
+    );
     await _applyLayoutModeOrientation(layoutMode);
     if (!mounted) return;
-    setState(() => _layoutMode = layoutMode);
+    setState(() {
+      _layoutMode = layoutMode;
+      _landscapeSidebarPosition = sidebarPosition;
+    });
   }
 
   Future<void> _setLayoutMode(_LauncherLayoutMode value) async {
+    if (value == _layoutMode) return;
+    _showTransitionLoading(duration: const Duration(milliseconds: 900));
     setState(() => _layoutMode = value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_layoutModePreferenceKey, value.name);
     await _applyLayoutModeOrientation(value);
+  }
+
+  Future<void> _setLandscapeSidebarPosition(
+    _LandscapeSidebarPosition value,
+  ) async {
+    if (value == _landscapeSidebarPosition) return;
+    _showTransitionLoading(duration: const Duration(milliseconds: 520));
+    setState(() => _landscapeSidebarPosition = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_landscapeSidebarPositionPreferenceKey, value.name);
   }
 
   Future<void> _loadNavigationPreferences() async {
@@ -1005,7 +1162,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _launcherApps = apps;
       _favoriteAppPackages = storedPackages
           .where(availablePackages.contains)
-          .take(4)
+          .take(_favoriteAppsMaxCount)
           .toList(growable: false);
     });
   }
@@ -1054,7 +1211,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   Future<void> _saveFavoriteAppPackages(List<String> packageNames) async {
-    final normalized = packageNames.take(4).toList(growable: false);
+    final normalized = packageNames
+        .take(_favoriteAppsMaxCount)
+        .toList(growable: false);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_favoriteAppsPreferenceKey, normalized);
     if (!mounted) return;
@@ -1281,6 +1440,76 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 }
 
+class _PortraitBottomDashboard extends StatelessWidget {
+  const _PortraitBottomDashboard({
+    required this.vehicleColor,
+    required this.vehicleSnapshot,
+    required this.favoriteApps,
+    required this.onFavoriteAppTap,
+    required this.onFavoriteAppsEdit,
+    required this.onFavoriteAppRemove,
+    required this.onFavoriteAppsReorder,
+  });
+
+  final Color vehicleColor;
+  final _VehicleSnapshot vehicleSnapshot;
+  final List<_LauncherApp> favoriteApps;
+  final ValueChanged<_LauncherApp> onFavoriteAppTap;
+  final VoidCallback onFavoriteAppsEdit;
+  final ValueChanged<_LauncherApp> onFavoriteAppRemove;
+  final ValueChanged<List<_LauncherApp>> onFavoriteAppsReorder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 10,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor.withValues(alpha: 0.78),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: _TpmsCluster(
+                vehicleColor: vehicleColor,
+                snapshot: vehicleSnapshot,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 14,
+            child: Column(
+              children: [
+                const SizedBox(height: 122, child: _CompactMediaWidget()),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 72,
+                  child: _EnergyStrip(snapshot: vehicleSnapshot),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 56,
+                  child: _FavoriteAppsStrip(
+                    apps: favoriteApps,
+                    onAppTap: onFavoriteAppTap,
+                    onEditTap: onFavoriteAppsEdit,
+                    onRemove: onFavoriteAppRemove,
+                    onReorder: onFavoriteAppsReorder,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LeftDashboard extends StatelessWidget {
   const _LeftDashboard({
     required this.selectedGear,
@@ -1451,7 +1680,9 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
   }
 
   void _reorder(_LauncherApp draggedApp, _LauncherApp targetApp) {
-    final reordered = widget.apps.take(4).toList(growable: true);
+    final reordered = widget.apps
+        .take(_favoriteAppsMaxCount)
+        .toList(growable: true);
     final from = reordered.indexWhere(
       (app) => app.packageName == draggedApp.packageName,
     );
@@ -1467,52 +1698,85 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
 
   @override
   Widget build(BuildContext context) {
-    final visibleApps = widget.apps.take(4).toList(growable: false);
-    final canAdd = visibleApps.length < 4;
+    final visibleApps = widget.apps
+        .take(_favoriteAppsMaxCount)
+        .toList(growable: false);
+    final canAdd = visibleApps.length < _favoriteAppsMaxCount;
 
     return TapRegion(
       onTapOutside: (_) => _exitEditing(),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          for (final app in visibleApps)
-            Expanded(
-              child: DragTarget<_LauncherApp>(
-                onWillAcceptWithDetails: (details) =>
-                    details.data.packageName != app.packageName,
-                onAcceptWithDetails: (details) {
-                  _enterEditing();
-                  _reorder(details.data, app);
-                },
-                builder: (context, candidateData, rejectedData) {
-                  final highlighted = candidateData.isNotEmpty;
-                  final button = _FavoriteAppButton(
-                    app: app,
-                    editing: _editing,
-                    highlighted: highlighted,
-                    onTap: () =>
-                        _editing ? _exitEditing() : widget.onAppTap(app),
-                    onLongPress: _enterEditing,
-                    onRemove: () => widget.onRemove(app),
-                  );
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final itemExtent = constraints.maxWidth >= 430 ? 74.0 : 60.0;
+          final addExtent = constraints.maxWidth >= 430 ? 78.0 : 60.0;
 
-                  return LongPressDraggable<_LauncherApp>(
-                    data: app,
-                    delay: const Duration(milliseconds: 220),
-                    onDragStarted: _enterEditing,
-                    feedback: Material(
-                      color: Colors.transparent,
-                      child: SizedBox(width: 58, height: 58, child: button),
-                    ),
-                    childWhenDragging: Opacity(opacity: 0.32, child: button),
-                    child: button,
-                  );
-                },
+          return Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      for (final app in visibleApps)
+                        SizedBox(
+                          width: itemExtent,
+                          child: DragTarget<_LauncherApp>(
+                            onWillAcceptWithDetails: (details) =>
+                                details.data.packageName != app.packageName,
+                            onAcceptWithDetails: (details) {
+                              _enterEditing();
+                              _reorder(details.data, app);
+                            },
+                            builder: (context, candidateData, rejectedData) {
+                              final highlighted = candidateData.isNotEmpty;
+                              final button = _FavoriteAppButton(
+                                app: app,
+                                editing: _editing,
+                                highlighted: highlighted,
+                                onTap: () => _editing
+                                    ? _exitEditing()
+                                    : widget.onAppTap(app),
+                                onLongPress: _enterEditing,
+                                onRemove: () => widget.onRemove(app),
+                              );
+
+                              return LongPressDraggable<_LauncherApp>(
+                                data: app,
+                                delay: const Duration(milliseconds: 220),
+                                onDragStarted: _enterEditing,
+                                feedback: Material(
+                                  color: Colors.transparent,
+                                  child: SizedBox(
+                                    width: itemExtent,
+                                    height: 58,
+                                    child: button,
+                                  ),
+                                ),
+                                childWhenDragging: Opacity(
+                                  opacity: 0.32,
+                                  child: button,
+                                ),
+                                child: button,
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          if (canAdd || visibleApps.isEmpty)
-            Expanded(child: _AddFavoriteAppButton(onTap: widget.onEditTap)),
-        ],
+              if (canAdd || visibleApps.isEmpty) ...[
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: addExtent,
+                  child: _AddFavoriteAppButton(onTap: widget.onEditTap),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -1732,14 +1996,16 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
   @override
   void initState() {
     super.initState();
-    _selectedPackages = widget.selectedPackages.take(4).toSet();
+    _selectedPackages = widget.selectedPackages
+        .take(_favoriteAppsMaxCount)
+        .toSet();
   }
 
   void _toggle(String packageName, bool selected) {
     setState(() {
       if (!selected) {
         _selectedPackages.remove(packageName);
-      } else if (_selectedPackages.length < 4) {
+      } else if (_selectedPackages.length < _favoriteAppsMaxCount) {
         _selectedPackages.add(packageName);
       }
     });
@@ -1780,7 +2046,9 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
                 itemBuilder: (context, index) {
                   final app = widget.apps[index];
                   final selected = _selectedPackages.contains(app.packageName);
-                  final disabled = !selected && _selectedPackages.length >= 4;
+                  final disabled =
+                      !selected &&
+                      _selectedPackages.length >= _favoriteAppsMaxCount;
                   return CheckboxListTile(
                     value: selected,
                     onChanged: disabled
@@ -2028,11 +2296,19 @@ class _SpeedCluster extends StatelessWidget {
 }
 
 class _GearText extends StatelessWidget {
-  const _GearText(this.label, {this.active = false, this.onTap});
+  const _GearText(
+    this.label, {
+    this.active = false,
+    this.onTap,
+    this.size = 24,
+    this.fontSize = 13,
+  });
 
   final String label;
   final bool active;
   final VoidCallback? onTap;
+  final double size;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -2042,8 +2318,8 @@ class _GearText extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.symmetric(horizontal: 2),
-        width: 24,
-        height: 24,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active
@@ -2067,7 +2343,7 @@ class _GearText extends StatelessWidget {
               Theme.of(context).textTheme.labelMedium,
               color: active ? Colors.white : _textMuted,
               weight: active ? FontWeight.w700 : FontWeight.w500,
-              size: 13,
+              size: fontSize,
               letterSpacing: 0.1,
             ),
           ),
@@ -2082,11 +2358,13 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
     required this.selectedGear,
     required this.vehicleSpeedKmh,
     required this.onGearChanged,
+    this.compact = false,
   });
 
   final _VehicleGear selectedGear;
   final double vehicleSpeedKmh;
   final ValueChanged<_VehicleGear> onGearChanged;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -2095,8 +2373,20 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
         ? const Color(0xFF2F80ED).withValues(alpha: 0.20)
         : _accentSoftBlue.withValues(alpha: 0.22);
 
+    final outerPadding = compact ? 1.0 : 4.0;
+    final innerRingPadding = compact ? 6.0 : 10.0;
+    final speedFontSize = compact ? 34.0 : 58.0;
+    final speedLetterSpacing = compact ? -0.8 : -1.8;
+    final unitFontSize = compact ? 9.0 : 12.0;
+    final gearTopGap = compact ? 5.0 : 12.0;
+    final gearButtonSize = compact ? 19.0 : 24.0;
+    final gearFontSize = compact ? 10.5 : 13.0;
+    final gearPadding = compact
+        ? const EdgeInsets.symmetric(horizontal: 4, vertical: 3)
+        : const EdgeInsets.symmetric(horizontal: 8, vertical: 6);
+
     return Padding(
-      padding: const EdgeInsets.all(4),
+      padding: EdgeInsets.all(outerPadding),
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -2125,7 +2415,7 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
           ),
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: EdgeInsets.all(innerRingPadding),
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -2153,9 +2443,9 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                       Theme.of(context).textTheme.displayMedium,
                       color: _textPrimary,
                       weight: FontWeight.w300,
-                      size: 58,
+                      size: speedFontSize,
                       height: 0.86,
-                      letterSpacing: -1.8,
+                      letterSpacing: speedLetterSpacing,
                     ),
                   );
                 },
@@ -2167,13 +2457,13 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                   Theme.of(context).textTheme.labelMedium,
                   color: _textSecondary,
                   weight: FontWeight.w600,
-                  size: 12,
+                  size: unitFontSize,
                   letterSpacing: 0.6,
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: gearTopGap),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                padding: gearPadding,
                 decoration: BoxDecoration(
                   color: light
                       ? Colors.white.withValues(alpha: 0.58)
@@ -2192,21 +2482,29 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                       'P',
                       active: selectedGear == _VehicleGear.p,
                       onTap: () => onGearChanged(_VehicleGear.p),
+                      size: gearButtonSize,
+                      fontSize: gearFontSize,
                     ),
                     _GearText(
                       'R',
                       active: selectedGear == _VehicleGear.r,
                       onTap: () => onGearChanged(_VehicleGear.r),
+                      size: gearButtonSize,
+                      fontSize: gearFontSize,
                     ),
                     _GearText(
                       'N',
                       active: selectedGear == _VehicleGear.n,
                       onTap: () => onGearChanged(_VehicleGear.n),
+                      size: gearButtonSize,
+                      fontSize: gearFontSize,
                     ),
                     _GearText(
                       'D',
                       active: selectedGear == _VehicleGear.d,
                       onTap: () => onGearChanged(_VehicleGear.d),
+                      size: gearButtonSize,
+                      fontSize: gearFontSize,
                     ),
                   ],
                 ),
@@ -2440,6 +2738,220 @@ class _PressureBlock extends StatelessWidget {
               weight: FontWeight.w500,
               size: 10.5,
               height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactMediaWidget extends StatefulWidget {
+  const _CompactMediaWidget();
+
+  @override
+  State<_CompactMediaWidget> createState() => _CompactMediaWidgetState();
+}
+
+class _CompactMediaWidgetState extends State<_CompactMediaWidget>
+    with WidgetsBindingObserver {
+  StreamSubscription<dynamic>? _subscription;
+  Timer? _progressTimer;
+  _MediaPlaybackState _state = const _MediaPlaybackState();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadInitialState();
+    _subscription = _musicEvents.receiveBroadcastStream().listen(
+      _handleNativeState,
+      onError: (_) {},
+    );
+    _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _state.isPlaying && _state.durationMs > 0) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _subscription?.cancel();
+    _progressTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadInitialState();
+    }
+  }
+
+  Future<void> _loadInitialState() async {
+    try {
+      final data = await _musicChannel.invokeMapMethod<String, dynamic>(
+        'getState',
+      );
+      _handleNativeState(data);
+    } catch (_) {}
+  }
+
+  void _handleNativeState(dynamic value) {
+    if (!mounted || value is! Map) return;
+    setState(() => _state = _MediaPlaybackState.fromMap(value));
+  }
+
+  void _invoke(String method) {
+    unawaited(
+      _musicChannel
+          .invokeMethod<Object?>(method)
+          .catchError((Object _) => null),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final controlColor = light ? const Color(0xFF31516F) : _textSecondary;
+    final progressTrack = light
+        ? const Color(0xFFD4E0EB)
+        : const Color(0xFF293241);
+
+    return _GlassCard(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => _invoke('openMusicApp'),
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF5E1E2A), Color(0xFF171B2D)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: _state.albumArt == null
+                      ? const Icon(
+                          Icons.music_note_rounded,
+                          color: Color(0xFFFFD36E),
+                          size: 27,
+                        )
+                      : Image.memory(
+                          _state.albumArt!,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _state.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.titleSmall,
+                        color: _textPrimary,
+                        weight: FontWeight.w700,
+                        size: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _state.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.labelMedium,
+                        color: _textMuted,
+                        weight: FontWeight.w500,
+                        size: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                _state.hasPermission
+                    ? Icons.bluetooth
+                    : Icons.music_off_outlined,
+                color: _accentSoftBlue,
+                size: 19,
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: _state.progress ?? 0,
+              minHeight: 3,
+              color: _accentSoftBlue,
+              backgroundColor: progressTrack,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _MediaControlButton(
+                  icon: Icons.skip_previous_rounded,
+                  color: controlColor,
+                  enabled: _state.hasController,
+                  onPressed: () => _invoke('previous'),
+                ),
+                const SizedBox(width: 18),
+                InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _invoke('playPause'),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: light
+                          ? _accentSoftBlue.withValues(alpha: 0.18)
+                          : Colors.white.withValues(alpha: 0.10),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: light
+                            ? _accentSoftBlue.withValues(alpha: 0.24)
+                            : Colors.white.withValues(alpha: 0.07),
+                      ),
+                    ),
+                    child: Icon(
+                      _state.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      color: light ? const Color(0xFF1D4F86) : Colors.white,
+                      size: _state.isPlaying ? 20 : 23,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 18),
+                _MediaControlButton(
+                  icon: Icons.skip_next_rounded,
+                  color: controlColor,
+                  enabled: _state.hasController,
+                  onPressed: () => _invoke('next'),
+                ),
+              ],
             ),
           ),
         ],
@@ -3047,15 +3559,104 @@ class _EnergyLevel extends StatelessWidget {
   }
 }
 
+class _LauncherTransitionLoading extends StatelessWidget {
+  const _LauncherTransitionLoading({
+    required this.layoutMode,
+    required this.activeTab,
+  });
+
+  final _LauncherLayoutMode layoutMode;
+  final _LauncherTab activeTab;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final label = layoutMode == _LauncherLayoutMode.portrait
+        ? 'Loading ...'
+        : 'Loading ...';
+
+    return AbsorbPointer(
+      child: AnimatedOpacity(
+        opacity: 1,
+        duration: const Duration(milliseconds: 180),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: (light ? const Color(0xFFEAF2FA) : const Color(0xFF05070C))
+                .withValues(alpha: light ? 0.72 : 0.74),
+          ),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 18,
+                ),
+                decoration: BoxDecoration(
+                  color: light
+                      ? Colors.white.withValues(alpha: 0.82)
+                      : const Color(0xFF0D1622).withValues(alpha: 0.86),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: light
+                        ? const Color(0xFFD7E5F2).withValues(alpha: 0.95)
+                        : Colors.white.withValues(alpha: 0.08),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: light ? 0.08 : 0.22,
+                      ),
+                      blurRadius: 28,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: _accentSoftBlue,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Text(
+                      label,
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.titleSmall,
+                        color: _textPrimary,
+                        weight: FontWeight.w700,
+                        size: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _VehicleCanvas extends StatelessWidget {
   const _VehicleCanvas({
     required this.enable3dModel,
     required this.cameraOrbit,
     required this.view,
     required this.activeTab,
+    required this.vehicleModelAsset,
     required this.vehicleColor,
     required this.renderQuality,
     required this.layoutMode,
+    required this.landscapeSidebarPosition,
+    required this.onLandscapeSidebarPositionChanged,
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
@@ -3064,6 +3665,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onGearChanged,
     required this.onViewChanged,
     required this.onTabChanged,
+    required this.onVehicleModelChanged,
     required this.onVehicleColorChanged,
     required this.onRenderQualityChanged,
     required this.onLayoutModeChanged,
@@ -3094,9 +3696,13 @@ class _VehicleCanvas extends StatelessWidget {
   final String cameraOrbit;
   final _VehicleView view;
   final _LauncherTab activeTab;
+  final String vehicleModelAsset;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
   final _LauncherLayoutMode layoutMode;
+  final _LandscapeSidebarPosition landscapeSidebarPosition;
+  final ValueChanged<_LandscapeSidebarPosition>
+  onLandscapeSidebarPositionChanged;
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
@@ -3105,6 +3711,7 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<_VehicleGear> onGearChanged;
   final ValueChanged<_VehicleView> onViewChanged;
   final ValueChanged<_LauncherTab> onTabChanged;
+  final ValueChanged<String> onVehicleModelChanged;
   final ValueChanged<Color> onVehicleColorChanged;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
@@ -3155,6 +3762,7 @@ class _VehicleCanvas extends StatelessWidget {
                 child: _VehicleStage(
                   enable3dModel: enable3dModel,
                   cameraOrbit: cameraOrbit,
+                  vehicleModelAsset: vehicleModelAsset,
                   vehicleColor: vehicleColor,
                   renderQuality: renderQuality,
                   roadMotionActive: roadMotionActive,
@@ -3189,12 +3797,17 @@ class _VehicleCanvas extends StatelessWidget {
                 child: switch (activeTab) {
                   _LauncherTab.settings => _SettingsPanel(
                     key: const ValueKey('settings'),
+                    vehicleModelAsset: vehicleModelAsset,
+                    onVehicleModelChanged: onVehicleModelChanged,
                     vehicleColor: vehicleColor,
                     onVehicleColorChanged: onVehicleColorChanged,
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
                     layoutMode: layoutMode,
                     onLayoutModeChanged: onLayoutModeChanged,
+                    landscapeSidebarPosition: landscapeSidebarPosition,
+                    onLandscapeSidebarPositionChanged:
+                        onLandscapeSidebarPositionChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
                     defaultLauncherEnabled: defaultLauncherEnabled,
                     hasNavigationApps: navigationApps.isNotEmpty,
@@ -3244,14 +3857,15 @@ class _VehicleCanvas extends StatelessWidget {
             ),
           if (activeTab == _LauncherTab.status)
             Positioned(
-              top: portraitMode ? 8 : 12,
-              right: 0,
-              width: portraitMode ? 156 : 212,
-              height: portraitMode ? 156 : 212,
+              top: portraitMode ? 16 : 12,
+              right: portraitMode ? 16 : 0,
+              width: portraitMode ? 108 : 212,
+              height: portraitMode ? 108 : 212,
               child: _PremiumSpeedGearCluster(
                 selectedGear: effectiveGear,
                 vehicleSpeedKmh: vehicleSpeedKmh,
                 onGearChanged: onGearChanged,
+                compact: portraitMode,
               ),
             ),
           Positioned(
@@ -3278,6 +3892,7 @@ class _VehicleStage extends StatelessWidget {
   const _VehicleStage({
     required this.enable3dModel,
     required this.cameraOrbit,
+    required this.vehicleModelAsset,
     required this.vehicleColor,
     required this.renderQuality,
     required this.roadMotionActive,
@@ -3287,6 +3902,7 @@ class _VehicleStage extends StatelessWidget {
 
   final bool enable3dModel;
   final String cameraOrbit;
+  final String vehicleModelAsset;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
   final bool roadMotionActive;
@@ -3300,6 +3916,7 @@ class _VehicleStage extends StatelessWidget {
         child: _VehicleHero(
           enable3dModel: enable3dModel,
           cameraOrbit: cameraOrbit,
+          vehicleModelAsset: vehicleModelAsset,
           vehicleColor: vehicleColor,
           renderQuality: renderQuality,
           roadMotionActive: roadMotionActive,
@@ -4488,12 +5105,16 @@ class _PremiumActionButton extends StatelessWidget {
 
 class _SettingsPanel extends StatelessWidget {
   const _SettingsPanel({
+    required this.vehicleModelAsset,
+    required this.onVehicleModelChanged,
     required this.vehicleColor,
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
     required this.layoutMode,
     required this.onLayoutModeChanged,
+    required this.landscapeSidebarPosition,
+    required this.onLandscapeSidebarPositionChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
@@ -4513,12 +5134,17 @@ class _SettingsPanel extends StatelessWidget {
     super.key,
   });
 
+  final String vehicleModelAsset;
+  final ValueChanged<String> onVehicleModelChanged;
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final _LauncherLayoutMode layoutMode;
   final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
+  final _LandscapeSidebarPosition landscapeSidebarPosition;
+  final ValueChanged<_LandscapeSidebarPosition>
+  onLandscapeSidebarPositionChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
@@ -4539,12 +5165,16 @@ class _SettingsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mainColumn = _SettingsMainColumn(
+      vehicleModelAsset: vehicleModelAsset,
+      onVehicleModelChanged: onVehicleModelChanged,
       vehicleColor: vehicleColor,
       onVehicleColorChanged: onVehicleColorChanged,
       renderQuality: renderQuality,
       onRenderQualityChanged: onRenderQualityChanged,
       layoutMode: layoutMode,
       onLayoutModeChanged: onLayoutModeChanged,
+      landscapeSidebarPosition: landscapeSidebarPosition,
+      onLandscapeSidebarPositionChanged: onLandscapeSidebarPositionChanged,
       launchNavigationWithLauncher: launchNavigationWithLauncher,
       defaultLauncherEnabled: defaultLauncherEnabled,
       hasNavigationApps: hasNavigationApps,
@@ -4622,15 +5252,49 @@ class _SettingsPanel extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 if (constraints.maxWidth < 760) {
-                  return Column(
-                    children: [
-                      Expanded(flex: 12, child: mainColumn),
-                      const SizedBox(height: 14),
-                      const Expanded(
-                        flex: 8,
-                        child: _SettingsPermissionColumn(),
-                      ),
-                    ],
+                  final portraitMainColumn = _SettingsMainColumn(
+                    scrollable: false,
+                    vehicleModelAsset: vehicleModelAsset,
+                    onVehicleModelChanged: onVehicleModelChanged,
+                    vehicleColor: vehicleColor,
+                    onVehicleColorChanged: onVehicleColorChanged,
+                    renderQuality: renderQuality,
+                    onRenderQualityChanged: onRenderQualityChanged,
+                    layoutMode: layoutMode,
+                    onLayoutModeChanged: onLayoutModeChanged,
+                    landscapeSidebarPosition: landscapeSidebarPosition,
+                    onLandscapeSidebarPositionChanged:
+                        onLandscapeSidebarPositionChanged,
+                    launchNavigationWithLauncher: launchNavigationWithLauncher,
+                    defaultLauncherEnabled: defaultLauncherEnabled,
+                    hasNavigationApps: hasNavigationApps,
+                    onLaunchNavigationWithLauncherChanged:
+                        onLaunchNavigationWithLauncherChanged,
+                    onDefaultLauncherChanged: onDefaultLauncherChanged,
+                    wallpaperFolderPath: wallpaperFolderPath,
+                    wallpaperIntervalSeconds: wallpaperIntervalSeconds,
+                    wallpaperImageCount: wallpaperImageCount,
+                    onWallpaperReloadRequested: onWallpaperReloadRequested,
+                    onWallpaperIntervalChanged: onWallpaperIntervalChanged,
+                    wallpaperButtonEnabled: wallpaperButtonEnabled,
+                    onWallpaperButtonEnabledChanged:
+                        onWallpaperButtonEnabledChanged,
+                    themeMode: themeMode,
+                    onThemeModeChanged: onThemeModeChanged,
+                    language: language,
+                    onLanguageChanged: onLanguageChanged,
+                  );
+
+                  return SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 22),
+                    child: Column(
+                      children: [
+                        portraitMainColumn,
+                        const SizedBox(height: 14),
+                        const _SettingsPermissionColumn(),
+                      ],
+                    ),
                   );
                 }
 
@@ -4653,12 +5317,17 @@ class _SettingsPanel extends StatelessWidget {
 
 class _SettingsMainColumn extends StatelessWidget {
   const _SettingsMainColumn({
+    this.scrollable = true,
+    required this.vehicleModelAsset,
+    required this.onVehicleModelChanged,
     required this.vehicleColor,
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
     required this.layoutMode,
     required this.onLayoutModeChanged,
+    required this.landscapeSidebarPosition,
+    required this.onLandscapeSidebarPositionChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
@@ -4677,12 +5346,18 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onLanguageChanged,
   });
 
+  final bool scrollable;
+  final String vehicleModelAsset;
+  final ValueChanged<String> onVehicleModelChanged;
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
   final _LauncherLayoutMode layoutMode;
   final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
+  final _LandscapeSidebarPosition landscapeSidebarPosition;
+  final ValueChanged<_LandscapeSidebarPosition>
+  onLandscapeSidebarPositionChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
@@ -4702,154 +5377,181 @@ class _SettingsMainColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = Column(
+      children: [
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: _SettingsInlineControl(
+            icon: Icons.directions_car_filled_outlined,
+            title: _t(context, 'vehicleModel'),
+            subtitle: _t(context, 'vehicleModelSubtitle'),
+            child: _VehicleModelPicker(
+              selectedAsset: vehicleModelAsset,
+              onChanged: onVehicleModelChanged,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.palette_outlined,
+                title: _t(context, 'vehicleColor'),
+                subtitle: _t(context, 'vehicleColorSubtitle'),
+              ),
+              const SizedBox(height: 16),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final rawWidth = (constraints.maxWidth - 20) / 3;
+                  final swatchWidth = rawWidth < 96
+                      ? 96.0
+                      : rawWidth > 156
+                      ? 156.0
+                      : rawWidth;
+
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final option in _vehiclePaintOptions)
+                        SizedBox(
+                          width: swatchWidth,
+                          child: _VehicleColorSwatch(
+                            label: option.label,
+                            color: option.color,
+                            selected: vehicleColor == option.color,
+                            onTap: onVehicleColorChanged,
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.contrast_outlined,
+                title: _t(context, 'appearance'),
+                subtitle: _t(context, 'appearanceSubtitle'),
+              ),
+              const SizedBox(height: 14),
+              _ThemeModePicker(
+                selectedMode: themeMode,
+                onChanged: onThemeModeChanged,
+              ),
+              const SizedBox(height: 14),
+              _SettingsInlineControl(
+                icon: Icons.translate_outlined,
+                title: _t(context, 'language'),
+                subtitle: _t(context, 'languageSubtitle'),
+                child: _LanguagePicker(
+                  selectedLanguage: language,
+                  onChanged: onLanguageChanged,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.speed_outlined,
+                title: _t(context, 'renderQuality'),
+                subtitle:
+                    'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
+              ),
+              const SizedBox(height: 14),
+              _RenderQualityPicker(
+                selectedQuality: renderQuality,
+                onChanged: onRenderQualityChanged,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: _WallpaperSettingsCard(
+            folderPath: wallpaperFolderPath,
+            intervalSeconds: wallpaperIntervalSeconds,
+            imageCount: wallpaperImageCount,
+            onReload: onWallpaperReloadRequested,
+            onIntervalChanged: onWallpaperIntervalChanged,
+            buttonEnabled: wallpaperButtonEnabled,
+            onButtonEnabledChanged: onWallpaperButtonEnabledChanged,
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            children: [
+              _SettingsSwitchRow(
+                icon: Icons.home_outlined,
+                title: _t(context, 'defaultLauncher'),
+                subtitle: defaultLauncherEnabled
+                    ? _t(context, 'defaultLauncherReady')
+                    : _t(context, 'defaultLauncherChoose'),
+                value: defaultLauncherEnabled,
+                onChanged: onDefaultLauncherChanged,
+              ),
+              const SizedBox(height: 12),
+              _SettingsInlineControl(
+                icon: Icons.screen_rotation_alt_outlined,
+                title: _t(context, 'layout'),
+                subtitle: _t(context, 'layoutSubtitle'),
+                child: _LayoutModePicker(
+                  selectedMode: layoutMode,
+                  onChanged: onLayoutModeChanged,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SettingsInlineControl(
+                icon: Icons.view_sidebar_outlined,
+                title: _t(context, 'sidebarPosition'),
+                subtitle: _t(context, 'sidebarPositionSubtitle'),
+                child: _LandscapeSidebarPositionPicker(
+                  selectedPosition: landscapeSidebarPosition,
+                  onChanged: onLandscapeSidebarPositionChanged,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SettingsSwitchRow(
+                icon: Icons.map_outlined,
+                title: _t(context, 'launchNavigation'),
+                subtitle: hasNavigationApps
+                    ? _t(context, 'launchNavigationReady')
+                    : _t(context, 'launchNavigationMissing'),
+                value: launchNavigationWithLauncher,
+                onChanged: hasNavigationApps
+                    ? onLaunchNavigationWithLauncherChanged
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (!scrollable) return content;
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      child: Column(
-        children: [
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsSectionTitle(
-                  icon: Icons.palette_outlined,
-                  title: _t(context, 'vehicleColor'),
-                  subtitle: _t(context, 'vehicleColorSubtitle'),
-                ),
-                const SizedBox(height: 16),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final rawWidth = (constraints.maxWidth - 20) / 3;
-                    final swatchWidth = rawWidth < 96
-                        ? 96.0
-                        : rawWidth > 156
-                        ? 156.0
-                        : rawWidth;
-
-                    return Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        for (final option in _vehiclePaintOptions)
-                          SizedBox(
-                            width: swatchWidth,
-                            child: _VehicleColorSwatch(
-                              label: option.label,
-                              color: option.color,
-                              selected: vehicleColor == option.color,
-                              onTap: onVehicleColorChanged,
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsSectionTitle(
-                  icon: Icons.contrast_outlined,
-                  title: _t(context, 'appearance'),
-                  subtitle: _t(context, 'appearanceSubtitle'),
-                ),
-                const SizedBox(height: 14),
-                _ThemeModePicker(
-                  selectedMode: themeMode,
-                  onChanged: onThemeModeChanged,
-                ),
-                const SizedBox(height: 14),
-                _SettingsInlineControl(
-                  icon: Icons.translate_outlined,
-                  title: _t(context, 'language'),
-                  subtitle: _t(context, 'languageSubtitle'),
-                  child: _LanguagePicker(
-                    selectedLanguage: language,
-                    onChanged: onLanguageChanged,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsSectionTitle(
-                  icon: Icons.speed_outlined,
-                  title: _t(context, 'renderQuality'),
-                  subtitle:
-                      'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
-                ),
-                const SizedBox(height: 14),
-                _RenderQualityPicker(
-                  selectedQuality: renderQuality,
-                  onChanged: onRenderQualityChanged,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: _WallpaperSettingsCard(
-              folderPath: wallpaperFolderPath,
-              intervalSeconds: wallpaperIntervalSeconds,
-              imageCount: wallpaperImageCount,
-              onReload: onWallpaperReloadRequested,
-              onIntervalChanged: onWallpaperIntervalChanged,
-              buttonEnabled: wallpaperButtonEnabled,
-              onButtonEnabledChanged: onWallpaperButtonEnabledChanged,
-            ),
-          ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              children: [
-                _SettingsSwitchRow(
-                  icon: Icons.home_outlined,
-                  title: _t(context, 'defaultLauncher'),
-                  subtitle: defaultLauncherEnabled
-                      ? _t(context, 'defaultLauncherReady')
-                      : _t(context, 'defaultLauncherChoose'),
-                  value: defaultLauncherEnabled,
-                  onChanged: onDefaultLauncherChanged,
-                ),
-                const SizedBox(height: 12),
-                _SettingsInlineControl(
-                  icon: Icons.screen_rotation_alt_outlined,
-                  title: _t(context, 'layout'),
-                  subtitle: _t(context, 'layoutSubtitle'),
-                  child: _LayoutModePicker(
-                    selectedMode: layoutMode,
-                    onChanged: onLayoutModeChanged,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _SettingsSwitchRow(
-                  icon: Icons.map_outlined,
-                  title: _t(context, 'launchNavigation'),
-                  subtitle: hasNavigationApps
-                      ? _t(context, 'launchNavigationReady')
-                      : _t(context, 'launchNavigationMissing'),
-                  value: launchNavigationWithLauncher,
-                  onChanged: hasNavigationApps
-                      ? onLaunchNavigationWithLauncherChanged
-                      : null,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      child: content,
     );
   }
 }
@@ -5800,6 +6502,49 @@ class _SettingsInlineControl extends StatelessWidget {
   }
 }
 
+class _LandscapeSidebarPositionPicker extends StatelessWidget {
+  const _LandscapeSidebarPositionPicker({
+    required this.selectedPosition,
+    required this.onChanged,
+  });
+
+  final _LandscapeSidebarPosition selectedPosition;
+  final ValueChanged<_LandscapeSidebarPosition> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<_LandscapeSidebarPosition>(
+      segments: [
+        ButtonSegment<_LandscapeSidebarPosition>(
+          value: _LandscapeSidebarPosition.left,
+          icon: Icon(Icons.keyboard_double_arrow_left_rounded, size: 17),
+          label: Text(_t(context, 'sidebarLeft')),
+        ),
+        ButtonSegment<_LandscapeSidebarPosition>(
+          value: _LandscapeSidebarPosition.right,
+          icon: Icon(Icons.keyboard_double_arrow_right_rounded, size: 17),
+          label: Text(_t(context, 'sidebarRight')),
+        ),
+      ],
+      selected: {selectedPosition},
+      showSelectedIcon: false,
+      onSelectionChanged: (selection) => onChanged(selection.first),
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        textStyle: WidgetStatePropertyAll(
+          _sharp(
+            context,
+            Theme.of(context).textTheme.labelSmall,
+            color: _textPrimary,
+            weight: FontWeight.w700,
+            size: 11,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LayoutModePicker extends StatelessWidget {
   const _LayoutModePicker({
     required this.selectedMode,
@@ -5867,6 +6612,45 @@ class _LanguagePicker extends StatelessWidget {
               value: language,
               child: Text(
                 language.label,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textPrimary,
+                  weight: FontWeight.w700,
+                  size: 12,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VehicleModelPicker extends StatelessWidget {
+  const _VehicleModelPicker({
+    required this.selectedAsset,
+    required this.onChanged,
+  });
+
+  final String selectedAsset;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: _parseVehicleModelAsset(selectedAsset),
+        borderRadius: BorderRadius.circular(16),
+        onChanged: (asset) {
+          if (asset != null) onChanged(asset);
+        },
+        items: [
+          for (final asset in _vehicleModelAssets)
+            DropdownMenuItem<String>(
+              value: asset,
+              child: Text(
+                _vehicleModelLabel(asset),
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.labelMedium,
@@ -6039,31 +6823,19 @@ class _QuickActionStrip extends StatefulWidget {
 
 class _QuickActionStripState extends State<_QuickActionStrip> {
   bool _doorsLocked = false;
-  bool _mirrorsFolded = false;
   bool _busy = false;
 
-  Future<bool> _invokeBodyworkRaw(String method, List<int> args) async {
+  Future<bool> _setDoorLock(bool locked) async {
     try {
       final result = await _vehicleChannel.invokeMapMethod<String, dynamic>(
-        'controlBodyworkRaw',
-        {'method': method, 'args': args},
+        'controlDoorLock',
+        {'locked': locked},
       );
       return result?['ok'] == true;
     } catch (error) {
-      debugPrint('BODYWORK raw failed method=$method args=$args error=$error');
+      debugPrint('DOORLOCK control failed locked=$locked error=$error');
       return false;
     }
-  }
-
-  Future<bool> _tryBodyworkMethods(List<String> methods, List<int> args) async {
-    for (final method in methods) {
-      final ok = await _invokeBodyworkRaw(method, args);
-      if (ok) {
-        debugPrint('BODYWORK raw ok method=$method args=$args');
-        return true;
-      }
-    }
-    return false;
   }
 
   Future<void> _toggleDoorLock() async {
@@ -6071,50 +6843,14 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
     final nextLocked = !_doorsLocked;
     setState(() => _busy = true);
 
-    final state = nextLocked ? 1 : 0;
-    const methods = [
-      'setCentralLockState',
-      'setDoorLockState',
-      'setDoorLockCtrlState',
-      'setBodyDoorLockState',
-      'setAllDoorLockState',
-    ];
-    final ok = await _tryBodyworkMethods(methods, [state]);
+    final ok = await _setDoorLock(nextLocked);
 
     if (!mounted) return;
     setState(() {
       _busy = false;
       if (ok) _doorsLocked = nextLocked;
     });
-    debugPrint(
-      'BODYWORK door lock result ok=$ok state=$state tried=${methods.join(', ')}',
-    );
-  }
-
-  Future<void> _toggleMirrors() async {
-    if (_busy) return;
-    final nextFolded = !_mirrorsFolded;
-    setState(() => _busy = true);
-
-    final state = nextFolded ? 1 : 0;
-    const methods = [
-      'setRearviewMirrorFoldState',
-      'setRearViewMirrorFoldState',
-      'setExternalMirrorFoldState',
-      'setOutsideMirrorFoldState',
-      'setRearviewMirrorState',
-      'setOutsideRearviewMirrorFoldState',
-    ];
-    final ok = await _tryBodyworkMethods(methods, [state]);
-
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      if (ok) _mirrorsFolded = nextFolded;
-    });
-    debugPrint(
-      'BODYWORK mirror fold result ok=$ok state=$state tried=${methods.join(', ')}',
-    );
+    debugPrint('DOORLOCK result ok=$ok locked=$nextLocked');
   }
 
   @override
@@ -6162,11 +6898,6 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
                     : Icons.lock_open_rounded,
                 label: _doorsLocked ? 'Unlock' : 'Lock',
                 onTap: _busy ? null : _toggleDoorLock,
-              ),
-              _MiniAction(
-                icon: Icons.flip_to_front_outlined,
-                label: _mirrorsFolded ? 'Unfold' : 'Mirrors',
-                onTap: _busy ? null : _toggleMirrors,
               ),
             ],
           ),
@@ -6307,6 +7038,7 @@ class _VehicleHero extends StatefulWidget {
   const _VehicleHero({
     required this.enable3dModel,
     required this.cameraOrbit,
+    required this.vehicleModelAsset,
     required this.vehicleColor,
     required this.renderQuality,
     required this.roadMotionActive,
@@ -6316,6 +7048,7 @@ class _VehicleHero extends StatefulWidget {
 
   final bool enable3dModel;
   final String cameraOrbit;
+  final String vehicleModelAsset;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
   final bool roadMotionActive;
@@ -6363,6 +7096,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
     }
 
     if (oldWidget.vehicleColor != widget.vehicleColor ||
+        oldWidget.vehicleModelAsset != widget.vehicleModelAsset ||
         oldWidget.enable3dModel != widget.enable3dModel ||
         oldWidget.renderQuality != widget.renderQuality ||
         oldWidget.roadMotionActive != widget.roadMotionActive) {
@@ -6422,7 +7156,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
             },
             child: useNativeRenderer
                 ? _NativeVehicleScene(
-                    asset: _vehicleModelAsset,
+                    asset: widget.vehicleModelAsset,
                     cameraOrbit: focusedOrbit,
                     vehicleColor: widget.vehicleColor,
                     renderQuality: widget.renderQuality,
@@ -6430,8 +7164,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
                     backgroundColor: sceneBackground,
                   )
                 : ModelViewer(
-                    src: _vehicleModelAsset,
-                    alt: '2024 BYD Seal U DM-i 3D model',
+                    src: widget.vehicleModelAsset,
+                    alt:
+                        '${_vehicleModelLabel(widget.vehicleModelAsset)} 3D model',
                     loading: Loading.eager,
                     reveal: Reveal.auto,
                     backgroundColor: Colors.transparent,
@@ -6569,12 +7304,62 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && hotspot == _VehicleHotspot.trunk) {
       return;
     }
+    final clampedLevel = level.clamp(0.0, 1.0);
     setState(() {
-      _hotspotLevels[hotspot] = level.clamp(0.0, 1.0);
+      _hotspotLevels[hotspot] = clampedLevel;
       _selectedHotspot = hotspot;
       _hotspotsVisible = true;
     });
+    if (clampedLevel <= 0.02 || clampedLevel >= 0.98) {
+      unawaited(_sendBodyworkHotspotCommand(hotspot, clampedLevel));
+    }
     _restartHotspotAutoHideTimer();
+  }
+
+  Future<void> _sendBodyworkHotspotCommand(
+    _VehicleHotspot hotspot,
+    double level,
+  ) async {
+    final action = level >= 0.5 ? 'open' : 'close';
+    String method;
+    Map<String, Object?> arguments;
+
+    switch (hotspot) {
+      case _VehicleHotspot.frontLeftWindow:
+        method = 'controlWindow';
+        arguments = {'area': 1, 'action': action};
+      case _VehicleHotspot.frontRightWindow:
+        method = 'controlWindow';
+        arguments = {'area': 2, 'action': action};
+      case _VehicleHotspot.rearLeftWindow:
+        method = 'controlWindow';
+        arguments = {'area': 3, 'action': action};
+      case _VehicleHotspot.rearRightWindow:
+        method = 'controlWindow';
+        arguments = {'area': 4, 'action': action};
+      case _VehicleHotspot.sunroof:
+        method = 'controlSunroof';
+        arguments = {'action': action};
+      case _VehicleHotspot.trunk:
+        method = 'controlTrunk';
+        arguments = {'action': action};
+    }
+
+    try {
+      final result = await _vehicleChannel.invokeMapMethod<String, dynamic>(
+        method,
+        arguments,
+      );
+      debugPrint(
+        'BODYWORK $method action=$action ok=${result?['ok']} result=$result',
+      );
+    } on PlatformException catch (error) {
+      debugPrint(
+        'BODYWORK $method action=$action failed ${error.code}: ${error.message}',
+      );
+    } on Object catch (error) {
+      debugPrint('BODYWORK $method action=$action failed: $error');
+    }
   }
 
   void _restartHotspotAutoHideTimer() {
@@ -7478,7 +8263,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
         if (_error != null) {
           return ModelViewer(
             src: widget.asset,
-            alt: '2024 BYD Seal U DM-i 3D model',
+            alt: '${_vehicleModelLabel(widget.asset)} 3D model',
             loading: Loading.eager,
             reveal: Reveal.auto,
             backgroundColor: Colors.transparent,
@@ -8088,7 +8873,7 @@ class _ModelStartupCoverState extends State<_ModelStartupCover> {
   Widget build(BuildContext context) {
     final light = _isLight(context);
 
-    return IgnorePointer(
+    return AbsorbPointer(
       child: AnimatedOpacity(
         opacity: _visible ? 1 : 0,
         duration: const Duration(milliseconds: 520),

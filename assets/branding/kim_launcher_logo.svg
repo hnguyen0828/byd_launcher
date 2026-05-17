@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="disc" cx="36%" cy="24%" r="82%">
+      <stop offset="0" stop-color="#1B2A3F"/>
+      <stop offset="0.45" stop-color="#07111E"/>
+      <stop offset="1" stop-color="#02050A"/>
+    </radialGradient>
+    <linearGradient id="kBlue" x1="292" y1="212" x2="720" y2="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6AE1FF"/>
+      <stop offset="0.52" stop-color="#18A9FF"/>
+      <stop offset="1" stop-color="#0B68FF"/>
+    </linearGradient>
+    <linearGradient id="kMint" x1="434" y1="238" x2="752" y2="690" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9EFFE0"/>
+      <stop offset="1" stop-color="#21D4B7"/>
+    </linearGradient>
+    <filter id="discShadow" x="-22%" y="-18%" width="144%" height="144%">
+      <feDropShadow dx="0" dy="30" stdDeviation="38" flood-color="#001324" flood-opacity="0.34"/>
+    </filter>
+    <filter id="kGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.05 0 0 0 0 0.74 0 0 0 0 1 0 0 0 0.42 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="none"/>
+  <circle cx="512" cy="512" r="404" fill="url(#disc)" filter="url(#discShadow)"/>
+  <circle cx="512" cy="512" r="397" fill="none" stroke="#FFFFFF" stroke-width="10" opacity="0.10"/>
+  <path d="M252 380C328 270 456 210 598 228C684 238 758 280 812 342" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" opacity="0.11"/>
+  <path d="M238 686C320 784 468 830 620 794C710 773 784 726 834 660" fill="none" stroke="#39D8FF" stroke-width="18" stroke-linecap="round" opacity="0.22"/>
+
+  <g filter="url(#kGlow)">
+    <path d="M344 296C344 266 368 242 398 242C428 242 452 266 452 296V454L664 266C686 246 720 248 740 271C760 294 758 328 735 348L548 514L746 706C768 727 769 762 747 784C726 806 691 806 669 785L452 574V728C452 758 428 782 398 782C368 782 344 758 344 728V296Z" fill="url(#kBlue)"/>
+    <path d="M452 454L664 266C686 246 720 248 740 271C760 294 758 328 735 348L548 514L452 574V454Z" fill="url(#kMint)"/>
+  </g>
+  <circle cx="754" cy="270" r="19" fill="#8BFFE4"/>
+</svg>
