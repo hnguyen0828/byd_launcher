@@ -48,11 +48,20 @@ const MethodChannel _permissionChannel = MethodChannel('byd/permissions');
 
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
+  _VehiclePaintOption('Snow White', Color(0xFFF3F5F2)),
+  _VehiclePaintOption('Sand Cream', Color(0xFFD8C8B2)),
   _VehiclePaintOption('Harbour Grey', Color(0xFF6F7880)),
+  _VehiclePaintOption('Time Grey', Color(0xFF707477)),
+  _VehiclePaintOption('Atlantis Grey', Color(0xFF5F6B70)),
   _VehiclePaintOption('Delan Black', Color(0xFF090C12)),
   _VehiclePaintOption('Azure Blue', Color(0xFF1687FF)),
-  _VehiclePaintOption('Stone Grey', Color(0xFF9AA0A4)),
-  _VehiclePaintOption('Ruby Red', Color(0xFF9D1028)),
+  _VehiclePaintOption('Sky Blue', Color(0xFF8BBED4)),
+  _VehiclePaintOption('Forest Green', Color(0xFF1F4B3A)),
+  _VehiclePaintOption('Boundless Cloud', Color(0xFFD5D7D2)),
+  _VehiclePaintOption('Parkour Red', Color(0xFFB21E2B)),
+  _VehiclePaintOption('Emperor Red', Color(0xFF7D1820)),
+  _VehiclePaintOption('Coral Pink', Color(0xFFE88994)),
+  _VehiclePaintOption('Maldive Purple', Color(0xFF7D6EA8)),
 ];
 
 const List<String> _vehicleModelAssets = [
@@ -5585,16 +5594,15 @@ class _SettingsMainColumn extends StatelessWidget {
               const SizedBox(height: 16),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final rawWidth = (constraints.maxWidth - 20) / 3;
-                  final swatchWidth = rawWidth < 96
-                      ? 96.0
-                      : rawWidth > 156
-                      ? 156.0
-                      : rawWidth;
+                  const columns = 5;
+                  const spacing = 8.0;
+                  final swatchWidth =
+                      (constraints.maxWidth - spacing * (columns - 1)) /
+                      columns;
 
                   return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
+                    spacing: spacing,
+                    runSpacing: spacing,
                     children: [
                       for (final option in _vehiclePaintOptions)
                         SizedBox(
@@ -6284,13 +6292,13 @@ class _VehicleColorSwatch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(14),
       onTap: () => onTap(color),
       child: Container(
-        height: 76,
+        height: 62,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: selected ? 0.08 : 0.035),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected
                 ? _accentSoftBlue.withValues(alpha: 0.62)
@@ -6302,8 +6310,8 @@ class _VehicleColorSwatch extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 28,
-              height: 28,
+              width: 22,
+              height: 22,
               decoration: BoxDecoration(
                 color: color,
                 shape: BoxShape.circle,
@@ -6311,12 +6319,12 @@ class _VehicleColorSwatch extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: color.withValues(alpha: 0.32),
-                    blurRadius: 14,
+                    blurRadius: 10,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               label,
               maxLines: 1,
@@ -6328,7 +6336,7 @@ class _VehicleColorSwatch extends StatelessWidget {
                     ? (_isLight(context) ? _premiumLightText : _textPrimary)
                     : (_isLight(context) ? _premiumLightMuted : _textMuted),
                 weight: FontWeight.w600,
-                size: 11,
+                size: 9.5,
               ),
             ),
           ],
