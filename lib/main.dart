@@ -18,6 +18,9 @@ const String _languagePreferenceKey = 'launcher.language';
 const String _vehicleModelPreferenceKey = 'launcher.vehicleModelAsset';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
+const String _lightEffectEnabledPreferenceKey = 'launcher.lightEffectEnabled';
+const String _radarEffectEnabledPreferenceKey = 'launcher.radarEffectEnabled';
+const String _debugModePreferenceKey = 'launcher.debugMode';
 const String _layoutModePreferenceKey = 'launcher.layoutMode';
 const String _landscapeSidebarPositionPreferenceKey =
     'launcher.landscapeSidebarPosition';
@@ -488,6 +491,12 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'dark': 'Dark',
     'system': 'System',
     'renderQuality': '3D render quality',
+    'lightEffect': 'Light effect',
+    'lightEffectSubtitle': 'Show the animated beam overlay on the vehicle.',
+    'radarEffect': 'Radar effect',
+    'radarEffectSubtitle': 'Show the animated parking radar overlay.',
+    'debugMode': 'Debug mode',
+    'debugModeSubtitle': 'Enable demo gear, light and radar controls.',
     'ambientSubtitle': 'Use images from the app Ambient folder.',
     'showAmbientButton': 'Show Ambient button',
     'showAmbientButtonSubtitle':
@@ -554,6 +563,12 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'dark': 'Tối',
     'system': 'Hệ thống',
     'renderQuality': 'Chất lượng 3D',
+    'lightEffect': 'Hiệu ứng đèn',
+    'lightEffectSubtitle': 'Hiển thị animation luồng sáng trên xe.',
+    'radarEffect': 'Hiệu ứng radar',
+    'radarEffectSubtitle': 'Hiển thị animation radar quanh xe.',
+    'debugMode': 'Debug mode',
+    'debugModeSubtitle': 'Bật điều khiển demo số, đèn và radar.',
     'ambientSubtitle': 'Dùng ảnh từ thư mục Ambient của app.',
     'showAmbientButton': 'Hiện nút Ambient',
     'showAmbientButtonSubtitle': 'Hiện hoặc ẩn tab Ambient ở dock dưới.',
@@ -782,6 +797,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   _DemoLightMode _demoLightMode = _DemoLightMode.off;
   _DemoRadarLevel _demoRadarLevel = _DemoRadarLevel.off;
   _DemoRadarZone _demoRadarZone = _DemoRadarZone.rear;
+  bool _lightEffectEnabled = true;
+  bool _radarEffectEnabled = true;
+  bool _debugModeEnabled = false;
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
@@ -918,6 +936,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       demoLightMode: _demoLightMode,
                       demoRadarLevel: _demoRadarLevel,
                       demoRadarZone: _demoRadarZone,
+                      debugModeEnabled: _debugModeEnabled,
                       onDemoLightModeChanged: (mode) =>
                           setState(() => _demoLightMode = mode),
                       onDemoRadarLevelChanged: (level) =>
@@ -954,6 +973,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       onWallpaperIntervalChanged: _setWallpaperInterval,
                       onWallpaperButtonEnabledChanged:
                           _setWallpaperButtonEnabled,
+                      lightEffectEnabled: _lightEffectEnabled,
+                      radarEffectEnabled: _radarEffectEnabled,
+                      onLightEffectEnabledChanged: _setLightEffectEnabled,
+                      onRadarEffectEnabledChanged: _setRadarEffectEnabled,
+                      onDebugModeChanged: _setDebugModeEnabled,
                       themeMode: widget.themeMode,
                       onThemeModeChanged: widget.onThemeModeChanged,
                       language: widget.language,
@@ -1100,12 +1124,44 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     final sidebarPosition = _parseLandscapeSidebarPosition(
       prefs.getString(_landscapeSidebarPositionPreferenceKey),
     );
+    final lightEffectEnabled =
+        prefs.getBool(_lightEffectEnabledPreferenceKey) ?? true;
+    final radarEffectEnabled =
+        prefs.getBool(_radarEffectEnabledPreferenceKey) ?? true;
+    final debugModeEnabled = prefs.getBool(_debugModePreferenceKey) ?? false;
     await _applyLayoutModeOrientation(layoutMode);
     if (!mounted) return;
     setState(() {
       _layoutMode = layoutMode;
       _landscapeSidebarPosition = sidebarPosition;
+      _lightEffectEnabled = lightEffectEnabled;
+      _radarEffectEnabled = radarEffectEnabled;
+      _debugModeEnabled = debugModeEnabled;
     });
+  }
+
+  Future<void> _setDebugModeEnabled(bool value) async {
+    setState(() {
+      _debugModeEnabled = value;
+      if (!value) {
+        _selectedGear = _VehicleGear.p;
+        _vehicleSpeedKmh = 0;
+      }
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_debugModePreferenceKey, value);
+  }
+
+  Future<void> _setLightEffectEnabled(bool value) async {
+    setState(() => _lightEffectEnabled = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_lightEffectEnabledPreferenceKey, value);
+  }
+
+  Future<void> _setRadarEffectEnabled(bool value) async {
+    setState(() => _radarEffectEnabled = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_radarEffectEnabledPreferenceKey, value);
   }
 
   Future<void> _setLayoutMode(_LauncherLayoutMode value) async {
@@ -2376,12 +2432,14 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
     required this.selectedGear,
     required this.vehicleSpeedKmh,
     required this.onGearChanged,
+    required this.debugModeEnabled,
     this.compact = false,
   });
 
   final _VehicleGear selectedGear;
   final double vehicleSpeedKmh;
   final ValueChanged<_VehicleGear> onGearChanged;
+  final bool debugModeEnabled;
   final bool compact;
 
   @override
@@ -2499,28 +2557,36 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                     _GearText(
                       'P',
                       active: selectedGear == _VehicleGear.p,
-                      onTap: () => onGearChanged(_VehicleGear.p),
+                      onTap: debugModeEnabled
+                          ? () => onGearChanged(_VehicleGear.p)
+                          : null,
                       size: gearButtonSize,
                       fontSize: gearFontSize,
                     ),
                     _GearText(
                       'R',
                       active: selectedGear == _VehicleGear.r,
-                      onTap: () => onGearChanged(_VehicleGear.r),
+                      onTap: debugModeEnabled
+                          ? () => onGearChanged(_VehicleGear.r)
+                          : null,
                       size: gearButtonSize,
                       fontSize: gearFontSize,
                     ),
                     _GearText(
                       'N',
                       active: selectedGear == _VehicleGear.n,
-                      onTap: () => onGearChanged(_VehicleGear.n),
+                      onTap: debugModeEnabled
+                          ? () => onGearChanged(_VehicleGear.n)
+                          : null,
                       size: gearButtonSize,
                       fontSize: gearFontSize,
                     ),
                     _GearText(
                       'D',
                       active: selectedGear == _VehicleGear.d,
-                      onTap: () => onGearChanged(_VehicleGear.d),
+                      onTap: debugModeEnabled
+                          ? () => onGearChanged(_VehicleGear.d)
+                          : null,
                       size: gearButtonSize,
                       fontSize: gearFontSize,
                     ),
@@ -3681,6 +3747,9 @@ class _VehicleCanvas extends StatelessWidget {
     required this.demoLightMode,
     required this.demoRadarLevel,
     required this.demoRadarZone,
+    required this.debugModeEnabled,
+    required this.lightEffectEnabled,
+    required this.radarEffectEnabled,
     required this.onDemoLightModeChanged,
     required this.onDemoRadarLevelChanged,
     required this.onDemoRadarZoneChanged,
@@ -3710,6 +3779,9 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onWallpaperReloadRequested,
     required this.onWallpaperIntervalChanged,
     required this.onWallpaperButtonEnabledChanged,
+    required this.onLightEffectEnabledChanged,
+    required this.onRadarEffectEnabledChanged,
+    required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.language,
@@ -3733,6 +3805,9 @@ class _VehicleCanvas extends StatelessWidget {
   final _DemoLightMode demoLightMode;
   final _DemoRadarLevel demoRadarLevel;
   final _DemoRadarZone demoRadarZone;
+  final bool debugModeEnabled;
+  final bool lightEffectEnabled;
+  final bool radarEffectEnabled;
   final ValueChanged<_DemoLightMode> onDemoLightModeChanged;
   final ValueChanged<_DemoRadarLevel> onDemoRadarLevelChanged;
   final ValueChanged<_DemoRadarZone> onDemoRadarZoneChanged;
@@ -3762,6 +3837,9 @@ class _VehicleCanvas extends StatelessWidget {
   final VoidCallback onWallpaperReloadRequested;
   final ValueChanged<int> onWallpaperIntervalChanged;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
+  final ValueChanged<bool> onLightEffectEnabledChanged;
+  final ValueChanged<bool> onRadarEffectEnabledChanged;
+  final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
   final _AppLanguage language;
@@ -3773,10 +3851,12 @@ class _VehicleCanvas extends StatelessWidget {
     final portraitMode = layoutMode == _LauncherLayoutMode.portrait;
     final demoEffectsAllowed =
         effectiveGear == _VehicleGear.d || effectiveGear == _VehicleGear.r;
-    final visibleDemoLightMode = demoEffectsAllowed
+    final visibleDemoLightMode =
+        demoEffectsAllowed && debugModeEnabled && lightEffectEnabled
         ? demoLightMode
         : _DemoLightMode.off;
-    final visibleDemoRadarLevel = demoEffectsAllowed
+    final visibleDemoRadarLevel =
+        demoEffectsAllowed && debugModeEnabled && radarEffectEnabled
         ? demoRadarLevel
         : _DemoRadarLevel.off;
 
@@ -3863,6 +3943,12 @@ class _VehicleCanvas extends StatelessWidget {
                     wallpaperButtonEnabled: wallpaperButtonEnabled,
                     onWallpaperButtonEnabledChanged:
                         onWallpaperButtonEnabledChanged,
+                    lightEffectEnabled: lightEffectEnabled,
+                    radarEffectEnabled: radarEffectEnabled,
+                    debugModeEnabled: debugModeEnabled,
+                    onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+                    onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
+                    onDebugModeChanged: onDebugModeChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
                     language: language,
@@ -3894,6 +3980,7 @@ class _VehicleCanvas extends StatelessWidget {
               child: _FloatingVehicleControls(
                 view: view,
                 onRear: () => onViewChanged(_VehicleView.rear),
+                debugModeEnabled: debugModeEnabled,
                 lightMode: demoLightMode,
                 radarLevel: demoRadarLevel,
                 radarZone: demoRadarZone,
@@ -3912,6 +3999,7 @@ class _VehicleCanvas extends StatelessWidget {
                 selectedGear: effectiveGear,
                 vehicleSpeedKmh: vehicleSpeedKmh,
                 onGearChanged: onGearChanged,
+                debugModeEnabled: debugModeEnabled,
                 compact: portraitMode,
               ),
             ),
@@ -5183,6 +5271,12 @@ class _SettingsPanel extends StatelessWidget {
     required this.onWallpaperIntervalChanged,
     required this.wallpaperButtonEnabled,
     required this.onWallpaperButtonEnabledChanged,
+    required this.lightEffectEnabled,
+    required this.radarEffectEnabled,
+    required this.debugModeEnabled,
+    required this.onLightEffectEnabledChanged,
+    required this.onRadarEffectEnabledChanged,
+    required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.language,
@@ -5213,6 +5307,12 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<int> onWallpaperIntervalChanged;
   final bool wallpaperButtonEnabled;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
+  final bool lightEffectEnabled;
+  final bool radarEffectEnabled;
+  final bool debugModeEnabled;
+  final ValueChanged<bool> onLightEffectEnabledChanged;
+  final ValueChanged<bool> onRadarEffectEnabledChanged;
+  final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
   final _AppLanguage language;
@@ -5244,6 +5344,12 @@ class _SettingsPanel extends StatelessWidget {
       onWallpaperIntervalChanged: onWallpaperIntervalChanged,
       wallpaperButtonEnabled: wallpaperButtonEnabled,
       onWallpaperButtonEnabledChanged: onWallpaperButtonEnabledChanged,
+      lightEffectEnabled: lightEffectEnabled,
+      radarEffectEnabled: radarEffectEnabled,
+      debugModeEnabled: debugModeEnabled,
+      onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+      onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
+      onDebugModeChanged: onDebugModeChanged,
       themeMode: themeMode,
       onThemeModeChanged: onThemeModeChanged,
       language: language,
@@ -5335,6 +5441,12 @@ class _SettingsPanel extends StatelessWidget {
                     wallpaperButtonEnabled: wallpaperButtonEnabled,
                     onWallpaperButtonEnabledChanged:
                         onWallpaperButtonEnabledChanged,
+                    lightEffectEnabled: lightEffectEnabled,
+                    radarEffectEnabled: radarEffectEnabled,
+                    debugModeEnabled: debugModeEnabled,
+                    onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+                    onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
+                    onDebugModeChanged: onDebugModeChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
                     language: language,
@@ -5396,6 +5508,12 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onWallpaperIntervalChanged,
     required this.wallpaperButtonEnabled,
     required this.onWallpaperButtonEnabledChanged,
+    required this.lightEffectEnabled,
+    required this.radarEffectEnabled,
+    required this.debugModeEnabled,
+    required this.onLightEffectEnabledChanged,
+    required this.onRadarEffectEnabledChanged,
+    required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.language,
@@ -5426,6 +5544,12 @@ class _SettingsMainColumn extends StatelessWidget {
   final ValueChanged<int> onWallpaperIntervalChanged;
   final bool wallpaperButtonEnabled;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
+  final bool lightEffectEnabled;
+  final bool radarEffectEnabled;
+  final bool debugModeEnabled;
+  final ValueChanged<bool> onLightEffectEnabledChanged;
+  final ValueChanged<bool> onRadarEffectEnabledChanged;
+  final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
   final _AppLanguage language;
@@ -5541,6 +5665,29 @@ class _SettingsMainColumn extends StatelessWidget {
         const SizedBox(height: 14),
         _GlassCard(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            children: [
+              _SettingsSwitchRow(
+                icon: Icons.light_mode_outlined,
+                title: _t(context, 'lightEffect'),
+                subtitle: _t(context, 'lightEffectSubtitle'),
+                value: lightEffectEnabled,
+                onChanged: onLightEffectEnabledChanged,
+              ),
+              const SizedBox(height: 12),
+              _SettingsSwitchRow(
+                icon: Icons.sensors_rounded,
+                title: _t(context, 'radarEffect'),
+                subtitle: _t(context, 'radarEffectSubtitle'),
+                value: radarEffectEnabled,
+                onChanged: onRadarEffectEnabledChanged,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: _WallpaperSettingsCard(
             folderPath: wallpaperFolderPath,
             intervalSeconds: wallpaperIntervalSeconds,
@@ -5598,6 +5745,17 @@ class _SettingsMainColumn extends StatelessWidget {
                     : null,
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: _SettingsSwitchRow(
+            icon: Icons.bug_report_outlined,
+            title: _t(context, 'debugMode'),
+            subtitle: _t(context, 'debugModeSubtitle'),
+            value: debugModeEnabled,
+            onChanged: onDebugModeChanged,
           ),
         ),
       ],
@@ -6857,6 +7015,7 @@ class _FloatingVehicleControls extends StatelessWidget {
   const _FloatingVehicleControls({
     required this.view,
     required this.onRear,
+    required this.debugModeEnabled,
     required this.lightMode,
     required this.radarLevel,
     required this.radarZone,
@@ -6867,6 +7026,7 @@ class _FloatingVehicleControls extends StatelessWidget {
 
   final _VehicleView view;
   final VoidCallback onRear;
+  final bool debugModeEnabled;
   final _DemoLightMode lightMode;
   final _DemoRadarLevel radarLevel;
   final _DemoRadarZone radarZone;
@@ -6881,6 +7041,7 @@ class _FloatingVehicleControls extends StatelessWidget {
       children: [
         _QuickActionStrip(
           onRear: onRear,
+          debugModeEnabled: debugModeEnabled,
           lightMode: lightMode,
           radarLevel: radarLevel,
           radarZone: radarZone,
@@ -6896,6 +7057,7 @@ class _FloatingVehicleControls extends StatelessWidget {
 class _QuickActionStrip extends StatefulWidget {
   const _QuickActionStrip({
     required this.onRear,
+    required this.debugModeEnabled,
     required this.lightMode,
     required this.radarLevel,
     required this.radarZone,
@@ -6905,6 +7067,7 @@ class _QuickActionStrip extends StatefulWidget {
   });
 
   final VoidCallback onRear;
+  final bool debugModeEnabled;
   final _DemoLightMode lightMode;
   final _DemoRadarLevel radarLevel;
   final _DemoRadarZone radarZone;
@@ -7012,21 +7175,23 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
                 label: _doorsLocked ? 'Unlock' : 'Lock',
                 onTap: _busy ? null : _toggleDoorLock,
               ),
-              _MiniAction(
-                icon: Icons.light_mode_rounded,
-                label: _demoLightLabel(widget.lightMode),
-                onTap: _cycleLightMode,
-              ),
-              _MiniAction(
-                icon: Icons.sensors_rounded,
-                label: _demoRadarLabel(widget.radarLevel),
-                onTap: _cycleRadarLevel,
-              ),
-              _MiniAction(
-                icon: Icons.explore_rounded,
-                label: _demoRadarZoneLabel(widget.radarZone),
-                onTap: _cycleRadarZone,
-              ),
+              if (widget.debugModeEnabled) ...[
+                _MiniAction(
+                  icon: Icons.light_mode_rounded,
+                  label: _demoLightLabel(widget.lightMode),
+                  onTap: _cycleLightMode,
+                ),
+                _MiniAction(
+                  icon: Icons.sensors_rounded,
+                  label: _demoRadarLabel(widget.radarLevel),
+                  onTap: _cycleRadarLevel,
+                ),
+                _MiniAction(
+                  icon: Icons.explore_rounded,
+                  label: _demoRadarZoneLabel(widget.radarZone),
+                  onTap: _cycleRadarZone,
+                ),
+              ],
             ],
           ),
         ),
@@ -7080,7 +7245,7 @@ Color _demoRadarColor(_DemoRadarLevel level) {
 }
 
 Offset _vehicleEffectAnchor(Size size) {
-  return Offset(size.width * 0.505, size.height * 0.590);
+  return Offset(size.width * 0.505, size.height * 0.600);
 }
 
 class _LightStatusOverlay extends StatefulWidget {
@@ -7158,6 +7323,8 @@ class _LightStatusPainter extends CustomPainter {
     if (mode != _DemoLightMode.turnLeft && mode != _DemoLightMode.turnRight) {
       final beamColor = mode == _DemoLightMode.fog
           ? const Color(0xFFFFF4C2)
+          : light
+          ? const Color(0xFFD9ECFF)
           : Colors.white;
       final path = Path()
         ..moveTo(centerX - size.width * 0.16, rearY)
@@ -7190,7 +7357,7 @@ class _LightStatusPainter extends CustomPainter {
     }
 
     if (mode == _DemoLightMode.turnLeft || mode == _DemoLightMode.turnRight) {
-      final alpha = 0.42 + pulse * 0.42;
+      final alpha = (0.42 + pulse * 0.42) * (light ? 0.76 : 1.0);
       final signalCenter = Offset(
         mode == _DemoLightMode.turnLeft
             ? centerX - size.width * 0.12
@@ -7287,6 +7454,7 @@ class _ParkingRadarPainter extends CustomPainter {
     final severity = (level.index / (_DemoRadarLevel.values.length - 1))
         .clamp(0.18, 1.0)
         .toDouble();
+    final themeAlphaScale = light ? 0.86 : 1.0;
     final center = _vehicleEffectAnchor(size);
     final baseRect = Rect.fromCenter(
       center: center,
@@ -7315,7 +7483,9 @@ class _ParkingRadarPainter extends CustomPainter {
       final rect = baseRect.inflate(inflate);
       final alpha = (0.34 - i * 0.065) * severity;
       final paint = Paint()
-        ..color = color.withValues(alpha: alpha.clamp(0.08, 0.72).toDouble())
+        ..color = color.withValues(
+          alpha: (alpha * themeAlphaScale).clamp(0.07, 0.72).toDouble(),
+        )
         ..strokeWidth = lerpDouble(2.2, 6.2, severity)! - i * 0.45
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
@@ -7324,10 +7494,28 @@ class _ParkingRadarPainter extends CustomPainter {
           level == _DemoRadarLevel.veryClose ? 4 : 2,
         );
 
-      void drawRear() =>
-          canvas.drawArc(rect, math.pi * 0.18, math.pi * 0.64, false, paint);
-      void drawFront() =>
-          canvas.drawArc(rect, math.pi * 1.18, math.pi * 0.64, false, paint);
+      void drawWeightedArc(
+        double startAngle,
+        double sweepAngle,
+        double alphaScale,
+      ) {
+        final weightedPaint = Paint()
+          ..color = color.withValues(
+            alpha: (alpha * alphaScale * themeAlphaScale)
+                .clamp(0.04, 0.72)
+                .toDouble(),
+          )
+          ..strokeWidth = paint.strokeWidth
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = paint.maskFilter;
+        canvas.drawArc(rect, startAngle, sweepAngle, false, weightedPaint);
+      }
+
+      void drawRear([double alphaScale = 1.0]) =>
+          drawWeightedArc(math.pi * 0.18, math.pi * 0.64, alphaScale);
+      void drawFront([double alphaScale = 1.0]) =>
+          drawWeightedArc(math.pi * 1.18, math.pi * 0.64, alphaScale);
       void drawLeft() =>
           canvas.drawArc(rect, math.pi * 0.86, math.pi * 0.22, false, paint);
       void drawRight() =>
@@ -7343,8 +7531,8 @@ class _ParkingRadarPainter extends CustomPainter {
         case _DemoRadarZone.right:
           drawRight();
         case _DemoRadarZone.all:
-          drawRear();
-          drawFront();
+          drawRear(1.08);
+          drawFront(0.58);
           drawLeft();
           drawRight();
       }
