@@ -15,6 +15,7 @@ const bool _preferNativeVehicleRenderer = true;
 const String _themeModePreferenceKey = 'launcher.themeMode';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
+const String _forceLandscapePreferenceKey = 'launcher.forceLandscape';
 const String _navigationDefaultPackagePreferenceKey =
     'launcher.navigation.defaultPackage';
 const String _launchNavigationWithLauncherPreferenceKey =
@@ -179,12 +180,22 @@ const List<_NavigationApp> _previewNavigationApps = [
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _preloadVehicleModelAssets();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
+  final prefs = await SharedPreferences.getInstance();
+  final forceLandscape = prefs.getBool(_forceLandscapePreferenceKey) ?? true;
+  await _applyForceLandscape(forceLandscape);
 
   runApp(const BydLauncherApp());
+}
+
+Future<void> _applyForceLandscape(bool enabled) {
+  return SystemChrome.setPreferredOrientations(
+    enabled
+        ? const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]
+        : const [],
+  );
 }
 
 void _preloadVehicleModelAssets() {
@@ -378,6 +389,7 @@ class _LauncherHomePageState extends State<LauncherHomePage>
   Color _vehicleColor = const Color(0xFFE9EEF4);
   _VehicleGear _selectedGear = _VehicleGear.p;
   bool _vehiclePreferencesLoaded = false;
+  bool _forceLandscape = true;
   List<_LauncherApp> _launcherApps = const [];
   List<String> _favoriteAppPackages = const [];
   List<_NavigationApp> _navigationApps = const [];
@@ -420,6 +432,7 @@ class _LauncherHomePageState extends State<LauncherHomePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadVehiclePreferences();
+    _loadDisplayPreferences();
     _loadFavoriteApps();
     _loadNavigationPreferences();
     _loadWallpaperPreferences();
@@ -521,6 +534,7 @@ class _LauncherHomePageState extends State<LauncherHomePage>
                           activeTab: _activeTab,
                           vehicleColor: _vehicleColor,
                           renderQuality: _renderQuality,
+                          forceLandscape: _forceLandscape,
                           roadMotionActive: _roadMotionActive,
                           reverseRoadMotion: _reverseRoadMotion,
                           vehicleSpeedKmh: _effectiveSpeedKmh,
@@ -531,6 +545,7 @@ class _LauncherHomePageState extends State<LauncherHomePage>
                           onTabChanged: _handleTabChanged,
                           onVehicleColorChanged: _setVehicleColor,
                           onRenderQualityChanged: _setRenderQuality,
+                          onForceLandscapeChanged: _setForceLandscape,
                           navigationApps: _navigationApps,
                           selectedNavigationPackage: _selectedNavigationPackage,
                           launchNavigationWithLauncher:
@@ -619,6 +634,21 @@ class _LauncherHomePageState extends State<LauncherHomePage>
     setState(() => _renderQuality = quality);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_renderQualityPreferenceKey, quality.name);
+  }
+
+  Future<void> _loadDisplayPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final forceLandscape = prefs.getBool(_forceLandscapePreferenceKey) ?? true;
+    await _applyForceLandscape(forceLandscape);
+    if (!mounted) return;
+    setState(() => _forceLandscape = forceLandscape);
+  }
+
+  Future<void> _setForceLandscape(bool value) async {
+    setState(() => _forceLandscape = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_forceLandscapePreferenceKey, value);
+    await _applyForceLandscape(value);
   }
 
   Future<void> _loadNavigationPreferences() async {
@@ -2722,6 +2752,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.activeTab,
     required this.vehicleColor,
     required this.renderQuality,
+    required this.forceLandscape,
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
@@ -2732,6 +2763,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onTabChanged,
     required this.onVehicleColorChanged,
     required this.onRenderQualityChanged,
+    required this.onForceLandscapeChanged,
     required this.navigationApps,
     required this.selectedNavigationPackage,
     required this.launchNavigationWithLauncher,
@@ -2759,6 +2791,7 @@ class _VehicleCanvas extends StatelessWidget {
   final _LauncherTab activeTab;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
+  final bool forceLandscape;
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
@@ -2769,6 +2802,7 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
+  final ValueChanged<bool> onForceLandscapeChanged;
   final List<_NavigationApp> navigationApps;
   final String? selectedNavigationPackage;
   final bool launchNavigationWithLauncher;
@@ -2849,6 +2883,8 @@ class _VehicleCanvas extends StatelessWidget {
                     onVehicleColorChanged: onVehicleColorChanged,
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
+                    forceLandscape: forceLandscape,
+                    onForceLandscapeChanged: onForceLandscapeChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
                     defaultLauncherEnabled: defaultLauncherEnabled,
                     hasNavigationApps: navigationApps.isNotEmpty,
@@ -4143,6 +4179,8 @@ class _SettingsPanel extends StatelessWidget {
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
+    required this.forceLandscape,
+    required this.onForceLandscapeChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
@@ -4164,6 +4202,8 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
+  final bool forceLandscape;
+  final ValueChanged<bool> onForceLandscapeChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
@@ -4246,6 +4286,8 @@ class _SettingsPanel extends StatelessWidget {
                     onVehicleColorChanged: onVehicleColorChanged,
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
+                    forceLandscape: forceLandscape,
+                    onForceLandscapeChanged: onForceLandscapeChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
                     defaultLauncherEnabled: defaultLauncherEnabled,
                     hasNavigationApps: hasNavigationApps,
@@ -4281,6 +4323,8 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
+    required this.forceLandscape,
+    required this.onForceLandscapeChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
@@ -4301,6 +4345,8 @@ class _SettingsMainColumn extends StatelessWidget {
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
+  final bool forceLandscape;
+  final ValueChanged<bool> onForceLandscapeChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
@@ -4432,12 +4478,13 @@ class _SettingsMainColumn extends StatelessWidget {
                   onChanged: onDefaultLauncherChanged,
                 ),
                 const SizedBox(height: 12),
-                const _SettingsSwitchRow(
+                _SettingsSwitchRow(
                   icon: Icons.screen_rotation_alt_outlined,
                   title: 'Force landscape',
                   subtitle:
                       'Keep the launcher optimized for the 15.6 inch display.',
-                  value: true,
+                  value: forceLandscape,
+                  onChanged: onForceLandscapeChanged,
                 ),
                 const SizedBox(height: 12),
                 _SettingsSwitchRow(
