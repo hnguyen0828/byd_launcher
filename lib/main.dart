@@ -6028,10 +6028,94 @@ class _FloatingVehicleControls extends StatelessWidget {
   }
 }
 
-class _QuickActionStrip extends StatelessWidget {
+class _QuickActionStrip extends StatefulWidget {
   const _QuickActionStrip({required this.onRear});
 
   final VoidCallback onRear;
+
+  @override
+  State<_QuickActionStrip> createState() => _QuickActionStripState();
+}
+
+class _QuickActionStripState extends State<_QuickActionStrip> {
+  bool _doorsLocked = false;
+  bool _mirrorsFolded = false;
+  bool _busy = false;
+
+  Future<bool> _invokeBodyworkRaw(String method, List<int> args) async {
+    try {
+      final result = await _vehicleChannel.invokeMapMethod<String, dynamic>(
+        'controlBodyworkRaw',
+        {'method': method, 'args': args},
+      );
+      return result?['ok'] == true;
+    } catch (error) {
+      debugPrint('BODYWORK raw failed method=$method args=$args error=$error');
+      return false;
+    }
+  }
+
+  Future<bool> _tryBodyworkMethods(List<String> methods, List<int> args) async {
+    for (final method in methods) {
+      final ok = await _invokeBodyworkRaw(method, args);
+      if (ok) {
+        debugPrint('BODYWORK raw ok method=$method args=$args');
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _toggleDoorLock() async {
+    if (_busy) return;
+    final nextLocked = !_doorsLocked;
+    setState(() => _busy = true);
+
+    final state = nextLocked ? 1 : 0;
+    const methods = [
+      'setCentralLockState',
+      'setDoorLockState',
+      'setDoorLockCtrlState',
+      'setBodyDoorLockState',
+      'setAllDoorLockState',
+    ];
+    final ok = await _tryBodyworkMethods(methods, [state]);
+
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (ok) _doorsLocked = nextLocked;
+    });
+    debugPrint(
+      'BODYWORK door lock result ok=$ok state=$state tried=${methods.join(', ')}',
+    );
+  }
+
+  Future<void> _toggleMirrors() async {
+    if (_busy) return;
+    final nextFolded = !_mirrorsFolded;
+    setState(() => _busy = true);
+
+    final state = nextFolded ? 1 : 0;
+    const methods = [
+      'setRearviewMirrorFoldState',
+      'setRearViewMirrorFoldState',
+      'setExternalMirrorFoldState',
+      'setOutsideMirrorFoldState',
+      'setRearviewMirrorState',
+      'setOutsideRearviewMirrorFoldState',
+    ];
+    final ok = await _tryBodyworkMethods(methods, [state]);
+
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (ok) _mirrorsFolded = nextFolded;
+    });
+    debugPrint(
+      'BODYWORK mirror fold result ok=$ok state=$state tried=${methods.join(', ')}',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -6072,15 +6156,17 @@ class _QuickActionStrip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const _MiniAction(icon: Icons.lock_outline, label: 'Lock'),
               _MiniAction(
-                icon: Icons.airport_shuttle_outlined,
-                label: 'Trunk',
-                onTap: onRear,
+                icon: _doorsLocked
+                    ? Icons.lock_rounded
+                    : Icons.lock_open_rounded,
+                label: _doorsLocked ? 'Unlock' : 'Lock',
+                onTap: _busy ? null : _toggleDoorLock,
               ),
-              const _MiniAction(
+              _MiniAction(
                 icon: Icons.flip_to_front_outlined,
-                label: 'Mirrors',
+                label: _mirrorsFolded ? 'Unfold' : 'Mirrors',
+                onTap: _busy ? null : _toggleMirrors,
               ),
             ],
           ),
