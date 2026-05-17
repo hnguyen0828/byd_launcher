@@ -31,39 +31,59 @@ object AdbBridge {
     }
 
     /**
-     * Kinex-style one-button flow:
-     * - Try to execute the same shell-level grant/appops/settings commands.
-     * - On a normal sideloaded app these may fail because the process is not `shell`/system.
-     * - On BYD images that expose a shell bridge/privileged context, they can succeed silently.
+     * Permission setup runner.
+     *
+     * Important:
+     * - If this is executed by Runtime.exec() inside a sideloaded app, it usually runs as app uid=10xxx.
+     * - It can only fully work when commands are run by a real ADB/shell bridge uid=2000(shell).
+     * - The first command is always `id`; check the log for uid=2000(shell).
      */
     fun runKinexStylePermissionSetup(context: Context): Map<String, Any?> {
-        FileLogger.log(context, "Starting Kinex-style permission setup; package=${context.packageName}")
+        FileLogger.log(context, "Starting permission setup; package=${context.packageName}")
         val commands = permissionCommands(context)
         FileLogger.log(context, "Permission command count: ${commands.size}")
+
         val results = commands.map { command ->
-            FileLogger.log(context, "Running shell command: $command")
+            FileLogger.log(context, "Running permission command: $command")
             runShell(command)
         }
+
         results.forEach { result ->
             FileLogger.log(
                 context,
                 "CMD result | exit=${result.exitCode} | started=${result.started} | command=${result.command} | output=${result.output}"
             )
         }
+
+        val idOutput = results.firstOrNull()?.output.orEmpty()
+        val shellUid = when {
+            idOutput.contains("uid=2000") || idOutput.contains("uid=2000(shell)") -> "shell"
+            idOutput.contains("uid=") -> "app_or_other"
+            else -> "unknown"
+        }
+
         val successCount = results.count { it.exitCode == 0 }
         val failed = results.filter { it.exitCode != 0 }
 
-        FileLogger.log(context, "Permission setup finished; success=$successCount/${results.size}; failed=${failed.size}")
+        FileLogger.log(
+            context,
+            "Permission setup finished; shellUid=$shellUid; success=$successCount/${results.size}; failed=${failed.size}"
+        )
 
         return mapOf(
-            "ok" to failed.isEmpty(),
+            "ok" to (failed.isEmpty() && shellUid == "shell"),
+            "shellUid" to shellUid,
+            "idOutput" to idOutput,
             "successCount" to successCount,
             "totalCount" to results.size,
             "shellAvailable" to results.any { it.started },
-            "summary" to if (failed.isEmpty()) {
-                "System permission setup finished"
-            } else {
-                "${failed.size}/${results.size} shell commands failed. This is expected if the app is not running as shell/system."
+            "summary" to when {
+                shellUid != "shell" ->
+                    "Commands did not run as uid=2000(shell). A real ADB/shell bridge is required for notification/navigation grants."
+                failed.isEmpty() ->
+                    "System permission setup finished under shell uid."
+                else ->
+                    "${failed.size}/${results.size} shell commands failed."
             },
             "commands" to commands.joinToString("\n"),
             "results" to results.map { it.toMap() },
@@ -77,35 +97,36 @@ object AdbBridge {
 
         val commands = mutableListOf<String>()
 
+        // Always verify the current uid first. For this flow to fully work, it must be uid=2000(shell).
+        commands += "id"
+
         if (Build.VERSION.SDK_INT >= 33) {
-            commands += "pm grant $pkg android.permission.POST_NOTIFICATIONS"
+            commands += "pm grant --user 0 $pkg android.permission.POST_NOTIFICATIONS"
         }
 
         // Notification listener / media session access.
+        // Do NOT overwrite other enabled listeners; append this listener if missing.
         commands += "cmd notification allow_listener $listener"
-        commands += "settings put secure enabled_notification_listeners $listener"
-        commands += "appops set $pkg android:access_notifications allow"
+        commands += "enabled=\"\$(settings get secure enabled_notification_listeners)\"; if [ \"\$enabled\" = \"null\" ] || [ -z \"\$enabled\" ]; then settings put secure enabled_notification_listeners \"$listener\"; elif echo \"\$enabled\" | grep -q \"$listener\"; then echo listener_already_enabled; else settings put secure enabled_notification_listeners \"\$enabled:$listener\"; fi"
+        commands += "appops set --user 0 $pkg android:access_notifications allow"
+        commands += "cmd appops set --user 0 $pkg android:access_notifications allow"
 
         // Overlay / floating controls.
-        commands += "appops set $pkg SYSTEM_ALERT_WINDOW allow"
-        commands += "appops set $pkg android:system_alert_window allow"
+        commands += "appops set --user 0 $pkg SYSTEM_ALERT_WINDOW allow"
+        commands += "appops set --user 0 $pkg android:system_alert_window allow"
+        commands += "cmd appops set --user 0 $pkg SYSTEM_ALERT_WINDOW allow"
+        commands += "cmd appops set --user 0 $pkg android:system_alert_window allow"
 
-        // BYD/OEM permissions. These may be refused on non-whitelisted apps.
-        commands += "pm grant $pkg android.permission.BYDACQUISITION_SEND_BUFFER"
-        commands += "pm grant $pkg android.permission.BYDACQUISITION_SEND_FILE"
-        commands += "pm grant $pkg com.byd.ditrainer.permission.CORE"
-        commands += "pm grant $pkg android.permission.BYDAUTO_BODYWORK_GET"
-        commands += "pm grant $pkg android.permission.BYDAUTO_BODYWORK_COMMON"
-        commands += "pm grant $pkg android.permission.BYDAUTO_STATISTIC_GET"
-        commands += "pm grant $pkg android.permission.BYDAUTO_SPEED_GET"
-        commands += "pm grant $pkg android.permission.BYDAUTO_GEARBOX_GET"
-        commands += "pm grant $pkg android.permission.BYDAUTO_AC_COMMON"
+        // Navigation / virtual-display helpers.
+        // These are usually signature/system permissions; keep them for true shell/privileged bridge tests.
+        commands += "pm grant --user 0 $pkg android.permission.WRITE_SECURE_SETTINGS"
+        commands += "pm grant --user 0 $pkg android.permission.MEDIA_CONTENT_CONTROL"
+        commands += "pm grant --user 0 $pkg android.permission.START_ACTIVITIES_FROM_BACKGROUND"
+        commands += "pm grant --user 0 $pkg android.permission.INJECT_EVENTS"
 
-        // Navigation embedding / input injection. Usually signature/system only.
-        commands += "pm grant $pkg android.permission.WRITE_SECURE_SETTINGS"
-        commands += "pm grant $pkg android.permission.INJECT_EVENTS"
-        commands += "pm grant $pkg android.permission.MEDIA_CONTENT_CONTROL"
-        commands += "pm grant $pkg android.permission.START_ACTIVITIES_FROM_BACKGROUND"
+        // Diagnostics only: BYDAUTO_* GET permissions are not changeable on this firmware.
+        // Vehicle data is handled through BYD event/listener path, so we intentionally do not spam pm grant BYDAUTO_* here.
+        commands += "dumpsys package $pkg | grep -i \"BYDAUTO\\|enabled_notification_listeners\\|granted=true\" | head -80"
 
         return commands
     }

@@ -70,7 +70,7 @@ class VehicleBridge {
         private const val TYRE_POLL_INTERVAL_MS = 8000L
 
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
-        // Do NOT use heuristic mapping for statistic values; unrelated statistic
+        // Only confirmed statistic event IDs are mapped; unrelated statistic
         // events share the same device id and cause fuel/battery/range to jump.
         private const val DEVICE_GEARBOX = 1011
         private const val DEVICE_SPEED = 1013
@@ -80,6 +80,7 @@ class VehicleBridge {
         private const val EVENT_STAT_FUEL_RANGE = 1147142160
         private const val EVENT_STAT_OUTSIDE_TEMP = 1151336480
         private const val EVENT_STAT_FUEL_RANGE_ALT = 1147142192
+        private const val EVENT_STAT_BATTERY_PERCENT = 1246777400
         private var lastSnapshotEmitMs = 0L
         private var pendingSnapshotEmit = false
         private var lastRealtimeLogMs = 0L
@@ -142,9 +143,161 @@ class VehicleBridge {
                     ensureListenersRegistered()
                     result.success(getVehicleSnapshot())
                 }
+                "getBodyworkStatus" -> {
+                    ensureListenersRegistered()
+                    result.success(getBodyworkStatus())
+                }
+                "controlWindow" -> result.success(controlWindow(call))
+                "controlTrunk" -> result.success(controlTrunk(call))
+                "controlSunroof" -> result.success(controlSunroof(call))
+                "controlBodyworkRaw" -> result.success(controlBodyworkRaw(call))
                 else -> result.notImplemented()
             }
         }
+
+
+        private fun getBodyworkStatus(): Map<String, Any?> {
+            ensureDeviceInstances()
+            pollBodyworkStatus()
+            return mapOf(
+                "windows" to cachedWindows.mapKeys { it.key.toString() }.mapValues { (_, v) ->
+                    mapOf("state" to v.state, "percent" to v.percent)
+                },
+                "doors" to cachedDoors.mapKeys { it.key.toString() },
+                "trunk" to cachedDoors[BODYWORK_LUGGAGE_DOOR],
+                "powerLevel" to cachedPowerLevel,
+                "batteryVoltageLevel" to cachedBatteryVoltageLevel,
+            )
+        }
+
+        private fun controlWindow(call: MethodCall): Map<String, Any?> {
+            ensureListenersRegistered()
+            val area = (call.argument<Any>("area") as? Number)?.toInt()
+                ?: return mapOf("ok" to false, "error" to "Missing area")
+            val state = stateFromAction(call.argument<String>("action"), call.argument<Int>("state"))
+            val ok = invokeBodyworkAny(
+                listOf("setBodyWindowCtrlState"),
+                listOf(arrayOf(area, state)),
+            )
+            FileLogger.log(appContext, "BODYWORK CONTROL window area=$area state=$state ok=$ok")
+            return mapOf("ok" to ok, "area" to area, "state" to state)
+        }
+
+        private fun controlSunroof(call: MethodCall): Map<String, Any?> {
+            ensureListenersRegistered()
+            val action = call.argument<String>("action")
+            if (action == "stop") {
+                val stopped = invokeBodyworkAny(listOf("setMoonRoofAndSunshadeStop"), listOf(arrayOf<Int>()))
+                FileLogger.log(appContext, "BODYWORK CONTROL sunshade stop ok=$stopped")
+                return mapOf("ok" to stopped, "action" to action, "target" to "sunshade")
+            }
+
+            // Safety note: the launcher's "sunroof" action should control only the sunshade.
+            // Do not call setMoonRoofState() here, because that may command the glass roof motor.
+            // Kinex logs show setSunshadeState(int) is available, so use that as the only normal path.
+            val state = stateFromAction(action, call.argument<Int>("state"))
+            val ok = invokeBodyworkAny(
+                listOf("setSunshadeState"),
+                listOf(arrayOf(state)),
+            )
+            FileLogger.log(appContext, "BODYWORK CONTROL sunshade state=$state ok=$ok")
+            return mapOf("ok" to ok, "state" to state, "target" to "sunshade")
+        }
+
+        private fun controlTrunk(call: MethodCall): Map<String, Any?> {
+            ensureListenersRegistered()
+            val action = call.argument<String>("action")
+            val state = stateFromAction(action, call.argument<Int>("state"))
+            // Public SDK on this firmware exposes getDoorState for luggage door, but the open/close
+            // setter name is not confirmed from Kinex logs. Try known/fallback names and log result.
+            val ok = invokeBodyworkAny(
+                listOf(
+                    "setBackDoorCtrlState",
+                    "setTrunkCtrlState",
+                    "setLuggageDoorState",
+                    "setLuggageDoorCtrlState",
+                    "setBackDoorState",
+                    "setCarBackDoorElectricMode",
+                ),
+                listOf(
+                    arrayOf(state),
+                    arrayOf(BODYWORK_LUGGAGE_DOOR, state),
+                ),
+            )
+            FileLogger.log(appContext, "BODYWORK CONTROL trunk state=$state ok=$ok")
+            return mapOf("ok" to ok, "state" to state, "featureId" to BODYWORK_LUGGAGE_DOOR)
+        }
+
+        private fun controlBodyworkRaw(call: MethodCall): Map<String, Any?> {
+            ensureListenersRegistered()
+            val method = call.argument<String>("method")
+                ?: return mapOf("ok" to false, "error" to "Missing method")
+            val args = (call.argument<List<Any?>>("args") ?: emptyList()).mapNotNull { (it as? Number)?.toInt() }.toTypedArray()
+            val ok = invokeBodyworkAny(listOf(method), listOf(args))
+            FileLogger.log(appContext, "BODYWORK CONTROL raw method=$method args=${args.joinToString()} ok=$ok")
+            return mapOf("ok" to ok, "method" to method, "args" to args.toList())
+        }
+
+        private fun stateFromAction(action: String?, explicitState: Int?): Int {
+            if (explicitState != null) return explicitState
+            return when (action?.lowercase()) {
+                "open", "up", "on" -> 1
+                "close", "down", "off" -> 0
+                "stop" -> 2
+                else -> 1
+            }
+        }
+
+        private fun invokeBodyworkAny(methodNames: List<String>, argSets: List<Array<Int>>): Boolean {
+            val device = bodyworkDevice ?: return false
+            for (methodName in methodNames) {
+                for (args in argSets) {
+                    val method = device.javaClass.methods.firstOrNull { m ->
+                        m.name == methodName && m.parameterTypes.size == args.size &&
+                            m.parameterTypes.all { it == Int::class.javaPrimitiveType || it == Integer::class.java }
+                    } ?: continue
+                    try {
+                        method.invoke(device, *args)
+                        FileLogger.log(appContext, "BODYWORK CONTROL invoke ok method=$methodName args=${args.joinToString()}")
+                        return true
+                    } catch (e: Throwable) {
+                        FileLogger.log(appContext, "BODYWORK CONTROL invoke failed method=$methodName args=${args.joinToString()} ${e.javaClass.simpleName}: ${e.message}")
+                    }
+                }
+            }
+            logBodyworkPublicMethods()
+            return false
+        }
+
+        private fun pollBodyworkStatus() {
+            val device = bodyworkDevice ?: return
+            val ids = listOf(
+                BODYWORK_LEFT_HAND_FRONT_DOOR,
+                BODYWORK_RIGHT_HAND_FRONT_DOOR,
+                BODYWORK_LEFT_HAND_REAR_DOOR,
+                BODYWORK_RIGHT_HAND_REAR_DOOR,
+                BODYWORK_LUGGAGE_DOOR,
+            )
+            ids.forEach { id ->
+                val state = safe("bodywork getDoorState $id") { device.getDoorState(id) }
+                if (state != null) cachedDoors[id] = state
+            }
+        }
+
+        private fun logBodyworkPublicMethods() {
+            val device = bodyworkDevice ?: return
+            val names = device.javaClass.methods
+                .filter { it.name.startsWith("set") || it.name.startsWith("get") }
+                .joinToString { "${it.name}(${it.parameterTypes.joinToString { p -> p.simpleName }})" }
+                .take(3000)
+            FileLogger.log(appContext, "BODYWORK CONTROL available methods: $names")
+        }
+
+        private const val BODYWORK_LEFT_HAND_FRONT_DOOR = 692060168
+        private const val BODYWORK_RIGHT_HAND_FRONT_DOOR = 692060170
+        private const val BODYWORK_LEFT_HAND_REAR_DOOR = 692060172
+        private const val BODYWORK_RIGHT_HAND_REAR_DOOR = 692060174
+        private const val BODYWORK_LUGGAGE_DOOR = 692060186
 
         private fun getVehicleSnapshot(): Map<String, Any?> {
             val snapshotLogNow = SystemClock.elapsedRealtime()
@@ -266,7 +419,7 @@ class VehicleBridge {
             // - Keep typed listeners for speed/gear/tyre/bodywork.
             // - Attach the global BYDAutoManager listener but process ONLY statistic device=1014.
             // This restores range/fuel/battery values without decoding noisy bodywork/steering events.
-            FileLogger.log(appContext, "Next map mode: typed TPMS/gear/battery + temp + fuel range discovery lock")
+            FileLogger.log(appContext, "Clean map mode: TPMS/gear/battery/temp + bodywork controls; no statistic discovery")
 
             // Enable devices once so typed SDK callbacks can dispatch, then register listeners.
             enableDevicesViaManager()
@@ -385,47 +538,26 @@ class VehicleBridge {
         }
 
         private fun handleStatisticEvent(eventType: Int, rawValue: Double, data: Any?) {
-            // Discovery-safe mode:
-            // - Do NOT map range/fuel from global statistic events yet. BYD emits many
-            //   unrelated statistic counters on the same device id, so mapping them into
-            //   UI fields makes Range/Fuel/Battery jump.
-            // - Keep only the SOC event that matched the vehicle dashboard in testing.
-            // - Log event/value/data class at a low rate so we can identify the exact
-            //   fuel range / fuel percent / electric range event ids later.
             val rounded = rawValue.roundToInt()
             when (eventType) {
                 EVENT_STAT_OUTSIDE_TEMP -> {
-                    // Confirmed from discovery: raw around 34184/34696 corresponds to 34°C.
                     val temp = normalizeOutsideTempC(rawValue)
-                    if (temp != null) {
+                    if (temp != null && cachedOutsideTemperatureC != temp) {
                         cachedOutsideTemperatureC = temp
-                        logDiscovery("STAT_TEMP", "MAP STAT outsideTemp event=$eventType raw=$rawValue -> ${temp}C data=${shortData(data)}")
+                        logRealtime("MAP STAT outsideTemp event=$eventType raw=$rawValue -> ${temp}C")
                         emitSnapshot()
-                    } else {
-                        logDiscovery("STAT_TEMP_IGN", "DISCOVERY STAT tempCandidate ignored event=$eventType raw=$rawValue data=${shortData(data)}")
                     }
                 }
-                EVENT_STAT_PERCENT -> {
-                    // This event looked like battery at first, but later proved to be noisy/counter-like
-                    // (0 -> 5 -> 89 -> 231). Keep it in logs only; do not overwrite SOC.
-                    logDiscovery("STAT_PERCENT_NO_UI", "DISCOVERY STAT percentLike_NOT_MAPPED event=$eventType value=$rounded raw=$rawValue data=${shortData(data)}")
-                }
-                EVENT_STAT_FUEL_RANGE, EVENT_STAT_FUEL_RANGE_ALT -> {
-                    // These are stable range-like candidates but do not match the IC fuel range yet
-                    // unless they normalize close to the known dashboard value. Do not display 325km
-                    // when the cluster shows 511km.
-                    val candidate = normalizeFuelRangeNearDashboard(rawValue)
-                    if (candidate != null && acceptFuelRangeCandidate(candidate)) {
-                        cachedFuelRangeKm = candidate
-                        logDiscovery("STAT_FUEL_RANGE_LOCK", "MAP STAT fuelRange event=$eventType raw=$rawValue -> ${candidate}km data=${shortData(data)}")
+                EVENT_STAT_BATTERY_PERCENT -> {
+                    if (rounded in 0..100 && acceptPercentCandidate(rounded)) {
+                        cachedBatteryPercent = rounded.toDouble()
+                        logRealtime("MAP STAT batteryPercent event=$eventType raw=$rawValue -> $rounded")
                         emitSnapshot()
-                    } else {
-                        logDiscovery("STAT_FUEL_RANGE_DISC", "DISCOVERY FUEL rangeCandidate_NOT_LOCKED event=$eventType raw=$rawValue normalized=${normalizeRangeKm(rounded)} data=${shortData(data)}")
                     }
                 }
-                else -> {
-                    logDiscovery("STAT_$eventType", "DISCOVERY STAT event=$eventType value=$rounded raw=$rawValue data=${shortData(data)}")
-                }
+                // Intentionally ignore noisy/unconfirmed statistic events.
+                // Known noisy IDs: 1134559272 is not SOC; 1147142160/1147142192 are not confirmed total range.
+                else -> Unit
             }
         }
 
@@ -437,18 +569,6 @@ class VehicleBridge {
                 (rawValue / 1000.0).roundToInt(),
             )
             return candidates.firstOrNull { it in -40..80 }
-        }
-
-        private fun normalizeFuelRangeNearDashboard(rawValue: Double): Int? {
-            val rounded = rawValue.roundToInt()
-            val candidates = listOf(
-                rounded,
-                (rawValue / 10.0).roundToInt(),
-                (rawValue / 100.0).roundToInt(),
-            ).filter { it in 0..900 }
-            // Current dashboard reference while discovering on this vehicle: fuel/range ~511km.
-            // Only lock candidates near that to avoid showing 325km/338km from unrelated events.
-            return candidates.firstOrNull { it in 490..530 }
         }
 
         private fun acceptPercentCandidate(percent: Int): Boolean {
@@ -642,39 +762,23 @@ class VehicleBridge {
             return object : AbsBYDAutoStatisticListener() {
 
                 override fun onElecDrivingRangeChanged(value: Int) {
-                    // Discovery only. Do not display until event/scale is verified.
-                    logDiscovery("TYPED_ELEC_RANGE", "DISCOVERY TYPED electricRange raw=$value NOT_MAPPED")
+                    // Range is intentionally not mapped until the exact combined range event is confirmed.
                 }
 
                 override fun onFuelDrivingRangeChanged(value: Int) {
-                    // Typed SDK callback is safer than generic statistic event. Accept if it is a sane km value
-                    // or if it normalizes near the dashboard fuel/range value.
-                    val direct = value.takeIf { it in 0..900 }
-                    val nearDash = normalizeFuelRangeNearDashboard(value.toDouble())
-                    val km = nearDash ?: direct
-                    if (km != null && acceptFuelRangeCandidate(km)) {
-                        cachedFuelRangeKm = km
-                        logDiscovery("TYPED_FUEL_RANGE_LOCK", "MAP TYPED fuelRange raw=$value -> ${km}km")
-                        emitSnapshot()
-                    } else {
-                        logDiscovery("TYPED_FUEL_RANGE", "DISCOVERY TYPED fuelRange raw=$value NOT_LOCKED")
-                    }
+                    // Fuel/range is intentionally not mapped; Kinex logs have not exposed the exact combined range yet.
                 }
 
                 override fun onFuelPercentageChanged(value: Int) {
-                    // Discovery only. Fuel percent is separate from SOC on PHEV; do not
-                    // mirror battery percent into fuel.
-                    logDiscovery("TYPED_FUEL_PERCENT", "DISCOVERY TYPED fuelPercent raw=$value NOT_MAPPED")
+                    // Do not mirror this into battery/fuel UI until confirmed.
                 }
 
                 override fun onElecPercentageChanged(value: Double) {
                     val rounded = value.roundToInt()
                     if (rounded in 0..100 && acceptPercentCandidate(rounded)) {
                         cachedBatteryPercent = rounded.toDouble()
-                        logDiscovery("TYPED_BATTERY_PERCENT", "DISCOVERY TYPED batteryPercent raw=$value cached=$cachedBatteryPercent")
+                        logRealtime("CALLBACK batteryPercent raw=$value cached=$cachedBatteryPercent")
                         emitSnapshot()
-                    } else {
-                        logDiscovery("TYPED_BATTERY_PERCENT_IGN", "DISCOVERY TYPED batteryPercent ignored raw=$value")
                     }
                 }
             }

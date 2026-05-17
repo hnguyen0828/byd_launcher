@@ -50,8 +50,14 @@ object PermissionBridge {
         FileLogger.log(appContext, "Grant all permissions clicked")
         FileLogger.log(appContext, "Status before grant: ${rawStatusMap()}")
         requestPostNotificationsIfNeeded()
-        val vehicleRequestReport = requestVehiclePermissions()
-        FileLogger.log(appContext, "Vehicle runtime permission request report: $vehicleRequestReport")
+
+        // Vehicle data on this BYD firmware is handled through BYD event/listener callbacks.
+        // Runtime requestPermissions() for BYDAUTO_* does not grant Speed/Statistic/Gearbox GET
+        // and can add noisy prompts, so keep Grant All focused on Music/Overlay/Navigation.
+        val vehicleRequestReport = mapOf(
+            "requested" to false,
+            "reason" to "Skipped; BYD vehicle data uses event/listener path"
+        )
 
         val shellReport = AdbBridge.runKinexStylePermissionSetup(appContext)
         FileLogger.log(appContext, "Shell report: $shellReport")
@@ -153,7 +159,8 @@ object PermissionBridge {
         when (kind) {
             "musicAccess" -> openNotificationListenerSettings(preferDetail = true)
             "systemOverlay" -> openOverlaySettings()
-            "vehicleData", "navigationEmbed" -> openAppDetailsSettings()
+            "vehicleData" -> openAppDetailsSettings()
+            "navigationEmbed" -> openDeveloperOptions()
             else -> openAppDetailsSettings()
         }
     }
@@ -280,6 +287,18 @@ object PermissionBridge {
                 Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
+        }
+    }
+
+    private fun openDeveloperOptions() {
+        FileLogger.log(appContext, "Opening developer options settings")
+        try {
+            appContext.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (_: Throwable) {
+            openAppDetailsSettings()
         }
     }
 
