@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'dart:math' as math;
@@ -18,6 +19,7 @@ const String _navigationDefaultPackagePreferenceKey =
     'launcher.navigation.defaultPackage';
 const String _launchNavigationWithLauncherPreferenceKey =
     'launcher.navigation.launchWithLauncher';
+const String _favoriteAppsPreferenceKey = 'launcher.favoriteApps';
 const String _wallpaperFixedFolderPath =
     '/storage/emulated/0/Android/data/com.example.byd_launcher/files/wallpapers';
 const String _wallpaperIntervalPreferenceKey =
@@ -146,6 +148,26 @@ class _NavigationApp {
 
   final String label;
   final String packageName;
+}
+
+class _LauncherApp {
+  const _LauncherApp({
+    required this.label,
+    required this.packageName,
+    required this.iconBase64,
+  });
+
+  factory _LauncherApp.fromMap(Map<dynamic, dynamic> map) {
+    return _LauncherApp(
+      label: _stringFromMap(map, 'label'),
+      packageName: _stringFromMap(map, 'packageName'),
+      iconBase64: _stringFromMap(map, 'iconBase64'),
+    );
+  }
+
+  final String label;
+  final String packageName;
+  final String iconBase64;
 }
 
 const List<_NavigationApp> _previewNavigationApps = [
@@ -356,6 +378,8 @@ class _LauncherHomePageState extends State<LauncherHomePage>
   Color _vehicleColor = const Color(0xFFE9EEF4);
   _VehicleGear _selectedGear = _VehicleGear.p;
   bool _vehiclePreferencesLoaded = false;
+  List<_LauncherApp> _launcherApps = const [];
+  List<String> _favoriteAppPackages = const [];
   List<_NavigationApp> _navigationApps = const [];
   String? _selectedNavigationPackage;
   bool _launchNavigationWithLauncher = false;
@@ -381,11 +405,22 @@ class _LauncherHomePageState extends State<LauncherHomePage>
   double get _effectiveSpeedKmh =>
       _vehicleSnapshot.speedKmh ?? _vehicleSpeedKmh;
 
+  List<_LauncherApp> get _favoriteApps {
+    final appsByPackage = {
+      for (final app in _launcherApps) app.packageName: app,
+    };
+    return [
+      for (final packageName in _favoriteAppPackages)
+        if (appsByPackage[packageName] != null) appsByPackage[packageName]!,
+    ];
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadVehiclePreferences();
+    _loadFavoriteApps();
     _loadNavigationPreferences();
     _loadWallpaperPreferences();
     _refreshDefaultLauncherStatus();
@@ -469,7 +504,12 @@ class _LauncherHomePageState extends State<LauncherHomePage>
                             vehicleSpeedKmh: _effectiveSpeedKmh,
                             vehicleSnapshot: _vehicleSnapshot,
                             vehicleColor: _vehicleColor,
+                            favoriteApps: _favoriteApps,
                             onGearChanged: _setGear,
+                            onFavoriteAppTap: _launchFavoriteApp,
+                            onFavoriteAppsEdit: _editFavoriteApps,
+                            onFavoriteAppRemove: _removeFavoriteApp,
+                            onFavoriteAppsReorder: _reorderFavoriteApps,
                           ),
                         ),
                       Expanded(
@@ -621,6 +661,87 @@ class _LauncherHomePageState extends State<LauncherHomePage>
           ? const []
           : _previewNavigationApps;
     }
+  }
+
+  Future<void> _loadFavoriteApps() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedPackages =
+        prefs.getStringList(_favoriteAppsPreferenceKey) ?? const [];
+    final apps = await _loadLauncherAppsFromPlatform();
+    if (!mounted) return;
+    final availablePackages = apps.map((app) => app.packageName).toSet();
+    setState(() {
+      _launcherApps = apps;
+      _favoriteAppPackages = storedPackages
+          .where(availablePackages.contains)
+          .take(4)
+          .toList(growable: false);
+    });
+  }
+
+  Future<List<_LauncherApp>> _loadLauncherAppsFromPlatform() async {
+    try {
+      final rawApps = await _navigationChannel.invokeListMethod<dynamic>(
+        'getLaunchableApps',
+      );
+      return (rawApps ?? [])
+          .whereType<Map<dynamic, dynamic>>()
+          .map(_LauncherApp.fromMap)
+          .where((app) => app.label.isNotEmpty && app.packageName.isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _launchFavoriteApp(_LauncherApp app) async {
+    try {
+      await _navigationChannel.invokeMethod<Object?>('launchApp', {
+        'packageName': app.packageName,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _editFavoriteApps() async {
+    if (_launcherApps.isEmpty) {
+      await _loadFavoriteApps();
+    }
+    if (!mounted) return;
+
+    final selected = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => _FavoriteAppsDialog(
+        apps: _launcherApps,
+        selectedPackages: _favoriteAppPackages,
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_favoriteAppsPreferenceKey, selected);
+    setState(() => _favoriteAppPackages = selected);
+  }
+
+  Future<void> _saveFavoriteAppPackages(List<String> packageNames) async {
+    final normalized = packageNames.take(4).toList(growable: false);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_favoriteAppsPreferenceKey, normalized);
+    if (!mounted) return;
+    setState(() => _favoriteAppPackages = normalized);
+  }
+
+  Future<void> _removeFavoriteApp(_LauncherApp app) async {
+    await _saveFavoriteAppPackages(
+      _favoriteAppPackages
+          .where((packageName) => packageName != app.packageName)
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> _reorderFavoriteApps(List<_LauncherApp> apps) async {
+    await _saveFavoriteAppPackages(
+      apps.map((app) => app.packageName).toList(growable: false),
+    );
   }
 
   String? _resolveNavigationPackage(
@@ -836,7 +957,12 @@ class _LeftDashboard extends StatelessWidget {
     required this.vehicleSpeedKmh,
     required this.vehicleSnapshot,
     required this.vehicleColor,
+    required this.favoriteApps,
     required this.onGearChanged,
+    required this.onFavoriteAppTap,
+    required this.onFavoriteAppsEdit,
+    required this.onFavoriteAppRemove,
+    required this.onFavoriteAppsReorder,
   });
 
   final _VehicleGear selectedGear;
@@ -844,7 +970,12 @@ class _LeftDashboard extends StatelessWidget {
   final double vehicleSpeedKmh;
   final _VehicleSnapshot vehicleSnapshot;
   final Color vehicleColor;
+  final List<_LauncherApp> favoriteApps;
   final ValueChanged<_VehicleGear> onGearChanged;
+  final ValueChanged<_LauncherApp> onFavoriteAppTap;
+  final VoidCallback onFavoriteAppsEdit;
+  final ValueChanged<_LauncherApp> onFavoriteAppRemove;
+  final ValueChanged<List<_LauncherApp>> onFavoriteAppsReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -902,13 +1033,17 @@ class _LeftDashboard extends StatelessWidget {
                   // Keep Music tall enough for its controls, and reclaim space
                   // mostly from TPMS so neither widget overflows.
                   final mediaHeight = compactHeight ? 166.0 : 168.0;
+                  final favoritesHeight = compactHeight ? 58.0 : 62.0;
                   final gapSmall = compactHeight ? 6.0 : 10.0;
                   final gapMedium = compactHeight ? 7.0 : 12.0;
                   final tpmsHeight = compactHeight
-                      ? (constraints.maxHeight - mediaHeight - 158.0)
-                            .clamp(166.0, 194.0)
+                      ? (constraints.maxHeight -
+                                mediaHeight -
+                                favoritesHeight -
+                                166.0)
+                            .clamp(156.0, 186.0)
                             .toDouble()
-                      : 214.0;
+                      : 198.0;
 
                   return Column(
                     children: [
@@ -931,6 +1066,17 @@ class _LeftDashboard extends StatelessWidget {
                       ),
                       SizedBox(height: gapSmall),
                       Flexible(child: _EnergyStrip(snapshot: vehicleSnapshot)),
+                      SizedBox(height: gapSmall),
+                      SizedBox(
+                        height: favoritesHeight,
+                        child: _FavoriteAppsStrip(
+                          apps: favoriteApps,
+                          onAppTap: onFavoriteAppTap,
+                          onEditTap: onFavoriteAppsEdit,
+                          onRemove: onFavoriteAppRemove,
+                          onReorder: onFavoriteAppsReorder,
+                        ),
+                      ),
                     ],
                   );
                 },
@@ -939,6 +1085,410 @@ class _LeftDashboard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _FavoriteAppsStrip extends StatefulWidget {
+  const _FavoriteAppsStrip({
+    required this.apps,
+    required this.onAppTap,
+    required this.onEditTap,
+    required this.onRemove,
+    required this.onReorder,
+  });
+
+  final List<_LauncherApp> apps;
+  final ValueChanged<_LauncherApp> onAppTap;
+  final VoidCallback onEditTap;
+  final ValueChanged<_LauncherApp> onRemove;
+  final ValueChanged<List<_LauncherApp>> onReorder;
+
+  @override
+  State<_FavoriteAppsStrip> createState() => _FavoriteAppsStripState();
+}
+
+class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
+  bool _editing = false;
+
+  void _enterEditing() {
+    if (!_editing) setState(() => _editing = true);
+  }
+
+  void _exitEditing() {
+    if (_editing) setState(() => _editing = false);
+  }
+
+  void _reorder(_LauncherApp draggedApp, _LauncherApp targetApp) {
+    final reordered = widget.apps.take(4).toList(growable: true);
+    final from = reordered.indexWhere(
+      (app) => app.packageName == draggedApp.packageName,
+    );
+    final to = reordered.indexWhere(
+      (app) => app.packageName == targetApp.packageName,
+    );
+    if (from == -1 || to == -1 || from == to) return;
+
+    final moved = reordered.removeAt(from);
+    reordered.insert(to, moved);
+    widget.onReorder(reordered);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleApps = widget.apps.take(4).toList(growable: false);
+    final canAdd = visibleApps.length < 4;
+
+    return TapRegion(
+      onTapOutside: (_) => _exitEditing(),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          for (final app in visibleApps)
+            Expanded(
+              child: DragTarget<_LauncherApp>(
+                onWillAcceptWithDetails: (details) =>
+                    details.data.packageName != app.packageName,
+                onAcceptWithDetails: (details) {
+                  _enterEditing();
+                  _reorder(details.data, app);
+                },
+                builder: (context, candidateData, rejectedData) {
+                  final highlighted = candidateData.isNotEmpty;
+                  final button = _FavoriteAppButton(
+                    app: app,
+                    editing: _editing,
+                    highlighted: highlighted,
+                    onTap: () =>
+                        _editing ? _exitEditing() : widget.onAppTap(app),
+                    onLongPress: _enterEditing,
+                    onRemove: () => widget.onRemove(app),
+                  );
+
+                  return LongPressDraggable<_LauncherApp>(
+                    data: app,
+                    delay: const Duration(milliseconds: 220),
+                    onDragStarted: _enterEditing,
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: SizedBox(width: 58, height: 58, child: button),
+                    ),
+                    childWhenDragging: Opacity(opacity: 0.32, child: button),
+                    child: button,
+                  );
+                },
+              ),
+            ),
+          if (canAdd || visibleApps.isEmpty)
+            Expanded(child: _AddFavoriteAppButton(onTap: widget.onEditTap)),
+        ],
+      ),
+    );
+  }
+}
+
+class _FavoriteAppButton extends StatelessWidget {
+  const _FavoriteAppButton({
+    required this.app,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onRemove,
+    this.editing = false,
+    this.highlighted = false,
+  });
+
+  final _LauncherApp app;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onRemove;
+  final bool editing;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+            decoration: BoxDecoration(
+              color: highlighted
+                  ? _accentSoftBlue.withValues(alpha: light ? 0.14 : 0.18)
+                  : editing
+                  ? Colors.white.withValues(alpha: light ? 0.34 : 0.045)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: highlighted
+                    ? _accentSoftBlue.withValues(alpha: 0.30)
+                    : Colors.transparent,
+              ),
+            ),
+          ),
+        ),
+        InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _LauncherAppIcon(app: app, size: 28),
+                const SizedBox(height: 4),
+                Text(
+                  app.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.labelSmall,
+                    color: _textPrimary,
+                    weight: FontWeight.w600,
+                    size: 9.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (editing)
+          Positioned(
+            right: 0,
+            top: -2,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: onRemove,
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: light ? 0.66 : 0.74),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.58),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                  size: 13,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AddFavoriteAppButton extends StatelessWidget {
+  const _AddFavoriteAppButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return Align(
+      alignment: Alignment.center,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: light
+                ? Colors.white.withValues(alpha: 0.70)
+                : Colors.white.withValues(alpha: 0.070),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: light
+                  ? const Color(0xFFDDE7F1).withValues(alpha: 0.88)
+                  : Colors.white.withValues(alpha: 0.060),
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.add_rounded,
+                color: _tone(context, _textPrimary),
+                size: 20,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Add',
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelSmall,
+                  color: _textPrimary,
+                  weight: FontWeight.w600,
+                  size: 9.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LauncherAppIcon extends StatelessWidget {
+  const _LauncherAppIcon({required this.app, required this.size});
+
+  final _LauncherApp app;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    if (app.iconBase64.isNotEmpty) {
+      try {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.26),
+          child: Image.memory(
+            base64Decode(app.iconBase64),
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          ),
+        );
+      } catch (_) {}
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: _accentSoftBlue.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(size * 0.26),
+      ),
+      child: Icon(
+        Icons.apps_rounded,
+        color: _accentSoftBlue,
+        size: size * 0.58,
+      ),
+    );
+  }
+}
+
+class _FavoriteAppsDialog extends StatefulWidget {
+  const _FavoriteAppsDialog({
+    required this.apps,
+    required this.selectedPackages,
+  });
+
+  final List<_LauncherApp> apps;
+  final List<String> selectedPackages;
+
+  @override
+  State<_FavoriteAppsDialog> createState() => _FavoriteAppsDialogState();
+}
+
+class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
+  late final Set<String> _selectedPackages;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPackages = widget.selectedPackages.take(4).toSet();
+  }
+
+  void _toggle(String packageName, bool selected) {
+    setState(() {
+      if (!selected) {
+        _selectedPackages.remove(packageName);
+      } else if (_selectedPackages.length < 4) {
+        _selectedPackages.add(packageName);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        'Favorite apps',
+        style: _sharp(
+          context,
+          Theme.of(context).textTheme.titleLarge,
+          color: _textPrimary,
+          weight: FontWeight.w700,
+          size: 20,
+        ),
+      ),
+      content: SizedBox(
+        width: 520,
+        height: 390,
+        child: widget.apps.isEmpty
+            ? Center(
+                child: Text(
+                  'No launchable apps found',
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.bodyMedium,
+                    color: _textMuted,
+                    weight: FontWeight.w500,
+                    size: 13,
+                  ),
+                ),
+              )
+            : ListView.separated(
+                itemCount: widget.apps.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 4),
+                itemBuilder: (context, index) {
+                  final app = widget.apps[index];
+                  final selected = _selectedPackages.contains(app.packageName);
+                  final disabled = !selected && _selectedPackages.length >= 4;
+                  return CheckboxListTile(
+                    value: selected,
+                    onChanged: disabled
+                        ? null
+                        : (value) => _toggle(app.packageName, value == true),
+                    secondary: _LauncherAppIcon(app: app, size: 34),
+                    title: Text(
+                      app.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      app.packageName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.trailing,
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final selected = [
+              for (final app in widget.apps)
+                if (_selectedPackages.contains(app.packageName))
+                  app.packageName,
+            ];
+            Navigator.of(context).pop(selected);
+          },
+          child: Text('Save (${_selectedPackages.length}/4)'),
+        ),
+      ],
     );
   }
 }
@@ -1345,123 +1895,94 @@ class _TpmsCluster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      child: Column(
-        children: [
-          Row(
+      padding: const EdgeInsets.fromLTRB(10, 2, 10, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final carWidth = constraints.maxWidth >= 280 ? 96.0 : 82.0;
+          final lineWidth = constraints.maxWidth >= 280 ? 46.0 : 32.0;
+          final lineTop = constraints.maxHeight * 0.23;
+          final lineBottom = constraints.maxHeight * 0.31;
+          final leftLine = math.max(
+            62.0,
+            constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
+          );
+          final rightLine = math.max(
+            62.0,
+            constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
+          );
+
+          return Stack(
+            alignment: Alignment.center,
             children: [
-              const Icon(
-                Icons.tire_repair_outlined,
-                color: _accentSoftBlue,
-                size: 18,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'TPMS',
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.labelMedium,
-                  color: _textMuted,
-                  weight: FontWeight.w500,
-                  size: 12,
-                  letterSpacing: 0.2,
+              Positioned.fill(
+                child: Align(
+                  alignment: const Alignment(0, -0.10),
+                  child: SizedBox(
+                    width: carWidth,
+                    height: constraints.maxHeight * 0.94,
+                    child: _TintedTpmsVehicleImage(vehicleColor: vehicleColor),
+                  ),
                 ),
               ),
+
+              Positioned(
+                left: 0,
+                top: 8,
+                child: _PressureBlock(
+                  value: snapshot.tyre('frontLeft').pressureLabel,
+                  temp: snapshot.tyre('frontLeft').stateLabel,
+                ),
+              ),
+              Positioned(
+                right: 0,
+                top: 8,
+                child: _PressureBlock(
+                  value: snapshot.tyre('frontRight').pressureLabel,
+                  temp: snapshot.tyre('frontRight').stateLabel,
+                  alignRight: true,
+                ),
+              ),
+              Positioned(
+                left: 0,
+                bottom: 24,
+                child: _PressureBlock(
+                  value: snapshot.tyre('rearLeft').pressureLabel,
+                  temp: snapshot.tyre('rearLeft').stateLabel,
+                ),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 24,
+                child: _PressureBlock(
+                  value: snapshot.tyre('rearRight').pressureLabel,
+                  temp: snapshot.tyre('rearRight').stateLabel,
+                  alignRight: true,
+                ),
+              ),
+
+              Positioned(
+                left: leftLine,
+                top: lineTop,
+                child: _TpmsLine(width: lineWidth),
+              ),
+              Positioned(
+                right: rightLine,
+                top: lineTop,
+                child: _TpmsLine(width: lineWidth, flip: true),
+              ),
+              Positioned(
+                left: leftLine,
+                bottom: lineBottom,
+                child: _TpmsLine(width: lineWidth),
+              ),
+              Positioned(
+                right: rightLine,
+                bottom: lineBottom,
+                child: _TpmsLine(width: lineWidth, flip: true),
+              ),
             ],
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final carWidth = constraints.maxWidth >= 280 ? 96.0 : 82.0;
-                final lineWidth = constraints.maxWidth >= 280 ? 46.0 : 32.0;
-                final lineTop = constraints.maxHeight * 0.27;
-                final lineBottom = constraints.maxHeight * 0.27;
-                final leftLine = math.max(
-                  62.0,
-                  constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
-                );
-                final rightLine = math.max(
-                  62.0,
-                  constraints.maxWidth / 2 - carWidth / 2 - lineWidth + 8,
-                );
-
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned.fill(
-                      child: Center(
-                        child: SizedBox(
-                          width: carWidth,
-                          height: constraints.maxHeight * 0.94,
-                          child: _TintedTpmsVehicleImage(
-                            vehicleColor: vehicleColor,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    Positioned(
-                      left: 0,
-                      top: 16,
-                      child: _PressureBlock(
-                        value: snapshot.tyre('frontLeft').pressureLabel,
-                        temp: snapshot.tyre('frontLeft').stateLabel,
-                      ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      top: 16,
-                      child: _PressureBlock(
-                        value: snapshot.tyre('frontRight').pressureLabel,
-                        temp: snapshot.tyre('frontRight').stateLabel,
-                        alignRight: true,
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      bottom: 16,
-                      child: _PressureBlock(
-                        value: snapshot.tyre('rearLeft').pressureLabel,
-                        temp: snapshot.tyre('rearLeft').stateLabel,
-                      ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 16,
-                      child: _PressureBlock(
-                        value: snapshot.tyre('rearRight').pressureLabel,
-                        temp: snapshot.tyre('rearRight').stateLabel,
-                        alignRight: true,
-                      ),
-                    ),
-
-                    Positioned(
-                      left: leftLine,
-                      top: lineTop,
-                      child: _TpmsLine(width: lineWidth),
-                    ),
-                    Positioned(
-                      right: rightLine,
-                      top: lineTop,
-                      child: _TpmsLine(width: lineWidth, flip: true),
-                    ),
-                    Positioned(
-                      left: leftLine,
-                      bottom: lineBottom,
-                      child: _TpmsLine(width: lineWidth),
-                    ),
-                    Positioned(
-                      right: rightLine,
-                      bottom: lineBottom,
-                      child: _TpmsLine(width: lineWidth, flip: true),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
