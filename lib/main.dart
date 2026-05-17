@@ -13,9 +13,10 @@ import 'package:webview_flutter/webview_flutter.dart';
 const String _vehicleModelAsset = 'assets/models/2024_byd_seal_u_dm-i.glb';
 const bool _preferNativeVehicleRenderer = true;
 const String _themeModePreferenceKey = 'launcher.themeMode';
+const String _languagePreferenceKey = 'launcher.language';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
-const String _forceLandscapePreferenceKey = 'launcher.forceLandscape';
+const String _layoutModePreferenceKey = 'launcher.layoutMode';
 const String _navigationDefaultPackagePreferenceKey =
     'launcher.navigation.defaultPackage';
 const String _launchNavigationWithLauncherPreferenceKey =
@@ -181,21 +182,25 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _preloadVehicleModelAssets();
   final prefs = await SharedPreferences.getInstance();
-  final forceLandscape = prefs.getBool(_forceLandscapePreferenceKey) ?? true;
-  await _applyForceLandscape(forceLandscape);
+  final layoutMode = _parseLayoutMode(
+    prefs.getString(_layoutModePreferenceKey),
+  );
+  await _applyLayoutModeOrientation(layoutMode);
 
   runApp(const BydLauncherApp());
 }
 
-Future<void> _applyForceLandscape(bool enabled) {
-  return SystemChrome.setPreferredOrientations(
-    enabled
-        ? const [
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]
-        : const [],
-  );
+Future<void> _applyLayoutModeOrientation(_LauncherLayoutMode mode) {
+  return SystemChrome.setPreferredOrientations(switch (mode) {
+    _LauncherLayoutMode.landscape => const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ],
+    _LauncherLayoutMode.portrait => const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ],
+  });
 }
 
 void _preloadVehicleModelAssets() {
@@ -217,6 +222,7 @@ class BydLauncherApp extends StatefulWidget {
 
 class _BydLauncherAppState extends State<BydLauncherApp> {
   ThemeMode _themeMode = ThemeMode.dark;
+  _AppLanguage _language = _AppLanguage.en;
   bool _themePreferenceLoaded = false;
 
   @override
@@ -227,16 +233,21 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'BYD Launcher',
-      themeMode: _themeMode,
-      theme: _launcherTheme(Brightness.light),
-      darkTheme: _launcherTheme(Brightness.dark),
-      home: LauncherHomePage(
-        enable3dModel: _themePreferenceLoaded,
+    return _LocalizationScope(
+      language: _language,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: _localizedStrings[_language]?['appTitle'] ?? 'BYD Launcher',
         themeMode: _themeMode,
-        onThemeModeChanged: _setThemeMode,
+        theme: _launcherTheme(Brightness.light),
+        darkTheme: _launcherTheme(Brightness.dark),
+        home: _LauncherHomePage(
+          enable3dModel: _themePreferenceLoaded,
+          themeMode: _themeMode,
+          language: _language,
+          onThemeModeChanged: _setThemeMode,
+          onLanguageChanged: _setLanguage,
+        ),
       ),
     );
   }
@@ -244,10 +255,13 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_themeModePreferenceKey);
+    final storedLanguage = prefs.getString(_languagePreferenceKey);
     final themeMode = _parseThemeMode(stored);
+    final language = _parseAppLanguage(storedLanguage);
     if (!mounted) return;
     setState(() {
       _themeMode = themeMode;
+      _language = language;
       _themePreferenceLoaded = true;
     });
   }
@@ -256,6 +270,12 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
     setState(() => _themeMode = mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_themeModePreferenceKey, mode.name);
+  }
+
+  Future<void> _setLanguage(_AppLanguage language) async {
+    setState(() => _language = language);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_languagePreferenceKey, language.name);
   }
 }
 
@@ -285,6 +305,43 @@ enum _VehicleView { status, rear }
 
 enum _LauncherTab { status, map, wallpaper, settings }
 
+enum _LauncherLayoutMode {
+  landscape('Landscape'),
+  portrait('Portrait');
+
+  const _LauncherLayoutMode(this.label);
+
+  final String label;
+}
+
+enum _AppLanguage {
+  en('English'),
+  zh('中文'),
+  th('ไทย'),
+  id('Indonesia'),
+  fr('Français'),
+  it('Italiano'),
+  vi('Tiếng Việt');
+
+  const _AppLanguage(this.label);
+
+  final String label;
+}
+
+_AppLanguage _parseAppLanguage(String? value) {
+  for (final language in _AppLanguage.values) {
+    if (language.name == value) return language;
+  }
+  return _AppLanguage.en;
+}
+
+_LauncherLayoutMode _parseLayoutMode(String? value) {
+  for (final mode in _LauncherLayoutMode.values) {
+    if (mode.name == value) return mode;
+  }
+  return _LauncherLayoutMode.landscape;
+}
+
 enum _VehicleGear { p, r, n, d }
 
 enum _VehicleRenderQuality { low, medium, high }
@@ -297,6 +354,244 @@ enum _VehicleHotspot {
   sunroof,
   trunk,
 }
+
+class _LocalizationScope extends InheritedWidget {
+  const _LocalizationScope({required this.language, required super.child});
+
+  final _AppLanguage language;
+
+  static _AppLanguage languageOf(BuildContext context) {
+    return context
+            .dependOnInheritedWidgetOfExactType<_LocalizationScope>()
+            ?.language ??
+        _AppLanguage.en;
+  }
+
+  @override
+  bool updateShouldNotify(_LocalizationScope oldWidget) {
+    return oldWidget.language != language;
+  }
+}
+
+String _t(BuildContext context, String key) {
+  final language = _LocalizationScope.languageOf(context);
+  return _localizedStrings[language]?[key] ??
+      _localizedStrings[_AppLanguage.en]?[key] ??
+      key;
+}
+
+String _tx(BuildContext context, String key, Map<String, Object> values) {
+  var text = _t(context, key);
+  for (final entry in values.entries) {
+    text = text.replaceAll('{${entry.key}}', entry.value.toString());
+  }
+  return text;
+}
+
+const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
+  _AppLanguage.en: {
+    'appTitle': 'BYD Launcher',
+    'language': 'Language',
+    'languageSubtitle': 'Choose the display language.',
+    'vehicle': 'Vehicle',
+    'navigation': 'Navigation',
+    'navShort': 'Nav',
+    'ambient': 'Ambient',
+    'settings': 'Settings',
+    'settingsSubtitle': 'Launcher and vehicle display preferences',
+    'layout': 'Layout',
+    'layoutSubtitle': 'Switch between landscape and portrait layouts.',
+    'landscapeShort': 'Land',
+    'portraitShort': 'Port',
+    'defaultLauncher': 'Default launcher',
+    'defaultLauncherReady':
+        'This launcher opens when the vehicle head unit starts.',
+    'defaultLauncherChoose': 'Choose this app as the system Home launcher.',
+    'launchNavigation': 'Launch navigation',
+    'launchNavigationReady':
+        'Open the default map app when this launcher starts.',
+    'launchNavigationMissing':
+        'Install or reload a map app before enabling this.',
+    'vehicleColor': 'Vehicle color',
+    'vehicleColorSubtitle':
+        'Used by the launcher preview and future render states.',
+    'appearance': 'Appearance',
+    'appearanceSubtitle':
+        'Choose a light theme, dark theme, or follow the system setting.',
+    'light': 'Light',
+    'dark': 'Dark',
+    'system': 'System',
+    'renderQuality': '3D render quality',
+    'ambientSubtitle': 'Use images from the app Ambient folder.',
+    'showAmbientButton': 'Show Ambient button',
+    'showAmbientButtonSubtitle':
+        'Show or hide the Ambient tab in the bottom dock.',
+    'autoChangeInterval': 'Auto change interval',
+    'refresh': 'Refresh',
+    'noAmbientImages': 'No Ambient images found',
+    'ambientEmptyHint':
+        'Place JPG, PNG or WEBP images in the Ambient folder, then tap Refresh.',
+    'favoriteApps': 'Favorite apps',
+    'noLaunchableApps': 'No launchable apps found',
+    'add': 'Add',
+    'cancel': 'Cancel',
+    'saveCount': 'Save ({count}/4)',
+    'range': 'Range',
+    'fuel': 'Fuel',
+    'battery': 'Battery',
+    'music': 'Music',
+    'unknownTrack': 'Unknown track',
+    'enableMusicAccess': 'Enable Music access in Settings',
+    'systemPermissions': 'System permissions',
+    'systemPermissionsSubtitle':
+        'One tap setup for music, overlay, vehicle data and launcher bridge.',
+    'checkingPermissions': 'Checking permissions',
+    'permissionsReady': 'Permissions ready',
+    'grantAllPermissions': 'Grant all permissions',
+    'allPermissionsReady': 'All permissions are ready',
+    'permissionsReadyCount': '{ready}/{total} permissions ready',
+    'overlay': 'Overlay',
+    'internet': 'Internet',
+  },
+  _AppLanguage.vi: {
+    'language': 'Ngôn ngữ',
+    'languageSubtitle': 'Chọn ngôn ngữ hiển thị.',
+    'vehicle': 'Xe',
+    'navigation': 'Dẫn đường',
+    'navShort': 'Map',
+    'ambient': 'Ambient',
+    'settings': 'Cài đặt',
+    'settingsSubtitle': 'Tùy chọn launcher và hiển thị xe',
+    'layout': 'Bố cục',
+    'layoutSubtitle': 'Chuyển giữa bố cục ngang và dọc.',
+    'landscapeShort': 'Ngang',
+    'portraitShort': 'Dọc',
+    'defaultLauncher': 'Launcher mặc định',
+    'defaultLauncherReady': 'Launcher này sẽ mở khi màn hình xe khởi động.',
+    'defaultLauncherChoose': 'Chọn app này làm Home launcher của hệ thống.',
+    'launchNavigation': 'Mở dẫn đường',
+    'launchNavigationReady': 'Mở app bản đồ mặc định khi launcher khởi động.',
+    'launchNavigationMissing': 'Cài hoặc tải lại app bản đồ trước khi bật.',
+    'vehicleColor': 'Màu xe',
+    'vehicleColorSubtitle':
+        'Dùng cho preview launcher và trạng thái render sau này.',
+    'appearance': 'Giao diện',
+    'appearanceSubtitle': 'Chọn sáng, tối hoặc theo hệ thống.',
+    'light': 'Sáng',
+    'dark': 'Tối',
+    'system': 'Hệ thống',
+    'renderQuality': 'Chất lượng 3D',
+    'ambientSubtitle': 'Dùng ảnh từ thư mục Ambient của app.',
+    'showAmbientButton': 'Hiện nút Ambient',
+    'showAmbientButtonSubtitle': 'Hiện hoặc ẩn tab Ambient ở dock dưới.',
+    'autoChangeInterval': 'Tự đổi ảnh',
+    'refresh': 'Tải lại',
+    'noAmbientImages': 'Chưa có ảnh Ambient',
+    'ambientEmptyHint':
+        'Chép ảnh JPG, PNG hoặc WEBP vào thư mục Ambient rồi bấm Tải lại.',
+    'favoriteApps': 'Ứng dụng yêu thích',
+    'noLaunchableApps': 'Không tìm thấy app có thể mở',
+    'add': 'Thêm',
+    'cancel': 'Huỷ',
+    'saveCount': 'Lưu ({count}/4)',
+    'range': 'Tầm hoạt động',
+    'fuel': 'Xăng',
+    'battery': 'Pin',
+    'music': 'Nhạc',
+    'unknownTrack': 'Không rõ bài hát',
+    'enableMusicAccess': 'Bật quyền Nhạc trong Cài đặt',
+    'systemPermissions': 'Quyền hệ thống',
+    'systemPermissionsSubtitle':
+        'Thiết lập một chạm cho nhạc, overlay, dữ liệu xe và launcher bridge.',
+    'checkingPermissions': 'Đang kiểm tra quyền',
+    'permissionsReady': 'Quyền đã sẵn sàng',
+    'grantAllPermissions': 'Cấp tất cả quyền',
+    'allPermissionsReady': 'Tất cả quyền đã sẵn sàng',
+    'permissionsReadyCount': '{ready}/{total} quyền sẵn sàng',
+    'overlay': 'Overlay',
+    'internet': 'Internet',
+  },
+  _AppLanguage.zh: {
+    'language': '语言',
+    'settings': '设置',
+    'vehicle': '车辆',
+    'navigation': '导航',
+    'ambient': '氛围',
+    'layout': '布局',
+    'add': '添加',
+    'cancel': '取消',
+    'refresh': '刷新',
+    'favoriteApps': '收藏应用',
+    'music': '音乐',
+    'range': '续航',
+    'fuel': '燃油',
+    'battery': '电池',
+  },
+  _AppLanguage.th: {
+    'language': 'ภาษา',
+    'settings': 'ตั้งค่า',
+    'vehicle': 'รถ',
+    'navigation': 'นำทาง',
+    'ambient': 'Ambient',
+    'layout': 'เลย์เอาต์',
+    'add': 'เพิ่ม',
+    'cancel': 'ยกเลิก',
+    'refresh': 'รีเฟรช',
+    'favoriteApps': 'แอปโปรด',
+    'music': 'เพลง',
+    'range': 'ระยะทาง',
+    'fuel': 'น้ำมัน',
+    'battery': 'แบตเตอรี่',
+  },
+  _AppLanguage.id: {
+    'language': 'Bahasa',
+    'settings': 'Pengaturan',
+    'vehicle': 'Kendaraan',
+    'navigation': 'Navigasi',
+    'ambient': 'Ambient',
+    'layout': 'Tata letak',
+    'add': 'Tambah',
+    'cancel': 'Batal',
+    'refresh': 'Muat ulang',
+    'favoriteApps': 'Aplikasi favorit',
+    'music': 'Musik',
+    'range': 'Jarak',
+    'fuel': 'Bensin',
+    'battery': 'Baterai',
+  },
+  _AppLanguage.fr: {
+    'language': 'Langue',
+    'settings': 'Réglages',
+    'vehicle': 'Véhicule',
+    'navigation': 'Navigation',
+    'ambient': 'Ambiance',
+    'layout': 'Disposition',
+    'add': 'Ajouter',
+    'cancel': 'Annuler',
+    'refresh': 'Actualiser',
+    'favoriteApps': 'Apps favorites',
+    'music': 'Musique',
+    'range': 'Autonomie',
+    'fuel': 'Carburant',
+    'battery': 'Batterie',
+  },
+  _AppLanguage.it: {
+    'language': 'Lingua',
+    'settings': 'Impostazioni',
+    'vehicle': 'Veicolo',
+    'navigation': 'Navigazione',
+    'ambient': 'Ambient',
+    'layout': 'Layout',
+    'add': 'Aggiungi',
+    'cancel': 'Annulla',
+    'refresh': 'Aggiorna',
+    'favoriteApps': 'App preferite',
+    'music': 'Musica',
+    'range': 'Autonomia',
+    'fuel': 'Carburante',
+    'battery': 'Batteria',
+  },
+};
 
 ThemeMode _parseThemeMode(String? value) {
   return ThemeMode.values.firstWhere(
@@ -365,23 +660,26 @@ TextStyle? _sharp(
   );
 }
 
-class LauncherHomePage extends StatefulWidget {
-  const LauncherHomePage({
-    super.key,
+class _LauncherHomePage extends StatefulWidget {
+  const _LauncherHomePage({
     this.enable3dModel = true,
     this.themeMode = ThemeMode.dark,
+    this.language = _AppLanguage.en,
     this.onThemeModeChanged,
+    this.onLanguageChanged,
   });
 
   final bool enable3dModel;
   final ThemeMode themeMode;
+  final _AppLanguage language;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final ValueChanged<_AppLanguage>? onLanguageChanged;
 
   @override
-  State<LauncherHomePage> createState() => _LauncherHomePageState();
+  State<_LauncherHomePage> createState() => _LauncherHomePageState();
 }
 
-class _LauncherHomePageState extends State<LauncherHomePage>
+class _LauncherHomePageState extends State<_LauncherHomePage>
     with WidgetsBindingObserver {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
@@ -389,7 +687,7 @@ class _LauncherHomePageState extends State<LauncherHomePage>
   Color _vehicleColor = const Color(0xFFE9EEF4);
   _VehicleGear _selectedGear = _VehicleGear.p;
   bool _vehiclePreferencesLoaded = false;
-  bool _forceLandscape = true;
+  _LauncherLayoutMode _layoutMode = _LauncherLayoutMode.landscape;
   List<_LauncherApp> _launcherApps = const [];
   List<String> _favoriteAppPackages = const [];
   List<_NavigationApp> _navigationApps = const [];
@@ -503,77 +801,78 @@ class _LauncherHomePageState extends State<LauncherHomePage>
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 1100;
               final sidebarWidth = compact ? 292.0 : 348.0;
+              final dashboard = _LeftDashboard(
+                selectedGear: _selectedGear,
+                effectiveGear: _effectiveGear,
+                vehicleSpeedKmh: _effectiveSpeedKmh,
+                vehicleSnapshot: _vehicleSnapshot,
+                vehicleColor: _vehicleColor,
+                favoriteApps: _favoriteApps,
+                onGearChanged: _setGear,
+                onFavoriteAppTap: _launchFavoriteApp,
+                onFavoriteAppsEdit: _editFavoriteApps,
+                onFavoriteAppRemove: _removeFavoriteApp,
+                onFavoriteAppsReorder: _reorderFavoriteApps,
+              );
+              final vehicleCanvas = _VehicleCanvas(
+                enable3dModel:
+                    widget.enable3dModel && _vehiclePreferencesLoaded,
+                cameraOrbit: _cameraOrbit,
+                view: _view,
+                activeTab: _activeTab,
+                vehicleColor: _vehicleColor,
+                renderQuality: _renderQuality,
+                layoutMode: _layoutMode,
+                roadMotionActive: _roadMotionActive,
+                reverseRoadMotion: _reverseRoadMotion,
+                vehicleSpeedKmh: _effectiveSpeedKmh,
+                effectiveGear: _effectiveGear,
+                vehicleSnapshot: _vehicleSnapshot,
+                onGearChanged: _setGear,
+                onViewChanged: (view) => setState(() => _view = view),
+                onTabChanged: _handleTabChanged,
+                onVehicleColorChanged: _setVehicleColor,
+                onRenderQualityChanged: _setRenderQuality,
+                onLayoutModeChanged: _setLayoutMode,
+                navigationApps: _navigationApps,
+                selectedNavigationPackage: _selectedNavigationPackage,
+                launchNavigationWithLauncher: _launchNavigationWithLauncher,
+                defaultLauncherEnabled: _defaultLauncherEnabled,
+                onDefaultNavigationAppChanged: _setDefaultNavigationApp,
+                onNavigationReloadRequested: _reloadNavigationApps,
+                onDefaultNavigationOpenRequested: _openDefaultNavigationApp,
+                onLaunchNavigationWithLauncherChanged:
+                    _setLaunchNavigationWithLauncher,
+                onDefaultLauncherChanged: _setDefaultLauncher,
+                wallpaperButtonEnabled: _wallpaperButtonEnabled,
+                wallpaperFolderPath: _wallpaperFolderPath,
+                wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
+                wallpaperPaths: _wallpaperPaths,
+                wallpaperIndex: _wallpaperIndex,
+                onWallpaperReloadRequested: _reloadWallpapers,
+                onWallpaperIntervalChanged: _setWallpaperInterval,
+                onWallpaperButtonEnabledChanged: _setWallpaperButtonEnabled,
+                themeMode: widget.themeMode,
+                onThemeModeChanged: widget.onThemeModeChanged,
+                language: widget.language,
+                onLanguageChanged: widget.onLanguageChanged,
+              );
 
-              return Stack(
+              if (_layoutMode == _LauncherLayoutMode.portrait) {
+                return Column(
+                  children: [
+                    Expanded(flex: 11, child: vehicleCanvas),
+                    if (_activeTab != _LauncherTab.wallpaper)
+                      SizedBox(height: 336, child: dashboard),
+                  ],
+                );
+              }
+
+              return Row(
                 children: [
-                  Row(
-                    children: [
-                      if (_activeTab != _LauncherTab.wallpaper)
-                        SizedBox(
-                          width: sidebarWidth,
-                          child: _LeftDashboard(
-                            selectedGear: _selectedGear,
-                            effectiveGear: _effectiveGear,
-                            vehicleSpeedKmh: _effectiveSpeedKmh,
-                            vehicleSnapshot: _vehicleSnapshot,
-                            vehicleColor: _vehicleColor,
-                            favoriteApps: _favoriteApps,
-                            onGearChanged: _setGear,
-                            onFavoriteAppTap: _launchFavoriteApp,
-                            onFavoriteAppsEdit: _editFavoriteApps,
-                            onFavoriteAppRemove: _removeFavoriteApp,
-                            onFavoriteAppsReorder: _reorderFavoriteApps,
-                          ),
-                        ),
-                      Expanded(
-                        child: _VehicleCanvas(
-                          enable3dModel:
-                              widget.enable3dModel && _vehiclePreferencesLoaded,
-                          cameraOrbit: _cameraOrbit,
-                          view: _view,
-                          activeTab: _activeTab,
-                          vehicleColor: _vehicleColor,
-                          renderQuality: _renderQuality,
-                          forceLandscape: _forceLandscape,
-                          roadMotionActive: _roadMotionActive,
-                          reverseRoadMotion: _reverseRoadMotion,
-                          vehicleSpeedKmh: _effectiveSpeedKmh,
-                          effectiveGear: _effectiveGear,
-                          vehicleSnapshot: _vehicleSnapshot,
-                          onGearChanged: _setGear,
-                          onViewChanged: (view) => setState(() => _view = view),
-                          onTabChanged: _handleTabChanged,
-                          onVehicleColorChanged: _setVehicleColor,
-                          onRenderQualityChanged: _setRenderQuality,
-                          onForceLandscapeChanged: _setForceLandscape,
-                          navigationApps: _navigationApps,
-                          selectedNavigationPackage: _selectedNavigationPackage,
-                          launchNavigationWithLauncher:
-                              _launchNavigationWithLauncher,
-                          defaultLauncherEnabled: _defaultLauncherEnabled,
-                          onDefaultNavigationAppChanged:
-                              _setDefaultNavigationApp,
-                          onNavigationReloadRequested: _reloadNavigationApps,
-                          onDefaultNavigationOpenRequested:
-                              _openDefaultNavigationApp,
-                          onLaunchNavigationWithLauncherChanged:
-                              _setLaunchNavigationWithLauncher,
-                          onDefaultLauncherChanged: _setDefaultLauncher,
-                          wallpaperButtonEnabled: _wallpaperButtonEnabled,
-                          wallpaperFolderPath: _wallpaperFolderPath,
-                          wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
-                          wallpaperPaths: _wallpaperPaths,
-                          wallpaperIndex: _wallpaperIndex,
-                          onWallpaperReloadRequested: _reloadWallpapers,
-                          onWallpaperIntervalChanged: _setWallpaperInterval,
-                          onWallpaperButtonEnabledChanged:
-                              _setWallpaperButtonEnabled,
-                          themeMode: widget.themeMode,
-                          onThemeModeChanged: widget.onThemeModeChanged,
-                        ),
-                      ),
-                    ],
-                  ),
+                  if (_activeTab != _LauncherTab.wallpaper)
+                    SizedBox(width: sidebarWidth, child: dashboard),
+                  Expanded(child: vehicleCanvas),
                 ],
               );
             },
@@ -638,17 +937,19 @@ class _LauncherHomePageState extends State<LauncherHomePage>
 
   Future<void> _loadDisplayPreferences() async {
     final prefs = await SharedPreferences.getInstance();
-    final forceLandscape = prefs.getBool(_forceLandscapePreferenceKey) ?? true;
-    await _applyForceLandscape(forceLandscape);
+    final layoutMode = _parseLayoutMode(
+      prefs.getString(_layoutModePreferenceKey),
+    );
+    await _applyLayoutModeOrientation(layoutMode);
     if (!mounted) return;
-    setState(() => _forceLandscape = forceLandscape);
+    setState(() => _layoutMode = layoutMode);
   }
 
-  Future<void> _setForceLandscape(bool value) async {
-    setState(() => _forceLandscape = value);
+  Future<void> _setLayoutMode(_LauncherLayoutMode value) async {
+    setState(() => _layoutMode = value);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_forceLandscapePreferenceKey, value);
-    await _applyForceLandscape(value);
+    await prefs.setString(_layoutModePreferenceKey, value.name);
+    await _applyLayoutModeOrientation(value);
   }
 
   Future<void> _loadNavigationPreferences() async {
@@ -1356,7 +1657,7 @@ class _AddFavoriteAppButton extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                'Add',
+                _t(context, 'add'),
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.labelSmall,
@@ -1448,7 +1749,7 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(
-        'Favorite apps',
+        _t(context, 'favoriteApps'),
         style: _sharp(
           context,
           Theme.of(context).textTheme.titleLarge,
@@ -1463,7 +1764,7 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
         child: widget.apps.isEmpty
             ? Center(
                 child: Text(
-                  'No launchable apps found',
+                  _t(context, 'noLaunchableApps'),
                   style: _sharp(
                     context,
                     Theme.of(context).textTheme.bodyMedium,
@@ -1505,7 +1806,7 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(_t(context, 'cancel')),
         ),
         FilledButton(
           onPressed: () {
@@ -1516,7 +1817,9 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
             ];
             Navigator.of(context).pop(selected);
           },
-          child: Text('Save (${_selectedPackages.length}/4)'),
+          child: Text(
+            _tx(context, 'saveCount', {'count': _selectedPackages.length}),
+          ),
         ),
       ],
     );
@@ -2589,7 +2892,7 @@ class _EnergyStrip extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Range',
+                _t(context, 'range'),
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.labelMedium,
@@ -2645,7 +2948,7 @@ class _EnergyStrip extends StatelessWidget {
                   Expanded(
                     child: _EnergyLevel(
                       icon: Icons.local_gas_station,
-                      label: 'Fuel',
+                      label: _t(context, 'fuel'),
                       value: fuel == null ? '--' : '$fuel%',
                       color: Color(0xFF25D366),
                       progress: (fuel ?? 0) / 100,
@@ -2655,7 +2958,7 @@ class _EnergyStrip extends StatelessWidget {
                   Expanded(
                     child: _EnergyLevel(
                       icon: Icons.battery_5_bar,
-                      label: 'Battery',
+                      label: _t(context, 'battery'),
                       value: battery == null ? '--' : '${battery.round()}%',
                       color: _accentSoftBlue,
                       progress: (battery ?? 0) / 100,
@@ -2752,7 +3055,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.activeTab,
     required this.vehicleColor,
     required this.renderQuality,
-    required this.forceLandscape,
+    required this.layoutMode,
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
@@ -2763,7 +3066,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onTabChanged,
     required this.onVehicleColorChanged,
     required this.onRenderQualityChanged,
-    required this.onForceLandscapeChanged,
+    required this.onLayoutModeChanged,
     required this.navigationApps,
     required this.selectedNavigationPackage,
     required this.launchNavigationWithLauncher,
@@ -2783,6 +3086,8 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onWallpaperButtonEnabledChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.language,
+    required this.onLanguageChanged,
   });
 
   final bool enable3dModel;
@@ -2791,7 +3096,7 @@ class _VehicleCanvas extends StatelessWidget {
   final _LauncherTab activeTab;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
-  final bool forceLandscape;
+  final _LauncherLayoutMode layoutMode;
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
@@ -2802,7 +3107,7 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<_LauncherTab> onTabChanged;
   final ValueChanged<Color> onVehicleColorChanged;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
-  final ValueChanged<bool> onForceLandscapeChanged;
+  final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
   final List<_NavigationApp> navigationApps;
   final String? selectedNavigationPackage;
   final bool launchNavigationWithLauncher;
@@ -2822,14 +3127,19 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final _AppLanguage language;
+  final ValueChanged<_AppLanguage>? onLanguageChanged;
 
   @override
   Widget build(BuildContext context) {
     final wallpaperMode = activeTab == _LauncherTab.wallpaper;
+    final portraitMode = layoutMode == _LauncherLayoutMode.portrait;
 
     return Padding(
       padding: wallpaperMode
           ? EdgeInsets.zero
+          : portraitMode
+          ? const EdgeInsets.fromLTRB(14, 16, 14, 18)
           : const EdgeInsets.fromLTRB(26, 28, 38, 28),
       child: Stack(
         children: [
@@ -2883,8 +3193,8 @@ class _VehicleCanvas extends StatelessWidget {
                     onVehicleColorChanged: onVehicleColorChanged,
                     renderQuality: renderQuality,
                     onRenderQualityChanged: onRenderQualityChanged,
-                    forceLandscape: forceLandscape,
-                    onForceLandscapeChanged: onForceLandscapeChanged,
+                    layoutMode: layoutMode,
+                    onLayoutModeChanged: onLayoutModeChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
                     defaultLauncherEnabled: defaultLauncherEnabled,
                     hasNavigationApps: navigationApps.isNotEmpty,
@@ -2901,6 +3211,8 @@ class _VehicleCanvas extends StatelessWidget {
                         onWallpaperButtonEnabledChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
+                    language: language,
+                    onLanguageChanged: onLanguageChanged,
                   ),
                   _LauncherTab.wallpaper => _WallpaperPanel(
                     key: const ValueKey('wallpaper'),
@@ -2920,7 +3232,7 @@ class _VehicleCanvas extends StatelessWidget {
                 },
               ),
             ),
-          if (activeTab == _LauncherTab.status)
+          if (activeTab == _LauncherTab.status && !portraitMode)
             Positioned(
               left: 4,
               top: 12,
@@ -2932,10 +3244,10 @@ class _VehicleCanvas extends StatelessWidget {
             ),
           if (activeTab == _LauncherTab.status)
             Positioned(
-              top: 12,
+              top: portraitMode ? 8 : 12,
               right: 0,
-              width: 212,
-              height: 212,
+              width: portraitMode ? 156 : 212,
+              height: portraitMode ? 156 : 212,
               child: _PremiumSpeedGearCluster(
                 selectedGear: effectiveGear,
                 vehicleSpeedKmh: vehicleSpeedKmh,
@@ -2951,6 +3263,7 @@ class _VehicleCanvas extends StatelessWidget {
                 activeTab: activeTab,
                 showWallpaperTab: wallpaperButtonEnabled,
                 ambientMode: wallpaperMode,
+                compactMode: portraitMode,
                 onTabChanged: onTabChanged,
               ),
             ),
@@ -3852,7 +4165,7 @@ class _WallpaperEmptyState extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                'No Ambient images found',
+                _t(context, 'noAmbientImages'),
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.titleMedium,
@@ -3863,7 +4176,7 @@ class _WallpaperEmptyState extends StatelessWidget {
               ),
               const SizedBox(height: 7),
               Text(
-                'Place JPG, PNG or WEBP images in the Ambient folder, then tap Refresh.',
+                _t(context, 'ambientEmptyHint'),
                 textAlign: TextAlign.center,
                 style: _sharp(
                   context,
@@ -3876,7 +4189,7 @@ class _WallpaperEmptyState extends StatelessWidget {
               const SizedBox(height: 14),
               _PremiumActionButton(
                 icon: Icons.refresh_rounded,
-                label: 'Refresh',
+                label: _t(context, 'refresh'),
                 onTap: onReload,
               ),
             ],
@@ -3911,10 +4224,10 @@ class _WallpaperSettingsCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SettingsSectionTitle(
+        _SettingsSectionTitle(
           icon: Icons.auto_awesome_outlined,
-          title: 'Ambient',
-          subtitle: 'Use images from the app Ambient folder.',
+          title: _t(context, 'ambient'),
+          subtitle: _t(context, 'ambientSubtitle'),
         ),
         const SizedBox(height: 14),
         Container(
@@ -3973,14 +4286,14 @@ class _WallpaperSettingsCard extends StatelessWidget {
         const SizedBox(height: 14),
         _SettingsSwitchRow(
           icon: Icons.auto_awesome_outlined,
-          title: 'Show Ambient button',
-          subtitle: 'Show or hide the Ambient tab in the bottom dock.',
+          title: _t(context, 'showAmbientButton'),
+          subtitle: _t(context, 'showAmbientButtonSubtitle'),
           value: buttonEnabled,
           onChanged: onButtonEnabledChanged,
         ),
         const SizedBox(height: 14),
         Text(
-          'Auto change interval',
+          _t(context, 'autoChangeInterval'),
           style: _sharp(
             context,
             Theme.of(context).textTheme.labelLarge,
@@ -4179,8 +4492,8 @@ class _SettingsPanel extends StatelessWidget {
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
-    required this.forceLandscape,
-    required this.onForceLandscapeChanged,
+    required this.layoutMode,
+    required this.onLayoutModeChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
@@ -4195,6 +4508,8 @@ class _SettingsPanel extends StatelessWidget {
     required this.onWallpaperButtonEnabledChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.language,
+    required this.onLanguageChanged,
     super.key,
   });
 
@@ -4202,8 +4517,8 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
-  final bool forceLandscape;
-  final ValueChanged<bool> onForceLandscapeChanged;
+  final _LauncherLayoutMode layoutMode;
+  final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
@@ -4218,9 +4533,37 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final _AppLanguage language;
+  final ValueChanged<_AppLanguage>? onLanguageChanged;
 
   @override
   Widget build(BuildContext context) {
+    final mainColumn = _SettingsMainColumn(
+      vehicleColor: vehicleColor,
+      onVehicleColorChanged: onVehicleColorChanged,
+      renderQuality: renderQuality,
+      onRenderQualityChanged: onRenderQualityChanged,
+      layoutMode: layoutMode,
+      onLayoutModeChanged: onLayoutModeChanged,
+      launchNavigationWithLauncher: launchNavigationWithLauncher,
+      defaultLauncherEnabled: defaultLauncherEnabled,
+      hasNavigationApps: hasNavigationApps,
+      onLaunchNavigationWithLauncherChanged:
+          onLaunchNavigationWithLauncherChanged,
+      onDefaultLauncherChanged: onDefaultLauncherChanged,
+      wallpaperFolderPath: wallpaperFolderPath,
+      wallpaperIntervalSeconds: wallpaperIntervalSeconds,
+      wallpaperImageCount: wallpaperImageCount,
+      onWallpaperReloadRequested: onWallpaperReloadRequested,
+      onWallpaperIntervalChanged: onWallpaperIntervalChanged,
+      wallpaperButtonEnabled: wallpaperButtonEnabled,
+      onWallpaperButtonEnabledChanged: onWallpaperButtonEnabledChanged,
+      themeMode: themeMode,
+      onThemeModeChanged: onThemeModeChanged,
+      language: language,
+      onLanguageChanged: onLanguageChanged,
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
       child: Column(
@@ -4249,7 +4592,7 @@ class _SettingsPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Settings',
+                    _t(context, 'settings'),
                     style: _sharp(
                       context,
                       Theme.of(context).textTheme.headlineSmall,
@@ -4261,7 +4604,7 @@ class _SettingsPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Launcher and vehicle display preferences',
+                    _t(context, 'settingsSubtitle'),
                     style: _sharp(
                       context,
                       Theme.of(context).textTheme.bodyMedium,
@@ -4276,39 +4619,30 @@ class _SettingsPanel extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 11,
-                  child: _SettingsMainColumn(
-                    vehicleColor: vehicleColor,
-                    onVehicleColorChanged: onVehicleColorChanged,
-                    renderQuality: renderQuality,
-                    onRenderQualityChanged: onRenderQualityChanged,
-                    forceLandscape: forceLandscape,
-                    onForceLandscapeChanged: onForceLandscapeChanged,
-                    launchNavigationWithLauncher: launchNavigationWithLauncher,
-                    defaultLauncherEnabled: defaultLauncherEnabled,
-                    hasNavigationApps: hasNavigationApps,
-                    onLaunchNavigationWithLauncherChanged:
-                        onLaunchNavigationWithLauncherChanged,
-                    onDefaultLauncherChanged: onDefaultLauncherChanged,
-                    wallpaperFolderPath: wallpaperFolderPath,
-                    wallpaperIntervalSeconds: wallpaperIntervalSeconds,
-                    wallpaperImageCount: wallpaperImageCount,
-                    onWallpaperReloadRequested: onWallpaperReloadRequested,
-                    onWallpaperIntervalChanged: onWallpaperIntervalChanged,
-                    wallpaperButtonEnabled: wallpaperButtonEnabled,
-                    onWallpaperButtonEnabledChanged:
-                        onWallpaperButtonEnabledChanged,
-                    themeMode: themeMode,
-                    onThemeModeChanged: onThemeModeChanged,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(flex: 9, child: _SettingsPermissionColumn()),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 760) {
+                  return Column(
+                    children: [
+                      Expanded(flex: 12, child: mainColumn),
+                      const SizedBox(height: 14),
+                      const Expanded(
+                        flex: 8,
+                        child: _SettingsPermissionColumn(),
+                      ),
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 11, child: mainColumn),
+                    const SizedBox(width: 14),
+                    const Expanded(flex: 9, child: _SettingsPermissionColumn()),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -4323,8 +4657,8 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onVehicleColorChanged,
     required this.renderQuality,
     required this.onRenderQualityChanged,
-    required this.forceLandscape,
-    required this.onForceLandscapeChanged,
+    required this.layoutMode,
+    required this.onLayoutModeChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.hasNavigationApps,
@@ -4339,14 +4673,16 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onWallpaperButtonEnabledChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.language,
+    required this.onLanguageChanged,
   });
 
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
   final ValueChanged<_VehicleRenderQuality> onRenderQualityChanged;
-  final bool forceLandscape;
-  final ValueChanged<bool> onForceLandscapeChanged;
+  final _LauncherLayoutMode layoutMode;
+  final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool hasNavigationApps;
@@ -4361,6 +4697,8 @@ class _SettingsMainColumn extends StatelessWidget {
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final _AppLanguage language;
+  final ValueChanged<_AppLanguage>? onLanguageChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -4375,9 +4713,8 @@ class _SettingsMainColumn extends StatelessWidget {
               children: [
                 _SettingsSectionTitle(
                   icon: Icons.palette_outlined,
-                  title: 'Vehicle color',
-                  subtitle:
-                      'Used by the launcher preview and future render states.',
+                  title: _t(context, 'vehicleColor'),
+                  subtitle: _t(context, 'vehicleColorSubtitle'),
                 ),
                 const SizedBox(height: 16),
                 LayoutBuilder(
@@ -4416,16 +4753,25 @@ class _SettingsMainColumn extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _SettingsSectionTitle(
+                _SettingsSectionTitle(
                   icon: Icons.contrast_outlined,
-                  title: 'Appearance',
-                  subtitle:
-                      'Choose a light theme, dark theme, or follow the system setting.',
+                  title: _t(context, 'appearance'),
+                  subtitle: _t(context, 'appearanceSubtitle'),
                 ),
                 const SizedBox(height: 14),
                 _ThemeModePicker(
                   selectedMode: themeMode,
                   onChanged: onThemeModeChanged,
+                ),
+                const SizedBox(height: 14),
+                _SettingsInlineControl(
+                  icon: Icons.translate_outlined,
+                  title: _t(context, 'language'),
+                  subtitle: _t(context, 'languageSubtitle'),
+                  child: _LanguagePicker(
+                    selectedLanguage: language,
+                    onChanged: onLanguageChanged,
+                  ),
                 ),
               ],
             ),
@@ -4436,9 +4782,9 @@ class _SettingsMainColumn extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _SettingsSectionTitle(
+                _SettingsSectionTitle(
                   icon: Icons.speed_outlined,
-                  title: '3D render quality',
+                  title: _t(context, 'renderQuality'),
                   subtitle:
                       'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
                 ),
@@ -4470,29 +4816,30 @@ class _SettingsMainColumn extends StatelessWidget {
               children: [
                 _SettingsSwitchRow(
                   icon: Icons.home_outlined,
-                  title: 'Default launcher',
+                  title: _t(context, 'defaultLauncher'),
                   subtitle: defaultLauncherEnabled
-                      ? 'This launcher opens when the vehicle head unit starts.'
-                      : 'Choose this app as the system Home launcher.',
+                      ? _t(context, 'defaultLauncherReady')
+                      : _t(context, 'defaultLauncherChoose'),
                   value: defaultLauncherEnabled,
                   onChanged: onDefaultLauncherChanged,
                 ),
                 const SizedBox(height: 12),
-                _SettingsSwitchRow(
+                _SettingsInlineControl(
                   icon: Icons.screen_rotation_alt_outlined,
-                  title: 'Force landscape',
-                  subtitle:
-                      'Keep the launcher optimized for the 15.6 inch display.',
-                  value: forceLandscape,
-                  onChanged: onForceLandscapeChanged,
+                  title: _t(context, 'layout'),
+                  subtitle: _t(context, 'layoutSubtitle'),
+                  child: _LayoutModePicker(
+                    selectedMode: layoutMode,
+                    onChanged: onLayoutModeChanged,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 _SettingsSwitchRow(
                   icon: Icons.map_outlined,
-                  title: 'Launch navigation',
+                  title: _t(context, 'launchNavigation'),
                   subtitle: hasNavigationApps
-                      ? 'Open the default map app when this launcher starts.'
-                      : 'Install or reload a map app before enabling this.',
+                      ? _t(context, 'launchNavigationReady')
+                      : _t(context, 'launchNavigationMissing'),
                   value: launchNavigationWithLauncher,
                   onChanged: hasNavigationApps
                       ? onLaunchNavigationWithLauncherChanged
@@ -4722,11 +5069,10 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SettingsSectionTitle(
+          _SettingsSectionTitle(
             icon: Icons.admin_panel_settings_outlined,
-            title: 'System permissions',
-            subtitle:
-                'One tap setup for music, overlay, vehicle data and launcher bridge.',
+            title: _t(context, 'systemPermissions'),
+            subtitle: _t(context, 'systemPermissionsSubtitle'),
           ),
           const SizedBox(height: 16),
           _PermissionSummaryPanel(
@@ -4741,10 +5087,10 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
                 ? Icons.verified_user_outlined
                 : Icons.admin_panel_settings_outlined,
             label: _grantInProgress
-                ? 'Checking permissions'
+                ? _t(context, 'checkingPermissions')
                 : allReady
-                ? 'Permissions ready'
-                : 'Grant all permissions',
+                ? _t(context, 'permissionsReady')
+                : _t(context, 'grantAllPermissions'),
             onPressed: _grantRecommendedPermissions,
           ),
           const SizedBox(height: 12),
@@ -4801,8 +5147,11 @@ class _PermissionSummaryPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   allReady
-                      ? 'All permissions are ready'
-                      : '$readyCount/$totalCount permissions ready',
+                      ? _t(context, 'allPermissionsReady')
+                      : _tx(context, 'permissionsReadyCount', {
+                          'ready': readyCount,
+                          'total': totalCount,
+                        }),
                   style: _sharp(
                     context,
                     Theme.of(context).textTheme.titleSmall,
@@ -4820,23 +5169,23 @@ class _PermissionSummaryPanel extends StatelessWidget {
             runSpacing: 8,
             children: [
               _PermissionStatusChip(
-                label: 'Music',
+                label: _t(context, 'music'),
                 status: statuses['musicAccess']!,
               ),
               _PermissionStatusChip(
-                label: 'Overlay',
+                label: _t(context, 'overlay'),
                 status: statuses['systemOverlay']!,
               ),
               _PermissionStatusChip(
-                label: 'Vehicle',
+                label: _t(context, 'vehicle'),
                 status: statuses['vehicleData']!,
               ),
               _PermissionStatusChip(
-                label: 'Navigation',
+                label: _t(context, 'navigation'),
                 status: statuses['navigationEmbed']!,
               ),
               _PermissionStatusChip(
-                label: 'Internet',
+                label: _t(context, 'internet'),
                 status: statuses['internet']!,
               ),
             ],
@@ -5373,6 +5722,160 @@ class _SettingsSwitchRow extends StatelessWidget {
             activeTrackColor: _accentSoftBlue.withValues(alpha: 0.25),
             onChanged: onChanged,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsInlineControl extends StatelessWidget {
+  const _SettingsInlineControl({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: light
+            ? Colors.white.withValues(alpha: 0.60)
+            : Colors.black.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: light
+              ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
+              : Colors.white.withValues(alpha: 0.045),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _tone(context, _textSecondary), size: 21),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.bodyMedium,
+                    color: _textPrimary,
+                    weight: FontWeight.w600,
+                    size: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.bodySmall,
+                    color: _textMuted,
+                    weight: FontWeight.w500,
+                    size: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _LayoutModePicker extends StatelessWidget {
+  const _LayoutModePicker({
+    required this.selectedMode,
+    required this.onChanged,
+  });
+
+  final _LauncherLayoutMode selectedMode;
+  final ValueChanged<_LauncherLayoutMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<_LauncherLayoutMode>(
+      segments: [
+        ButtonSegment<_LauncherLayoutMode>(
+          value: _LauncherLayoutMode.landscape,
+          icon: Icon(Icons.stay_current_landscape_outlined, size: 17),
+          label: Text(_t(context, 'landscapeShort')),
+        ),
+        ButtonSegment<_LauncherLayoutMode>(
+          value: _LauncherLayoutMode.portrait,
+          icon: Icon(Icons.stay_current_portrait_outlined, size: 17),
+          label: Text(_t(context, 'portraitShort')),
+        ),
+      ],
+      selected: {selectedMode},
+      showSelectedIcon: false,
+      onSelectionChanged: (selection) => onChanged(selection.first),
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        textStyle: WidgetStatePropertyAll(
+          _sharp(
+            context,
+            Theme.of(context).textTheme.labelSmall,
+            color: _textPrimary,
+            weight: FontWeight.w700,
+            size: 11,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker({
+    required this.selectedLanguage,
+    required this.onChanged,
+  });
+
+  final _AppLanguage selectedLanguage;
+  final ValueChanged<_AppLanguage>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<_AppLanguage>(
+        value: selectedLanguage,
+        borderRadius: BorderRadius.circular(16),
+        onChanged: (language) {
+          if (language != null) onChanged?.call(language);
+        },
+        items: [
+          for (final language in _AppLanguage.values)
+            DropdownMenuItem<_AppLanguage>(
+              value: language,
+              child: Text(
+                language.label,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textPrimary,
+                  weight: FontWeight.w700,
+                  size: 12,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -7563,12 +8066,14 @@ class _BottomTabs extends StatelessWidget {
     required this.activeTab,
     required this.showWallpaperTab,
     required this.ambientMode,
+    required this.compactMode,
     required this.onTabChanged,
   });
 
   final _LauncherTab activeTab;
   final bool showWallpaperTab;
   final bool ambientMode;
+  final bool compactMode;
   final ValueChanged<_LauncherTab> onTabChanged;
 
   @override
@@ -7622,31 +8127,36 @@ class _BottomTabs extends StatelessWidget {
             children: [
               _BottomTab(
                 icon: Icons.directions_car_filled_outlined,
-                label: 'Vehicle',
+                label: _t(context, 'vehicle'),
                 selected: activeTab == _LauncherTab.status,
                 ambientMode: ambientMode,
+                compactMode: compactMode,
                 onTap: () => onTabChanged(_LauncherTab.status),
               ),
               _BottomTab(
                 icon: Icons.navigation_outlined,
-                label: 'Navigation',
+                label: _t(context, 'navigation'),
+                compactLabel: _t(context, 'navShort'),
                 selected: activeTab == _LauncherTab.map,
                 ambientMode: ambientMode,
+                compactMode: compactMode,
                 onTap: () => onTabChanged(_LauncherTab.map),
               ),
               if (showWallpaperTab)
                 _BottomTab(
                   icon: Icons.auto_awesome_outlined,
-                  label: 'Ambient',
+                  label: _t(context, 'ambient'),
                   selected: activeTab == _LauncherTab.wallpaper,
                   ambientMode: ambientMode,
+                  compactMode: compactMode,
                   onTap: () => onTabChanged(_LauncherTab.wallpaper),
                 ),
               _BottomTab(
                 icon: Icons.settings_outlined,
-                label: 'Settings',
+                label: _t(context, 'settings'),
                 selected: activeTab == _LauncherTab.settings,
                 ambientMode: ambientMode,
+                compactMode: compactMode,
                 onTap: () => onTabChanged(_LauncherTab.settings),
               ),
             ],
@@ -7662,15 +8172,19 @@ class _BottomTab extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.compactLabel,
     this.selected = false,
     this.ambientMode = false,
+    this.compactMode = false,
   });
 
   final IconData icon;
   final String label;
+  final String? compactLabel;
   final VoidCallback onTap;
   final bool selected;
   final bool ambientMode;
+  final bool compactMode;
 
   @override
   Widget build(BuildContext context) {
@@ -7687,7 +8201,7 @@ class _BottomTab extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        width: selected ? 132 : 116,
+        width: compactMode ? (selected ? 98 : 82) : (selected ? 132 : 116),
         height: 42,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
@@ -7749,17 +8263,18 @@ class _BottomTab extends StatelessWidget {
               children: [
                 Icon(icon, size: 20, color: color),
                 const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: _sharp(
-                    context,
-                    Theme.of(context).textTheme.titleMedium,
-                    color: color,
-                    weight: selected ? FontWeight.w600 : FontWeight.w500,
-                    size: 14.5,
-                    letterSpacing: 0.14,
+                if (!compactMode || selected)
+                  Text(
+                    compactMode ? (compactLabel ?? label) : label,
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.titleMedium,
+                      color: color,
+                      weight: selected ? FontWeight.w600 : FontWeight.w500,
+                      size: compactMode ? 12.5 : 14.5,
+                      letterSpacing: 0.14,
+                    ),
                   ),
-                ),
               ],
             ),
           ),

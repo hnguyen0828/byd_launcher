@@ -8,9 +8,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1280, 720));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
-      const MaterialApp(home: LauncherHomePage(enable3dModel: false)),
-    );
+    await tester.pumpWidget(const BydLauncherApp());
 
     expect(find.text('SEALION 6'), findsNothing);
     expect(find.text('Vehicle'), findsOneWidget);
