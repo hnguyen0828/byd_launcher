@@ -397,6 +397,12 @@ String _capitalizeVehicleModelWord(String word) {
 
 enum _VehicleGear { p, r, n, d }
 
+enum _DemoLightMode { off, auto, lowBeam, highBeam, fog, turnLeft, turnRight }
+
+enum _DemoRadarLevel { off, safe, far, medium, close, veryClose }
+
+enum _DemoRadarZone { rear, front, left, right, all }
+
 enum _VehicleRenderQuality { low, medium, high }
 
 enum _VehicleHotspot {
@@ -773,6 +779,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   Timer? _transitionLoadingTimer;
   bool _transitionLoading = false;
   double _vehicleSpeedKmh = 0;
+  _DemoLightMode _demoLightMode = _DemoLightMode.off;
+  _DemoRadarLevel _demoRadarLevel = _DemoRadarLevel.off;
+  _DemoRadarZone _demoRadarZone = _DemoRadarZone.rear;
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
@@ -906,6 +915,15 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       roadMotionActive: _roadMotionActive,
                       reverseRoadMotion: _reverseRoadMotion,
                       vehicleSpeedKmh: _effectiveSpeedKmh,
+                      demoLightMode: _demoLightMode,
+                      demoRadarLevel: _demoRadarLevel,
+                      demoRadarZone: _demoRadarZone,
+                      onDemoLightModeChanged: (mode) =>
+                          setState(() => _demoLightMode = mode),
+                      onDemoRadarLevelChanged: (level) =>
+                          setState(() => _demoRadarLevel = level),
+                      onDemoRadarZoneChanged: (zone) =>
+                          setState(() => _demoRadarZone = zone),
                       effectiveGear: _effectiveGear,
                       vehicleSnapshot: _vehicleSnapshot,
                       onGearChanged: _setGear,
@@ -3660,6 +3678,12 @@ class _VehicleCanvas extends StatelessWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.demoLightMode,
+    required this.demoRadarLevel,
+    required this.demoRadarZone,
+    required this.onDemoLightModeChanged,
+    required this.onDemoRadarLevelChanged,
+    required this.onDemoRadarZoneChanged,
     required this.effectiveGear,
     required this.vehicleSnapshot,
     required this.onGearChanged,
@@ -3706,6 +3730,12 @@ class _VehicleCanvas extends StatelessWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final _DemoLightMode demoLightMode;
+  final _DemoRadarLevel demoRadarLevel;
+  final _DemoRadarZone demoRadarZone;
+  final ValueChanged<_DemoLightMode> onDemoLightModeChanged;
+  final ValueChanged<_DemoRadarLevel> onDemoRadarLevelChanged;
+  final ValueChanged<_DemoRadarZone> onDemoRadarZoneChanged;
   final _VehicleGear effectiveGear;
   final _VehicleSnapshot vehicleSnapshot;
   final ValueChanged<_VehicleGear> onGearChanged;
@@ -3741,6 +3771,14 @@ class _VehicleCanvas extends StatelessWidget {
   Widget build(BuildContext context) {
     final wallpaperMode = activeTab == _LauncherTab.wallpaper;
     final portraitMode = layoutMode == _LauncherLayoutMode.portrait;
+    final demoEffectsAllowed =
+        effectiveGear == _VehicleGear.d || effectiveGear == _VehicleGear.r;
+    final visibleDemoLightMode = demoEffectsAllowed
+        ? demoLightMode
+        : _DemoLightMode.off;
+    final visibleDemoRadarLevel = demoEffectsAllowed
+        ? demoRadarLevel
+        : _DemoRadarLevel.off;
 
     return Padding(
       padding: wallpaperMode
@@ -3768,6 +3806,9 @@ class _VehicleCanvas extends StatelessWidget {
                   roadMotionActive: roadMotionActive,
                   reverseRoadMotion: reverseRoadMotion,
                   vehicleSpeedKmh: vehicleSpeedKmh,
+                  demoLightMode: visibleDemoLightMode,
+                  demoRadarLevel: visibleDemoRadarLevel,
+                  demoRadarZone: demoRadarZone,
                 ),
               ),
             ),
@@ -3853,6 +3894,12 @@ class _VehicleCanvas extends StatelessWidget {
               child: _FloatingVehicleControls(
                 view: view,
                 onRear: () => onViewChanged(_VehicleView.rear),
+                lightMode: demoLightMode,
+                radarLevel: demoRadarLevel,
+                radarZone: demoRadarZone,
+                onLightModeChanged: onDemoLightModeChanged,
+                onRadarLevelChanged: onDemoRadarLevelChanged,
+                onRadarZoneChanged: onDemoRadarZoneChanged,
               ),
             ),
           if (activeTab == _LauncherTab.status)
@@ -3898,6 +3945,9 @@ class _VehicleStage extends StatelessWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.demoLightMode,
+    required this.demoRadarLevel,
+    required this.demoRadarZone,
   });
 
   final bool enable3dModel;
@@ -3908,6 +3958,9 @@ class _VehicleStage extends StatelessWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final _DemoLightMode demoLightMode;
+  final _DemoRadarLevel demoRadarLevel;
+  final _DemoRadarZone demoRadarZone;
 
   @override
   Widget build(BuildContext context) {
@@ -3922,6 +3975,9 @@ class _VehicleStage extends StatelessWidget {
           roadMotionActive: roadMotionActive,
           reverseRoadMotion: reverseRoadMotion,
           vehicleSpeedKmh: vehicleSpeedKmh,
+          demoLightMode: demoLightMode,
+          demoRadarLevel: demoRadarLevel,
+          demoRadarZone: demoRadarZone,
         ),
       ),
     );
@@ -6798,24 +6854,63 @@ class _SettingsActionButton extends StatelessWidget {
 }
 
 class _FloatingVehicleControls extends StatelessWidget {
-  const _FloatingVehicleControls({required this.view, required this.onRear});
+  const _FloatingVehicleControls({
+    required this.view,
+    required this.onRear,
+    required this.lightMode,
+    required this.radarLevel,
+    required this.radarZone,
+    required this.onLightModeChanged,
+    required this.onRadarLevelChanged,
+    required this.onRadarZoneChanged,
+  });
 
   final _VehicleView view;
   final VoidCallback onRear;
+  final _DemoLightMode lightMode;
+  final _DemoRadarLevel radarLevel;
+  final _DemoRadarZone radarZone;
+  final ValueChanged<_DemoLightMode> onLightModeChanged;
+  final ValueChanged<_DemoRadarLevel> onRadarLevelChanged;
+  final ValueChanged<_DemoRadarZone> onRadarZoneChanged;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [_QuickActionStrip(onRear: onRear)],
+      children: [
+        _QuickActionStrip(
+          onRear: onRear,
+          lightMode: lightMode,
+          radarLevel: radarLevel,
+          radarZone: radarZone,
+          onLightModeChanged: onLightModeChanged,
+          onRadarLevelChanged: onRadarLevelChanged,
+          onRadarZoneChanged: onRadarZoneChanged,
+        ),
+      ],
     );
   }
 }
 
 class _QuickActionStrip extends StatefulWidget {
-  const _QuickActionStrip({required this.onRear});
+  const _QuickActionStrip({
+    required this.onRear,
+    required this.lightMode,
+    required this.radarLevel,
+    required this.radarZone,
+    required this.onLightModeChanged,
+    required this.onRadarLevelChanged,
+    required this.onRadarZoneChanged,
+  });
 
   final VoidCallback onRear;
+  final _DemoLightMode lightMode;
+  final _DemoRadarLevel radarLevel;
+  final _DemoRadarZone radarZone;
+  final ValueChanged<_DemoLightMode> onLightModeChanged;
+  final ValueChanged<_DemoRadarLevel> onRadarLevelChanged;
+  final ValueChanged<_DemoRadarZone> onRadarZoneChanged;
 
   @override
   State<_QuickActionStrip> createState() => _QuickActionStripState();
@@ -6824,6 +6919,24 @@ class _QuickActionStrip extends StatefulWidget {
 class _QuickActionStripState extends State<_QuickActionStrip> {
   bool _doorsLocked = false;
   bool _busy = false;
+
+  void _cycleLightMode() {
+    final values = _DemoLightMode.values;
+    final next = values[(widget.lightMode.index + 1) % values.length];
+    widget.onLightModeChanged(next);
+  }
+
+  void _cycleRadarLevel() {
+    final values = _DemoRadarLevel.values;
+    final next = values[(widget.radarLevel.index + 1) % values.length];
+    widget.onRadarLevelChanged(next);
+  }
+
+  void _cycleRadarZone() {
+    final values = _DemoRadarZone.values;
+    final next = values[(widget.radarZone.index + 1) % values.length];
+    widget.onRadarZoneChanged(next);
+  }
 
   Future<bool> _setDoorLock(bool locked) async {
     try {
@@ -6899,11 +7012,351 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
                 label: _doorsLocked ? 'Unlock' : 'Lock',
                 onTap: _busy ? null : _toggleDoorLock,
               ),
+              _MiniAction(
+                icon: Icons.light_mode_rounded,
+                label: _demoLightLabel(widget.lightMode),
+                onTap: _cycleLightMode,
+              ),
+              _MiniAction(
+                icon: Icons.sensors_rounded,
+                label: _demoRadarLabel(widget.radarLevel),
+                onTap: _cycleRadarLevel,
+              ),
+              _MiniAction(
+                icon: Icons.explore_rounded,
+                label: _demoRadarZoneLabel(widget.radarZone),
+                onTap: _cycleRadarZone,
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+String _demoLightLabel(_DemoLightMode mode) {
+  return switch (mode) {
+    _DemoLightMode.off => 'Light Off',
+    _DemoLightMode.auto => 'Auto',
+    _DemoLightMode.lowBeam => 'Low Beam',
+    _DemoLightMode.highBeam => 'High Beam',
+    _DemoLightMode.fog => 'Fog',
+    _DemoLightMode.turnLeft => 'Signal L',
+    _DemoLightMode.turnRight => 'Signal R',
+  };
+}
+
+String _demoRadarLabel(_DemoRadarLevel level) {
+  return switch (level) {
+    _DemoRadarLevel.off => 'Radar Off',
+    _DemoRadarLevel.safe => 'Safe',
+    _DemoRadarLevel.far => 'Far',
+    _DemoRadarLevel.medium => 'Medium',
+    _DemoRadarLevel.close => 'Close',
+    _DemoRadarLevel.veryClose => 'Very Close',
+  };
+}
+
+String _demoRadarZoneLabel(_DemoRadarZone zone) {
+  return switch (zone) {
+    _DemoRadarZone.rear => 'Rear',
+    _DemoRadarZone.front => 'Front',
+    _DemoRadarZone.left => 'Left',
+    _DemoRadarZone.right => 'Right',
+    _DemoRadarZone.all => 'All',
+  };
+}
+
+Color _demoRadarColor(_DemoRadarLevel level) {
+  return switch (level) {
+    _DemoRadarLevel.off => Colors.transparent,
+    _DemoRadarLevel.safe => const Color(0xFF18D987),
+    _DemoRadarLevel.far => const Color(0xFF5BE878),
+    _DemoRadarLevel.medium => const Color(0xFFFFD43B),
+    _DemoRadarLevel.close => const Color(0xFFFF8A00),
+    _DemoRadarLevel.veryClose => const Color(0xFFFF2D2D),
+  };
+}
+
+Offset _vehicleEffectAnchor(Size size) {
+  return Offset(size.width * 0.505, size.height * 0.590);
+}
+
+class _LightStatusOverlay extends StatefulWidget {
+  const _LightStatusOverlay({required this.mode});
+
+  final _DemoLightMode mode;
+
+  @override
+  State<_LightStatusOverlay> createState() => _LightStatusOverlayState();
+}
+
+class _LightStatusOverlayState extends State<_LightStatusOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 920),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.mode == _DemoLightMode.off) return const SizedBox.expand();
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _LightStatusPainter(
+            mode: widget.mode,
+            light: _isLight(context),
+            pulse: _controller.value,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LightStatusPainter extends CustomPainter {
+  const _LightStatusPainter({
+    required this.mode,
+    required this.light,
+    required this.pulse,
+  });
+
+  final _DemoLightMode mode;
+  final bool light;
+  final double pulse;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final anchor = _vehicleEffectAnchor(size);
+    final centerX = anchor.dx;
+    final rearY = anchor.dy - size.height * 0.015;
+    final beamTop = size.height * 0.245;
+    final intensity = switch (mode) {
+      _DemoLightMode.auto => 0.28,
+      _DemoLightMode.lowBeam => 0.38,
+      _DemoLightMode.highBeam => 0.58,
+      _DemoLightMode.fog => 0.34,
+      _DemoLightMode.turnLeft || _DemoLightMode.turnRight => 0.26,
+      _DemoLightMode.off => 0.0,
+    };
+
+    if (mode != _DemoLightMode.turnLeft && mode != _DemoLightMode.turnRight) {
+      final beamColor = mode == _DemoLightMode.fog
+          ? const Color(0xFFFFF4C2)
+          : Colors.white;
+      final path = Path()
+        ..moveTo(centerX - size.width * 0.16, rearY)
+        ..lineTo(centerX - size.width * 0.30, beamTop)
+        ..quadraticBezierTo(
+          centerX,
+          beamTop - 24,
+          centerX + size.width * 0.30,
+          beamTop,
+        )
+        ..lineTo(centerX + size.width * 0.16, rearY)
+        ..close();
+      final paint = Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0, -0.78),
+          radius: 0.80,
+          colors: [
+            beamColor.withValues(
+              alpha: light ? intensity * 0.46 : intensity * 0.70,
+            ),
+            beamColor.withValues(
+              alpha: light ? intensity * 0.15 : intensity * 0.25,
+            ),
+            Colors.transparent,
+          ],
+          stops: const [0, 0.44, 1],
+        ).createShader(Offset.zero & size)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+      canvas.drawPath(path, paint);
+    }
+
+    if (mode == _DemoLightMode.turnLeft || mode == _DemoLightMode.turnRight) {
+      final alpha = 0.42 + pulse * 0.42;
+      final signalCenter = Offset(
+        mode == _DemoLightMode.turnLeft
+            ? centerX - size.width * 0.12
+            : centerX + size.width * 0.12,
+        anchor.dy - size.height * 0.09,
+      );
+      final signalPaint = Paint()
+        ..shader =
+            RadialGradient(
+              colors: [
+                const Color(0xFFFF9F0A).withValues(alpha: alpha),
+                const Color(0xFFFF9F0A).withValues(alpha: alpha * 0.32),
+                Colors.transparent,
+              ],
+            ).createShader(
+              Rect.fromCircle(center: signalCenter, radius: size.width * 0.12),
+            );
+      canvas.drawCircle(signalCenter, size.width * 0.12, signalPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LightStatusPainter oldDelegate) {
+    return oldDelegate.mode != mode ||
+        oldDelegate.light != light ||
+        oldDelegate.pulse != pulse;
+  }
+}
+
+class _ParkingRadarOverlay extends StatefulWidget {
+  const _ParkingRadarOverlay({required this.level, required this.zone});
+
+  final _DemoRadarLevel level;
+  final _DemoRadarZone zone;
+
+  @override
+  State<_ParkingRadarOverlay> createState() => _ParkingRadarOverlayState();
+}
+
+class _ParkingRadarOverlayState extends State<_ParkingRadarOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 980),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.level == _DemoRadarLevel.off) return const SizedBox.expand();
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _ParkingRadarPainter(
+            level: widget.level,
+            zone: widget.zone,
+            light: _isLight(context),
+            progress: _controller.value,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ParkingRadarPainter extends CustomPainter {
+  const _ParkingRadarPainter({
+    required this.level,
+    required this.zone,
+    required this.light,
+    required this.progress,
+  });
+
+  final _DemoRadarLevel level;
+  final _DemoRadarZone zone;
+  final bool light;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final color = _demoRadarColor(level);
+    final severity = (level.index / (_DemoRadarLevel.values.length - 1))
+        .clamp(0.18, 1.0)
+        .toDouble();
+    final center = _vehicleEffectAnchor(size);
+    final baseRect = Rect.fromCenter(
+      center: center,
+      width: size.width * (0.33 + severity * 0.10),
+      height: size.height * (0.205 + severity * 0.07),
+    );
+
+    final glowPaint = Paint()
+      ..shader =
+          RadialGradient(
+            colors: [
+              color.withValues(alpha: (light ? 0.09 : 0.12) * severity),
+              color.withValues(alpha: (light ? 0.04 : 0.07) * severity),
+              Colors.transparent,
+            ],
+          ).createShader(
+            Rect.fromCircle(center: center, radius: size.shortestSide * 0.34),
+          );
+    canvas.drawCircle(center, size.shortestSide * 0.34, glowPaint);
+
+    final arcs = level == _DemoRadarLevel.safe ? 2 : 3;
+    for (var i = 0; i < arcs; i++) {
+      final inflate =
+          i * 22.0 +
+          (level == _DemoRadarLevel.veryClose ? progress * 12.0 : 0.0);
+      final rect = baseRect.inflate(inflate);
+      final alpha = (0.34 - i * 0.065) * severity;
+      final paint = Paint()
+        ..color = color.withValues(alpha: alpha.clamp(0.08, 0.72).toDouble())
+        ..strokeWidth = lerpDouble(2.2, 6.2, severity)! - i * 0.45
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = MaskFilter.blur(
+          BlurStyle.normal,
+          level == _DemoRadarLevel.veryClose ? 4 : 2,
+        );
+
+      void drawRear() =>
+          canvas.drawArc(rect, math.pi * 0.18, math.pi * 0.64, false, paint);
+      void drawFront() =>
+          canvas.drawArc(rect, math.pi * 1.18, math.pi * 0.64, false, paint);
+      void drawLeft() =>
+          canvas.drawArc(rect, math.pi * 0.86, math.pi * 0.22, false, paint);
+      void drawRight() =>
+          canvas.drawArc(rect, math.pi * -0.08, math.pi * 0.22, false, paint);
+
+      switch (zone) {
+        case _DemoRadarZone.rear:
+          drawRear();
+        case _DemoRadarZone.front:
+          drawFront();
+        case _DemoRadarZone.left:
+          drawLeft();
+        case _DemoRadarZone.right:
+          drawRight();
+        case _DemoRadarZone.all:
+          drawRear();
+          drawFront();
+          drawLeft();
+          drawRight();
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ParkingRadarPainter oldDelegate) {
+    return oldDelegate.level != level ||
+        oldDelegate.zone != zone ||
+        oldDelegate.light != light ||
+        oldDelegate.progress != progress;
   }
 }
 
@@ -7044,6 +7497,9 @@ class _VehicleHero extends StatefulWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.demoLightMode,
+    required this.demoRadarLevel,
+    required this.demoRadarZone,
   });
 
   final bool enable3dModel;
@@ -7054,6 +7510,9 @@ class _VehicleHero extends StatefulWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final _DemoLightMode demoLightMode;
+  final _DemoRadarLevel demoRadarLevel;
+  final _DemoRadarZone demoRadarZone;
 
   @override
   State<_VehicleHero> createState() => _VehicleHeroState();
@@ -7136,6 +7595,11 @@ class _VehicleHeroState extends State<_VehicleHero> {
             active: widget.roadMotionActive,
             reverse: widget.reverseRoadMotion,
             speedKmh: widget.vehicleSpeedKmh,
+          ),
+          _LightStatusOverlay(mode: widget.demoLightMode),
+          _ParkingRadarOverlay(
+            level: widget.demoRadarLevel,
+            zone: widget.demoRadarZone,
           ),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
