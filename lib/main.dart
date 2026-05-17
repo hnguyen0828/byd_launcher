@@ -52,7 +52,7 @@ const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Sand Cream', Color(0xFFD8C8B2)),
   _VehiclePaintOption('Harbour Grey', Color(0xFF6F7880)),
   _VehiclePaintOption('Time Grey', Color(0xFF707477)),
-  _VehiclePaintOption('Ice Blue', Color(0xFFBFDDEB)),
+  _VehiclePaintOption('Surf Blue', Color(0xFF2DA7D7)),
   _VehiclePaintOption('Delan Black', Color(0xFF090C12)),
   _VehiclePaintOption('Azure Blue', Color(0xFF1687FF)),
   _VehiclePaintOption('Sky Blue', Color(0xFF8BBED4)),
