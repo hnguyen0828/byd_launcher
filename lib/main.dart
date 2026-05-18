@@ -7640,7 +7640,7 @@ class _LightStatusPainter extends CustomPainter {
     final blink = Curves.easeInOut.transform(phase);
     final center = Offset(
       size.width * (0.500 + direction * 0.100),
-      size.height * 0.405,
+      size.height * 0.418,
     );
 
     final outerRadius = size.width * (0.030 + blink * 0.020);
