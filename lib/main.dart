@@ -7252,10 +7252,6 @@ Color _demoRadarColor(_DemoRadarLevel level) {
   };
 }
 
-Offset _vehicleEffectAnchor(Size size) {
-  return Offset(size.width * 0.505, size.height * 0.650);
-}
-
 class _LightStatusOverlay extends StatefulWidget {
   const _LightStatusOverlay({required this.mode});
 
@@ -7274,8 +7270,8 @@ class _LightStatusOverlayState extends State<_LightStatusOverlay>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 920),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 1180),
+    )..repeat();
   }
 
   @override
@@ -7315,76 +7311,336 @@ class _LightStatusPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final anchor = _vehicleEffectAnchor(size);
-    final centerX = anchor.dx;
-    final rearY = anchor.dy - size.height * 0.015;
-    final beamTop = size.height * 0.245;
-    final intensity = switch (mode) {
-      _DemoLightMode.auto => 0.28,
-      _DemoLightMode.lowBeam => 0.38,
-      _DemoLightMode.highBeam => 0.58,
-      _DemoLightMode.fog => 0.34,
-      _DemoLightMode.turnLeft || _DemoLightMode.turnRight => 0.26,
-      _DemoLightMode.off => 0.0,
-    };
+    if (mode == _DemoLightMode.off) return;
 
-    if (mode != _DemoLightMode.turnLeft && mode != _DemoLightMode.turnRight) {
-      final beamColor = mode == _DemoLightMode.fog
-          ? const Color(0xFFFFF4C2)
-          : light
-          ? const Color(0xFFD9ECFF)
-          : Colors.white;
-      final path = Path()
-        ..moveTo(centerX - size.width * 0.16, rearY)
-        ..lineTo(centerX - size.width * 0.30, beamTop)
-        ..quadraticBezierTo(
-          centerX,
-          beamTop - 24,
-          centerX + size.width * 0.30,
-          beamTop,
-        )
-        ..lineTo(centerX + size.width * 0.16, rearY)
-        ..close();
-      final paint = Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(0, -0.78),
-          radius: 0.80,
-          colors: [
-            beamColor.withValues(
-              alpha: light ? intensity * 0.46 : intensity * 0.70,
-            ),
-            beamColor.withValues(
-              alpha: light ? intensity * 0.15 : intensity * 0.25,
-            ),
-            Colors.transparent,
-          ],
-          stops: const [0, 0.44, 1],
-        ).createShader(Offset.zero & size)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
-      canvas.drawPath(path, paint);
-    }
+    final frontCenter = Offset(size.width * 0.500, size.height * 0.365);
+    final frontHalf = size.width * 0.142;
+    final rearCenter = Offset(size.width * 0.500, size.height * 0.555);
+    final rearHalf = size.width * 0.178;
+
+    // Keep a very thin DRL/position-light strip near the visual nose only.
+    // It must not look like a floating UI line across the whole screen.
+    _drawDrl(canvas, size, frontCenter, frontHalf);
 
     if (mode == _DemoLightMode.turnLeft || mode == _DemoLightMode.turnRight) {
-      final alpha = (0.42 + pulse * 0.42) * (light ? 0.76 : 1.0);
-      final signalCenter = Offset(
-        mode == _DemoLightMode.turnLeft
-            ? centerX - size.width * 0.12
-            : centerX + size.width * 0.12,
-        anchor.dy - size.height * 0.09,
-      );
-      final signalPaint = Paint()
-        ..shader =
-            RadialGradient(
-              colors: [
-                const Color(0xFFFF9F0A).withValues(alpha: alpha),
-                const Color(0xFFFF9F0A).withValues(alpha: alpha * 0.32),
-                Colors.transparent,
-              ],
-            ).createShader(
-              Rect.fromCircle(center: signalCenter, radius: size.width * 0.12),
-            );
-      canvas.drawCircle(signalCenter, size.width * 0.12, signalPaint);
+      _drawMirrorSignal(canvas, size);
+      return;
     }
+
+    switch (mode) {
+      case _DemoLightMode.auto:
+        _drawHeadlightPair(
+          canvas,
+          size,
+          frontCenter,
+          frontHalf,
+          beamLength: 0.305,
+          beamWidth: 0.105,
+          intensity: 0.18,
+          highBeam: false,
+        );
+        break;
+      case _DemoLightMode.lowBeam:
+        _drawHeadlightPair(
+          canvas,
+          size,
+          frontCenter,
+          frontHalf,
+          beamLength: 0.350,
+          beamWidth: 0.128,
+          intensity: 0.24,
+          highBeam: false,
+        );
+        break;
+      case _DemoLightMode.highBeam:
+        _drawHeadlightPair(
+          canvas,
+          size,
+          frontCenter,
+          frontHalf,
+          beamLength: 0.430,
+          beamWidth: 0.128,
+          intensity: 0.30,
+          highBeam: true,
+        );
+        break;
+      case _DemoLightMode.fog:
+        _drawRearFogPair(canvas, size, rearCenter, rearHalf);
+        break;
+      case _DemoLightMode.off:
+      case _DemoLightMode.turnLeft:
+      case _DemoLightMode.turnRight:
+        break;
+    }
+  }
+
+  Color get _coolBeam =>
+      light ? const Color(0xFFCBE7FF) : const Color(0xFFEAF7FF);
+
+  void _drawDrl(
+    Canvas canvas,
+    Size size,
+    Offset frontCenter,
+    double frontHalf,
+  ) {
+    final paint = Paint()
+      ..color = _coolBeam.withValues(alpha: light ? 0.13 : 0.18)
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+
+    final y = frontCenter.dy + size.height * 0.010;
+    final leftPath = Path()
+      ..moveTo(frontCenter.dx - frontHalf * 0.82, y)
+      ..quadraticBezierTo(
+        frontCenter.dx - frontHalf * 0.44,
+        y + size.height * 0.010,
+        frontCenter.dx - frontHalf * 0.10,
+        y + size.height * 0.006,
+      );
+    final rightPath = Path()
+      ..moveTo(frontCenter.dx + frontHalf * 0.82, y)
+      ..quadraticBezierTo(
+        frontCenter.dx + frontHalf * 0.44,
+        y + size.height * 0.010,
+        frontCenter.dx + frontHalf * 0.10,
+        y + size.height * 0.006,
+      );
+    canvas.drawPath(leftPath, paint);
+    canvas.drawPath(rightPath, paint);
+  }
+
+  void _drawHeadlightPair(
+    Canvas canvas,
+    Size size,
+    Offset frontCenter,
+    double frontHalf, {
+    required double beamLength,
+    required double beamWidth,
+    required double intensity,
+    required bool highBeam,
+  }) {
+    final pulseLift = highBeam
+        ? 0.98 + math.sin(pulse * math.pi * 2) * 0.025
+        : 1.0;
+    final beamColor = _coolBeam;
+    final y = frontCenter.dy + size.height * 0.015;
+    final leftLamp = Offset(frontCenter.dx - frontHalf * 0.62, y);
+    final rightLamp = Offset(frontCenter.dx + frontHalf * 0.62, y);
+
+    // The cones are short, low-opacity, and start from the visual nose. This
+    // removes the previous giant diagonal wash / full-screen fog-band feeling.
+    for (final lamp in [leftLamp, rightLamp]) {
+      final side = lamp.dx < frontCenter.dx ? -1.0 : 1.0;
+      final endY = (lamp.dy - size.height * beamLength).clamp(
+        size.height * 0.120,
+        lamp.dy,
+      );
+      final outerTop = Offset(
+        lamp.dx + side * size.width * beamWidth,
+        endY + size.height * 0.018,
+      );
+      final innerTop = Offset(
+        frontCenter.dx + side * size.width * 0.025,
+        endY - size.height * 0.002,
+      );
+
+      final path = Path()
+        ..moveTo(lamp.dx - side * size.width * 0.012, lamp.dy)
+        ..cubicTo(
+          lamp.dx - side * size.width * 0.020,
+          lamp.dy - size.height * 0.070,
+          innerTop.dx,
+          endY + size.height * 0.060,
+          innerTop.dx,
+          innerTop.dy,
+        )
+        ..quadraticBezierTo(
+          (innerTop.dx + outerTop.dx) / 2,
+          endY - size.height * 0.018,
+          outerTop.dx,
+          outerTop.dy,
+        )
+        ..cubicTo(
+          lamp.dx + side * size.width * 0.058,
+          lamp.dy - size.height * 0.110,
+          lamp.dx + side * size.width * 0.026,
+          lamp.dy - size.height * 0.030,
+          lamp.dx + side * size.width * 0.012,
+          lamp.dy,
+        )
+        ..close();
+
+      final shaderRect = Rect.fromLTRB(
+        math.min(lamp.dx, outerTop.dx) - size.width * 0.08,
+        endY - size.height * 0.04,
+        math.max(lamp.dx, outerTop.dx) + size.width * 0.08,
+        lamp.dy + size.height * 0.05,
+      );
+
+      final glow = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            beamColor.withValues(alpha: intensity * 0.36 * pulseLift),
+            beamColor.withValues(alpha: intensity * 0.14 * pulseLift),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.48, 1.0],
+        ).createShader(shaderRect)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
+      canvas.drawPath(path, glow);
+
+      final core = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            beamColor.withValues(alpha: intensity * 0.18 * pulseLift),
+            Colors.transparent,
+          ],
+        ).createShader(shaderRect)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      canvas.drawPath(path, core);
+
+      if (highBeam) _drawHighBeamCore(canvas, size, lamp, innerTop, outerTop);
+    }
+  }
+
+  void _drawHighBeamCore(
+    Canvas canvas,
+    Size size,
+    Offset lamp,
+    Offset innerTop,
+    Offset outerTop,
+  ) {
+    final beamColor = _coolBeam;
+    final side = lamp.dx < size.width * 0.5 ? -1.0 : 1.0;
+    final path = Path()
+      ..moveTo(
+        lamp.dx + side * size.width * 0.004,
+        lamp.dy - size.height * 0.010,
+      )
+      ..quadraticBezierTo(
+        lamp.dx + side * size.width * 0.036,
+        (lamp.dy + innerTop.dy) / 2,
+        outerTop.dx * 0.44 + innerTop.dx * 0.56,
+        innerTop.dy + size.height * 0.014,
+      )
+      ..quadraticBezierTo(
+        lamp.dx + side * size.width * 0.010,
+        (lamp.dy + innerTop.dy) / 2,
+        lamp.dx - side * size.width * 0.006,
+        lamp.dy - size.height * 0.006,
+      )
+      ..close();
+    final shaderRect = Rect.fromLTRB(
+      math.min(lamp.dx, innerTop.dx) - size.width * 0.03,
+      innerTop.dy - size.height * 0.02,
+      math.max(lamp.dx, outerTop.dx) + size.width * 0.03,
+      lamp.dy + size.height * 0.03,
+    );
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+        colors: [
+          beamColor.withValues(alpha: light ? 0.055 : 0.080),
+          beamColor.withValues(alpha: light ? 0.022 : 0.035),
+          Colors.transparent,
+        ],
+      ).createShader(shaderRect)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
+    canvas.drawPath(path, paint);
+  }
+
+  void _drawRearFogPair(
+    Canvas canvas,
+    Size size,
+    Offset rearCenter,
+    double rearHalf,
+  ) {
+    final fogColor = const Color(0xFFFFB347);
+    final redFogColor = const Color(0xFFFF5A3D);
+    final lampY = rearCenter.dy + size.height * 0.120;
+    final pulseAlpha = 0.95 + math.sin(pulse * math.pi * 2) * 0.035;
+
+    final fogBank = Rect.fromCenter(
+      center: Offset(rearCenter.dx, lampY + size.height * 0.038),
+      width: size.width * 0.560,
+      height: size.height * 0.135,
+    );
+    final fogBankPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          fogColor.withValues(alpha: (light ? 0.105 : 0.155) * pulseAlpha),
+          fogColor.withValues(alpha: (light ? 0.044 : 0.070) * pulseAlpha),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.58, 1.0],
+      ).createShader(fogBank)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+    canvas.drawOval(fogBank, fogBankPaint);
+
+    for (final side in [-1.0, 1.0]) {
+      final lamp = Offset(rearCenter.dx + side * rearHalf * 0.82, lampY);
+      final lampGlowRect = Rect.fromCircle(
+        center: lamp,
+        radius: size.width * 0.030,
+      );
+      final lampPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            redFogColor.withValues(alpha: (light ? 0.38 : 0.52) * pulseAlpha),
+            fogColor.withValues(alpha: (light ? 0.105 : 0.150) * pulseAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(lampGlowRect)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.5);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: lamp,
+            width: size.width * 0.058,
+            height: size.height * 0.014,
+          ),
+          const Radius.circular(999),
+        ),
+        lampPaint,
+      );
+    }
+  }
+
+  void _drawMirrorSignal(Canvas canvas, Size size) {
+    final leftSignal = mode == _DemoLightMode.turnLeft;
+    final direction = leftSignal ? -1.0 : 1.0;
+    final amber = const Color(0xFFFFA51E);
+    final phase = (math.sin(pulse * math.pi * 2) + 1.0) / 2.0;
+    final blink = Curves.easeInOut.transform(phase);
+    final center = Offset(
+      size.width * (0.500 + direction * 0.158),
+      size.height * 0.382,
+    );
+
+    final outerRadius = size.width * (0.024 + blink * 0.018);
+    final haloPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          amber.withValues(alpha: (light ? 0.34 : 0.48) * blink),
+          amber.withValues(alpha: (light ? 0.135 : 0.200) * blink),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.50, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: outerRadius))
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+    canvas.drawCircle(center, outerRadius, haloPaint);
+
+    final corePaint = Paint()
+      ..color = amber.withValues(alpha: (light ? 0.30 : 0.44) * blink)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+    canvas.drawCircle(center, size.width * 0.013, corePaint);
   }
 
   @override
@@ -7509,7 +7765,12 @@ class _ParkingRadarPainter extends CustomPainter {
     Paint segmentPaint(int layer, double alphaScale) {
       final layerFade = (1.0 - layer * 0.18).clamp(0.34, 1.0).toDouble();
       final alpha =
-          (0.42 * severity * layerFade * alphaScale * pulseAlpha * themeAlphaScale)
+          (0.42 *
+                  severity *
+                  layerFade *
+                  alphaScale *
+                  pulseAlpha *
+                  themeAlphaScale)
               .clamp(0.035, light ? 0.54 : 0.66)
               .toDouble();
       return Paint()
@@ -7702,6 +7963,7 @@ class _ParkingRadarPainter extends CustomPainter {
         oldDelegate.progress != progress;
   }
 }
+
 class _MiniAction extends StatelessWidget {
   const _MiniAction({required this.icon, required this.label, this.onTap});
 
@@ -7895,7 +8157,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && _selectedHotspot == _VehicleHotspot.trunk) {
       _selectedHotspot = null;
     }
-    if (widget.demoRadarLevel != _DemoRadarLevel.off) {
+    if (widget.demoRadarLevel != _DemoRadarLevel.off ||
+        widget.demoLightMode != _DemoLightMode.off) {
       _hotspotsVisible = false;
       _selectedHotspot = null;
       _hotspotAutoHideTimer?.cancel();
@@ -7931,11 +8194,13 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final focusedOrbit = _focusedCameraOrbit;
     final focusOffset = _focusOffset;
     final focusScale = _focusScale;
-    final radarModeActive = widget.demoRadarLevel != _DemoRadarLevel.off;
+    final effectModeActive =
+        widget.demoRadarLevel != _DemoRadarLevel.off ||
+        widget.demoLightMode != _DemoLightMode.off;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: radarModeActive ? null : _showHotspots,
+      onTap: effectModeActive ? null : _showHotspots,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -8008,7 +8273,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
-          if (!radarModeActive)
+          if (!effectModeActive)
             _VehicleHotspotLayer(
               visible: _hotspotsVisible,
               selectedHotspot: _selectedHotspot,
