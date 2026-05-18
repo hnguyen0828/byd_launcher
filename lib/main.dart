@@ -4047,17 +4047,25 @@ class _VehicleCanvas extends StatelessWidget {
               offstage: activeTab != _LauncherTab.status,
               child: IgnorePointer(
                 ignoring: activeTab != _LauncherTab.status,
-                child: _VehicleStage(
-                  enable3dModel: enable3dModel,
-                  cameraOrbit: cameraOrbit,
-                  vehicleModelAsset: vehicleModelAsset,
-                  vehicleColor: vehicleColor,
-                  renderQuality: renderQuality,
-                  roadMotionActive: roadMotionActive,
-                  reverseRoadMotion: reverseRoadMotion,
-                  vehicleSpeedKmh: vehicleSpeedKmh,
-                  windowLevels: vehicleSnapshot.windowLevels,
-                  demoLightMode: visibleDemoLightMode,
+                child: TickerMode(
+                  enabled: activeTab == _LauncherTab.status,
+                  child: RepaintBoundary(
+                    child: _VehicleStage(
+                      enable3dModel: enable3dModel,
+                      cameraOrbit: cameraOrbit,
+                      vehicleModelAsset: vehicleModelAsset,
+                      vehicleColor: vehicleColor,
+                      renderQuality: renderQuality,
+                      roadMotionActive:
+                          activeTab == _LauncherTab.status && roadMotionActive,
+                      reverseRoadMotion: reverseRoadMotion,
+                      vehicleSpeedKmh: vehicleSpeedKmh,
+                      windowLevels: vehicleSnapshot.windowLevels,
+                      demoLightMode: activeTab == _LauncherTab.status
+                          ? visibleDemoLightMode
+                          : _DemoLightMode.off,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -5685,9 +5693,11 @@ class _SettingsPanel extends StatelessWidget {
       onLanguageChanged: onLanguageChanged,
     );
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
-      child: Column(
+    return _SettingsPerformanceScope(
+      enabled: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -5806,7 +5816,7 @@ class _SettingsPanel extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -5880,8 +5890,9 @@ class _SettingsMainColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Column(
-      children: [
+    final content = RepaintBoundary(
+      child: Column(
+        children: [
         _GlassCard(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: _SettingsInlineControl(
@@ -6072,7 +6083,8 @@ class _SettingsMainColumn extends StatelessWidget {
             onChanged: onDebugModeChanged,
           ),
         ),
-      ],
+        ],
+      ),
     );
 
     if (!scrollable) return content;
@@ -6161,11 +6173,11 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
 
   void _schedulePermissionRefresh() {
     _permissionRefreshTimer?.cancel();
-    _permissionRefreshTimer = Timer(const Duration(milliseconds: 250), () {
-      unawaited(_refreshPermissionStatus());
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // BYD head units can stutter when Settings is scrolling and this column
+    // refreshes permissions immediately after every frame. Debounce the native
+    // permission probe so scrolling stays smooth, then refresh once after the
+    // page has settled.
+    _permissionRefreshTimer = Timer(const Duration(milliseconds: 800), () {
       if (mounted) {
         unawaited(_refreshPermissionStatus());
       }
@@ -6201,6 +6213,23 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     return merged;
   }
 
+  bool _permissionStatusesEqual(
+    Map<String, _PermissionStatus> a,
+    Map<String, _PermissionStatus> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      final other = b[entry.key];
+      if (other == null ||
+          other.ready != entry.value.ready ||
+          other.status != entry.value.status ||
+          other.systemOnly != entry.value.systemOnly) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _savePermissionStatusCache(
     Map<String, _PermissionStatus> statuses,
   ) async {
@@ -6234,10 +6263,11 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
         ? _mergePermissionStatuses(_permissionStatuses, parsed)
         : parsed;
 
+    final changed = !_permissionStatusesEqual(_permissionStatuses, merged);
     _cachedPermissionStatuses = merged;
     await _savePermissionStatusCache(merged);
 
-    if (!mounted) return;
+    if (!mounted || !changed) return;
     setState(() => _permissionStatuses = merged);
   }
 
@@ -6249,7 +6279,13 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
       // Do not reset to defaults on a transient channel failure. This was the
       // reason Music/Overlay looked checked right after grant, then unchecked
       // after leaving Settings and coming back.
-      if (!mounted) return;
+      if (!mounted ||
+          _permissionStatusesEqual(
+            _permissionStatuses,
+            _cachedPermissionStatuses,
+          )) {
+        return;
+      }
       setState(() => _permissionStatuses = _cachedPermissionStatuses);
     }
   }
@@ -6294,9 +6330,10 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     ].where((status) => status.ready).length;
     final allReady = readyCount == 5;
 
-    return _GlassCard(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-      child: Column(
+    return RepaintBoundary(
+      child: _GlassCard(
+        padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SettingsSectionTitle(
@@ -6324,7 +6361,8 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
             onPressed: _grantRecommendedPermissions,
           ),
           const SizedBox(height: 12),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -7937,11 +7975,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && _selectedHotspot == _VehicleHotspot.trunk) {
       _selectedHotspot = null;
     }
-    if (widget.demoLightMode != _DemoLightMode.off) {
-      _hotspotsVisible = false;
-      _selectedHotspot = null;
-      _hotspotAutoHideTimer?.cancel();
-    }
+    // Keep hotspots available while Light effect is active.
+    // Light mode only locks camera/touch rotation; it should not hide bodywork hotspots.
 
     if (oldWidget.vehicleColor != widget.vehicleColor ||
         oldWidget.vehicleModelAsset != widget.vehicleModelAsset ||
@@ -7980,7 +8015,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: effectModeActive ? null : _showHotspots,
+      onTap: _showHotspots,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -8013,7 +8048,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
                     cameraOrbit: focusedOrbit,
                     vehicleColor: widget.vehicleColor,
                     renderQuality: widget.renderQuality,
-                    drivingMode: widget.roadMotionActive,
+                    drivingMode: widget.roadMotionActive || effectModeActive,
                     backgroundColor: sceneBackground,
                   )
                 : ModelViewer(
@@ -8023,7 +8058,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
                     loading: Loading.eager,
                     reveal: Reveal.auto,
                     backgroundColor: Colors.transparent,
-                    cameraControls: true,
+                    cameraControls: !effectModeActive,
                     autoRotate: false,
                     disablePan: true,
                     disableTap: true,
@@ -8049,8 +8084,15 @@ class _VehicleHeroState extends State<_VehicleHero> {
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
-          if (!effectModeActive)
-            _VehicleHotspotLayer(
+          if (effectModeActive)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _showHotspots,
+                child: const SizedBox.expand(),
+              ),
+            ),
+          _VehicleHotspotLayer(
               visible: _hotspotsVisible,
               selectedHotspot: _selectedHotspot,
               levels: _hotspotLevels,
@@ -8062,15 +8104,19 @@ class _VehicleHeroState extends State<_VehicleHero> {
               cameraOrbit: focusedOrbit,
               focusOffset: focusOffset,
               focusScale: focusScale,
-              focusActive: _selectedHotspot != null && !widget.roadMotionActive,
+              focusActive: _selectedHotspot != null &&
+                  !widget.roadMotionActive &&
+                  !effectModeActive,
             ),
         ],
       ),
     );
   }
 
+  bool get _effectModeActive => widget.demoLightMode != _DemoLightMode.off;
+
   String get _focusedCameraOrbit {
-    if (widget.roadMotionActive) {
+    if (widget.roadMotionActive || _effectModeActive) {
       return widget.cameraOrbit;
     }
 
@@ -8090,7 +8136,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   Offset get _focusOffset {
-    if (widget.roadMotionActive) {
+    if (widget.roadMotionActive || _effectModeActive) {
       return Offset.zero;
     }
 
@@ -8110,7 +8156,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   double get _focusScale {
-    if (widget.roadMotionActive) {
+    if (widget.roadMotionActive || _effectModeActive) {
       return 1.0;
     }
 
@@ -9219,7 +9265,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
             loading: Loading.eager,
             reveal: Reveal.auto,
             backgroundColor: Colors.transparent,
-            cameraControls: true,
+            cameraControls: !widget.drivingMode,
             autoRotate: false,
             disablePan: true,
             disableTap: true,
@@ -10235,6 +10281,27 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
 }
 
 
+class _SettingsPerformanceScope extends InheritedWidget {
+  const _SettingsPerformanceScope({
+    required this.enabled,
+    required super.child,
+  });
+
+  final bool enabled;
+
+  static bool enabledOf(BuildContext context) {
+    return context
+            .dependOnInheritedWidgetOfExactType<_SettingsPerformanceScope>()
+            ?.enabled ??
+        false;
+  }
+
+  @override
+  bool updateShouldNotify(_SettingsPerformanceScope oldWidget) {
+    return oldWidget.enabled != enabled;
+  }
+}
+
 class _GlassCard extends StatelessWidget {
   const _GlassCard({
     required this.child,
@@ -10249,56 +10316,79 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final settingsPerformanceMode = _SettingsPerformanceScope.enabledOf(context);
+
+    final decoration = BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: light
+            ? [
+                const Color(0xFFFFFFFF).withValues(
+                  alpha: settingsPerformanceMode ? 0.96 : 0.88,
+                ),
+                const Color(0xFFEAF2FA).withValues(
+                  alpha: settingsPerformanceMode ? 0.90 : 0.74,
+                ),
+              ]
+            : [
+                Colors.white.withValues(
+                  alpha: settingsPerformanceMode ? 0.070 : 0.060,
+                ),
+                Colors.white.withValues(
+                  alpha: settingsPerformanceMode ? 0.042 : 0.030,
+                ),
+              ],
+      ),
+      borderRadius: BorderRadius.circular(22),
+      border: showBorder
+          ? Border.all(
+              color: light
+                  ? const Color(0xFFE7EEF6).withValues(alpha: 0.96)
+                  : Colors.white.withValues(alpha: 0.065),
+              width: light ? 1.1 : 1,
+            )
+          : null,
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(
+            alpha: settingsPerformanceMode
+                ? (light ? 0.035 : 0.08)
+                : (light ? 0.055 : 0.13),
+          ),
+          blurRadius: settingsPerformanceMode ? 10 : (light ? 20 : 18),
+          offset: Offset(0, settingsPerformanceMode ? 4 : 8),
+        ),
+        if (light && !settingsPerformanceMode)
+          BoxShadow(
+            color: _accentSoftBlue.withValues(alpha: 0.055),
+            blurRadius: 18,
+            spreadRadius: -4,
+          ),
+      ],
+    );
+
+    final card = Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: decoration,
+      child: child,
+    );
+
+    if (settingsPerformanceMode) {
+      return RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: card,
+        ),
+      );
+    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: light ? 14 : 14,
-          sigmaY: light ? 14 : 14,
-        ),
-        child: Container(
-          width: double.infinity,
-          padding: padding,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: light
-                  ? [
-                      const Color(0xFFFFFFFF).withValues(alpha: 0.88),
-                      const Color(0xFFEAF2FA).withValues(alpha: 0.74),
-                    ]
-                  : [
-                      Colors.white.withValues(alpha: 0.060),
-                      Colors.white.withValues(alpha: 0.030),
-                    ],
-            ),
-            borderRadius: BorderRadius.circular(22),
-            border: showBorder
-                ? Border.all(
-                    color: light
-                        ? const Color(0xFFE7EEF6).withValues(alpha: 0.96)
-                        : Colors.white.withValues(alpha: 0.065),
-                    width: light ? 1.1 : 1,
-                  )
-                : null,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.055 : 0.13),
-                blurRadius: light ? 20 : 18,
-                offset: Offset(0, light ? 8 : 8),
-              ),
-              if (light)
-                BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: 0.055),
-                  blurRadius: 18,
-                  spreadRadius: -4,
-                ),
-            ],
-          ),
-          child: child,
-        ),
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: card,
       ),
     );
   }
