@@ -9,10 +9,13 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 object PermissionBridge {
     private const val CHANNEL = "byd/permissions"
@@ -23,6 +26,8 @@ object PermissionBridge {
     private lateinit var appContext: Context
     private var activity: Activity? = null
     private var lastGrantReport: Map<String, Any?>? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val permissionExecutor = Executors.newSingleThreadExecutor()
 
     fun register(binaryMessenger: BinaryMessenger, context: Context, activity: Activity?) {
         appContext = context.applicationContext
@@ -40,8 +45,24 @@ object PermissionBridge {
                 result.success(null)
             }
             "grantRecommendedPermissions" -> {
-                lastGrantReport = runOneTapPermissionSetup()
-                result.success(statusMap())
+                permissionExecutor.execute {
+                    try {
+                        lastGrantReport = runOneTapPermissionSetup()
+                        val status = statusMap()
+                        mainHandler.post {
+                            result.success(status)
+                        }
+                    } catch (error: Throwable) {
+                        FileLogger.log(appContext, "Grant flow failed: ${error.javaClass.simpleName}: ${error.message}")
+                        mainHandler.post {
+                            result.error(
+                                "GRANT_FAILED",
+                                "${error.javaClass.simpleName}: ${error.message}",
+                                null,
+                            )
+                        }
+                    }
+                }
             }
             "isDefaultLauncher" -> result.success(isDefaultLauncher())
             "openDefaultLauncherSettings" -> {
@@ -56,7 +77,11 @@ object PermissionBridge {
     private fun runOneTapPermissionSetup(): Map<String, Any?> {
         FileLogger.log(appContext, "Grant all permissions clicked")
         FileLogger.log(appContext, "Status before grant: ${rawStatusMap()}")
-        requestPostNotificationsIfNeeded()
+        try {
+            requestPostNotificationsIfNeeded()
+        } catch (error: Throwable) {
+            FileLogger.log(appContext, "POST_NOTIFICATIONS request failed: ${error.javaClass.simpleName}: ${error.message}")
+        }
 
         // Vehicle data on this BYD firmware is handled through BYD event/listener callbacks.
         // Runtime requestPermissions() for BYDAUTO_* does not grant Speed/Statistic/Gearbox GET
@@ -87,7 +112,7 @@ object PermissionBridge {
         return mapOf(
             "vehicleRuntimeRequest" to vehicleRequestReport,
             "shell" to shellReport,
-            "statusAfter" to after,
+            "statusAfter" to rawStatusForChannel(after),
         )
     }
 
@@ -160,6 +185,13 @@ object PermissionBridge {
         "ready" to ready,
         "status" to status,
         "systemOnly" to systemOnly,
+    )
+
+    private fun rawStatusForChannel(raw: RawPermissionStatus): Map<String, Any?> = mapOf(
+        "overlayReady" to raw.overlayReady,
+        "musicReady" to raw.musicReady,
+        "vehicleReady" to raw.vehicleReady,
+        "navigationSystemReady" to raw.navigationSystemReady,
     )
 
     private fun openPermissionSettings(kind: String?) {
@@ -326,7 +358,12 @@ object PermissionBridge {
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:${appContext.packageName}"),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        appContext.startActivity(intent)
+        try {
+            appContext.startActivity(intent)
+        } catch (error: Throwable) {
+            FileLogger.log(appContext, "Overlay settings intent failed: ${error.javaClass.simpleName}: ${error.message}")
+            openAppDetailsSettings()
+        }
     }
 
     private fun openNotificationListenerSettings(preferDetail: Boolean) {
@@ -342,11 +379,17 @@ object PermissionBridge {
 
         try {
             appContext.startActivity(intent)
-        } catch (_: Throwable) {
-            appContext.startActivity(
-                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
+        } catch (error: Throwable) {
+            FileLogger.log(appContext, "Notification listener detail intent failed: ${error.javaClass.simpleName}: ${error.message}")
+            try {
+                appContext.startActivity(
+                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (fallbackError: Throwable) {
+                FileLogger.log(appContext, "Notification listener settings fallback failed: ${fallbackError.javaClass.simpleName}: ${fallbackError.message}")
+                openAppDetailsSettings()
+            }
         }
     }
 
@@ -368,7 +411,18 @@ object PermissionBridge {
             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
             Uri.parse("package:${appContext.packageName}"),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        appContext.startActivity(intent)
+        try {
+            appContext.startActivity(intent)
+        } catch (error: Throwable) {
+            FileLogger.log(appContext, "App details settings intent failed: ${error.javaClass.simpleName}: ${error.message}")
+            try {
+                appContext.startActivity(
+                    Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (fallbackError: Throwable) {
+                FileLogger.log(appContext, "Generic settings intent failed: ${fallbackError.javaClass.simpleName}: ${fallbackError.message}")
+            }
+        }
     }
 
     private fun isNotificationListenerEnabled(): Boolean {

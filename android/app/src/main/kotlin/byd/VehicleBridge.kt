@@ -73,6 +73,7 @@ class VehicleBridge {
         private const val SNAPSHOT_EMIT_INTERVAL_MS = 3000L
         private const val REALTIME_LOG_INTERVAL_MS = 10000L
         private const val TYRE_POLL_INTERVAL_MS = 8000L
+        private const val STATISTIC_POLL_INTERVAL_MS = 8000L
 
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
         // Only confirmed statistic event IDs are mapped; unrelated statistic
@@ -81,6 +82,7 @@ class VehicleBridge {
         private const val DEVICE_SPEED = 1013
         private const val DEVICE_STATISTIC = 1014
         private const val DEVICE_TYRE = 1016
+        private const val DEVICE_BODYWORK = 1001
         private const val EVENT_STAT_PERCENT = 1134559272
         private const val EVENT_STAT_FUEL_RANGE = 1147142160
         private const val EVENT_STAT_OUTSIDE_TEMP = 1151336480
@@ -91,6 +93,7 @@ class VehicleBridge {
         private var lastRealtimeLogMs = 0L
         private var lastSnapshotLogMs = 0L
         private var lastTyrePollMs = 0L
+        private var lastStatisticPollMs = 0L
         private val discoveryLastLogMs = mutableMapOf<String, Long>()
 
         // Cache-only vehicle state. Direct getters on BYD ROM require *_GET permissions.
@@ -237,9 +240,40 @@ class VehicleBridge {
 
         private fun postBodyworkEvent(command: Int, state: Int): Boolean {
             val device = bodyworkDevice ?: return false
-            return safe("bodywork postEvent command=$command state=$state") {
+            val postOk = safe("bodywork postEvent command=$command state=$state arg=0") {
                 device.postEvent(command, state, 0, null)
             } == true
+            if (postOk) {
+                FileLogger.log(appContext, "BODYWORK CONTROL postEvent ok command=$command state=$state arg=0")
+                return true
+            }
+
+            val postStateArgOk = safe("bodywork postEvent command=$command state=$state arg=$state") {
+                device.postEvent(command, state, state, null)
+            } == true
+            if (postStateArgOk) {
+                FileLogger.log(appContext, "BODYWORK CONTROL postEvent ok command=$command state=$state arg=$state")
+                return true
+            }
+
+            val setOk = safe("bodywork device.set command=$command state=$state arg=0") {
+                device.set(command, state, 0)
+            } == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS
+            if (setOk) {
+                FileLogger.log(appContext, "BODYWORK CONTROL device.set ok command=$command state=$state arg=0")
+                return true
+            }
+
+            val managerSetOk = safe("bodywork manager.setInt device=$DEVICE_BODYWORK command=$command state=$state") {
+                deviceManager?.setInt(DEVICE_BODYWORK, command, state)
+            } == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS
+            if (managerSetOk) {
+                FileLogger.log(appContext, "BODYWORK CONTROL manager.setInt ok command=$command state=$state")
+                return true
+            }
+
+            FileLogger.log(appContext, "BODYWORK CONTROL all control paths failed command=$command state=$state")
+            return false
         }
 
         private fun postDoorLockEvent(area: Int, state: Int): Boolean {
@@ -301,6 +335,9 @@ class VehicleBridge {
         private const val BODYWORK_LUGGAGE_DOOR = 692060186
 
         private fun getVehicleSnapshot(): Map<String, Any?> {
+            pollStatisticSnapshotThrottled()
+            pollTyreSnapshotThrottled()
+
             val snapshotLogNow = SystemClock.elapsedRealtime()
             if (snapshotLogNow - lastSnapshotLogMs >= 5000L) {
                 lastSnapshotLogMs = snapshotLogNow
@@ -312,8 +349,6 @@ class VehicleBridge {
                         "outsideTemp=$cachedOutsideTemperatureC, tyres=${cachedTyres.size}"
                 )
             }
-
-            pollTyreSnapshotThrottled()
 
             val safeFuelRange = sanitizeDisplayRangeKm(cachedFuelRangeKm)
             val safeElectricRange = sanitizeDisplayRangeKm(cachedElectricRangeKm)
@@ -566,7 +601,15 @@ class VehicleBridge {
                 }
                 // Intentionally ignore noisy/unconfirmed statistic events.
                 // Known noisy IDs: 1134559272 is not SOC; 1147142160/1147142192 are not confirmed total range.
-                else -> Unit
+                else -> {
+                    if (rounded in 0..100) {
+                        logDiscovery(
+                            "stat_percent_candidate_$eventType",
+                            "STAT percent candidate event=$eventType raw=$rawValue data=${shortData(data)}",
+                            intervalMs = 30_000L,
+                        )
+                    }
+                }
             }
         }
 
@@ -669,6 +712,56 @@ class VehicleBridge {
                 FileLogger.log(appContext, "TPMS GLOBAL candidate event=$eventType value=$rawValue data=${shortData(data)}")
             }
             tryParseTyreDataObject(data)
+        }
+
+        private fun pollStatisticSnapshotThrottled() {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastStatisticPollMs < STATISTIC_POLL_INTERVAL_MS) return
+            lastStatisticPollMs = now
+
+            val device = statisticDevice ?: return
+            val fuelRange = safe("poll statistic fuel range") { device.getFuelDrivingRangeValue() }
+            val electricRange = safe("poll statistic electric range") { device.getElecDrivingRangeValue() }
+            val fuelPercent = safe("poll statistic fuel percent") { device.getFuelPercentageValue() }
+            val electricPercent = safe("poll statistic electric percent") { device.getElecPercentageValue() }
+
+            var changed = false
+            val normalizedFuelRange = fuelRange?.let { normalizeRangeKm(it) }
+            if (normalizedFuelRange != null && acceptFuelRangeCandidate(normalizedFuelRange)) {
+                cachedFuelRangeKm = normalizedFuelRange
+                changed = true
+            }
+
+            val normalizedElectricRange = electricRange?.let { normalizeRangeKm(it) }
+            if (normalizedElectricRange != null && acceptElectricRangeCandidate(normalizedElectricRange)) {
+                cachedElectricRangeKm = normalizedElectricRange
+                changed = true
+            }
+
+            if (fuelPercent != null && acceptFuelPercentCandidate(fuelPercent)) {
+                cachedFuelPercent = fuelPercent
+                changed = true
+            }
+
+            val roundedElectricPercent = electricPercent?.roundToInt()
+            if (roundedElectricPercent != null &&
+                roundedElectricPercent in 0..100 &&
+                acceptPercentCandidate(roundedElectricPercent)
+            ) {
+                cachedBatteryPercent = roundedElectricPercent.toDouble()
+                changed = true
+            }
+
+            if (changed) {
+                FileLogger.log(
+                    appContext,
+                    "POLL STAT fuelRange=$fuelRange->$cachedFuelRangeKm, " +
+                        "electricRange=$electricRange->$cachedElectricRangeKm, " +
+                        "fuelPercent=$fuelPercent->$cachedFuelPercent, " +
+                        "batteryPercent=$electricPercent->$cachedBatteryPercent"
+                )
+                emitSnapshot()
+            }
         }
 
         private fun normalizeRangeKm(value: Int): Int? {

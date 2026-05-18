@@ -75,6 +75,10 @@ object NavigationVirtualDisplayPlugin {
         try {
             val textureEntry = flutterEngine.renderer.createSurfaceProducer()
             textureEntry.setSize(width, height)
+            FileLogger.log(
+                context,
+                "NavigationVD create requested package=$packageName size=${width}x$height density=$densityDpi"
+            )
             val session = NavigationVirtualDisplaySession(
                 context = context,
                 activity = activity,
@@ -93,6 +97,7 @@ object NavigationVirtualDisplayPlugin {
                 ),
             )
         } catch (error: Throwable) {
+            FileLogger.log(context, "NavigationVD create failed ${error.javaClass.simpleName}: ${error.message}")
             result.error("navigation_vd_failed", error.message, null)
         }
     }
@@ -124,11 +129,19 @@ private class NavigationVirtualDisplaySession(
     val displayId: Int? = virtualDisplay?.display?.displayId
     val launchOk: Boolean = launchNavigation()
 
+    init {
+        FileLogger.log(
+            context,
+            "NavigationVD session package=$packageName displayId=$displayId launchOk=$launchOk size=${this.width}x${this.height}"
+        )
+    }
+
     fun resize(width: Int, height: Int) {
         this.width = width.coerceAtLeast(1)
         this.height = height.coerceAtLeast(1)
         textureEntry.setSize(this.width, this.height)
         virtualDisplay?.resize(this.width, this.height, densityDpi)
+        FileLogger.log(context, "NavigationVD resize texture=${textureEntry.id()} size=${this.width}x${this.height}")
     }
 
     fun injectTouch(args: Map<*, *>?): Boolean {
@@ -174,20 +187,29 @@ private class NavigationVirtualDisplaySession(
     }
 
     fun dispose() {
+        FileLogger.log(context, "NavigationVD dispose texture=${textureEntry.id()} displayId=$displayId")
         virtualDisplay?.release()
         virtualDisplay = null
         textureEntry.release()
     }
 
     private fun launchNavigation(): Boolean {
-        val displayId = displayId ?: return false
+        val displayId = displayId ?: run {
+            FileLogger.log(context, "NavigationVD launch skipped; no display for package=$packageName")
+            return false
+        }
         val intent = navigationIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
         return try {
             activity?.startActivity(intent, options.toBundle())
                 ?: context.startActivity(intent, options.toBundle())
+            FileLogger.log(context, "NavigationVD launch ok package=$packageName displayId=$displayId intent=$intent")
             true
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            FileLogger.log(
+                context,
+                "NavigationVD launch failed package=$packageName displayId=$displayId ${error.javaClass.simpleName}: ${error.message}"
+            )
             false
         }
     }

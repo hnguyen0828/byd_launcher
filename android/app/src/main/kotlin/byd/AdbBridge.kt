@@ -13,6 +13,8 @@ import java.util.concurrent.TimeUnit
 object AdbBridge {
     private const val CHANNEL = "byd/adb"
     private const val COMMAND_TIMEOUT_SECONDS = 8L
+    private const val LOCAL_ADB_HOST = "127.0.0.1"
+    private const val LOCAL_ADB_PORT = 5555
 
     private lateinit var appContext: Context
 
@@ -43,9 +45,90 @@ object AdbBridge {
         val commands = permissionCommands(context)
         FileLogger.log(context, "Permission command count: ${commands.size}")
 
-        val results = commands.map { command ->
+        FileLogger.log(context, "Running ADB interactive permission setup")
+        val adbBatch = runAdbInteractiveShell(context, commands)
+        val adbIdResult = adbBatch.results.firstOrNull()
+            ?: ShellCommandResult(
+                command = "id",
+                started = false,
+                exitCode = -1,
+                output = adbBatch.error.orEmpty(),
+            )
+        val adbIdOutput = adbIdResult.output
+        val adbShellUid = shellUidFromIdOutput(adbIdOutput)
+
+        if (adbShellUid == "shell") {
+            FileLogger.log(context, "ADB interactive shell authorized; using local adbd host=${adbBatch.host}")
+            val results = adbBatch.results
+
+            results.forEach { result ->
+                FileLogger.log(
+                    context,
+                    "ADB CMD result | exit=${result.exitCode} | started=${result.started} | command=${result.command} | output=${result.output}"
+                )
+            }
+
+            val successCount = results.count { it.exitCode == 0 }
+            val failed = results.filter { it.exitCode != 0 }
+            return mapOf(
+                "ok" to failed.isEmpty(),
+                "runner" to "local_adb_interactive",
+                "adbHost" to adbBatch.host,
+                "adbPort" to LOCAL_ADB_PORT,
+                "shellUid" to adbShellUid,
+                "idOutput" to adbIdOutput,
+                "successCount" to successCount,
+                "totalCount" to results.size,
+                "shellAvailable" to results.any { it.started },
+                "summary" to if (failed.isEmpty()) {
+                    "System permission setup finished through local ADB shell."
+                } else {
+                    "${failed.size}/${results.size} ADB shell commands failed."
+                },
+                "commands" to commands.joinToString("\n"),
+                "results" to results.map { it.toMap() },
+            )
+        }
+
+        FileLogger.log(
+            context,
+            "Local ADB was not ready or not authorized; adbShellUid=$adbShellUid; adbOutput=$adbIdOutput"
+        )
+
+        FileLogger.log(context, "Running fallback app shell permission command: id")
+        val idResult = runShell("id")
+        val idOutput = idResult.output
+        val shellUid = shellUidFromIdOutput(idOutput)
+
+        if (shellUid != "shell") {
+            FileLogger.log(
+                context,
+                "Permission setup skipped privileged commands; shellUid=$shellUid; idOutput=$idOutput"
+            )
+            return mapOf(
+            "ok" to false,
+                "runner" to "local_adb_interactive",
+                "adbHost" to LOCAL_ADB_HOST,
+                "adbPort" to LOCAL_ADB_PORT,
+                "adbIdOutput" to adbIdOutput,
+                "adbShellUid" to adbShellUid,
+                "adbStarted" to adbIdResult.started,
+                "shellUid" to shellUid,
+                "idOutput" to idOutput,
+                "successCount" to if (idResult.exitCode == 0) 1 else 0,
+                "totalCount" to commands.size,
+                "shellAvailable" to idResult.started,
+                "skippedPrivilegedCommands" to true,
+                "summary" to "Local ADB is not authorized/listening yet. Turn on ADB debugging, accept the Allow debugging prompt, then tap Grant all again.",
+                "commands" to commands.joinToString("\n"),
+                "results" to listOf(adbIdResult.toMap(), idResult.toMap()),
+            )
+        }
+
+        val results = mutableListOf(idResult)
+        for (command in commands.drop(1)) {
             FileLogger.log(context, "Running permission command: $command")
-            runShell(command)
+            results += runShell(command)
         }
 
         results.forEach { result ->
@@ -53,13 +136,6 @@ object AdbBridge {
                 context,
                 "CMD result | exit=${result.exitCode} | started=${result.started} | command=${result.command} | output=${result.output}"
             )
-        }
-
-        val idOutput = results.firstOrNull()?.output.orEmpty()
-        val shellUid = when {
-            idOutput.contains("uid=2000") || idOutput.contains("uid=2000(shell)") -> "shell"
-            idOutput.contains("uid=") -> "app_or_other"
-            else -> "unknown"
         }
 
         val successCount = results.count { it.exitCode == 0 }
@@ -72,6 +148,7 @@ object AdbBridge {
 
         return mapOf(
             "ok" to (failed.isEmpty() && shellUid == "shell"),
+            "runner" to "app_shell_fallback",
             "shellUid" to shellUid,
             "idOutput" to idOutput,
             "successCount" to successCount,
@@ -88,6 +165,13 @@ object AdbBridge {
             "commands" to commands.joinToString("\n"),
             "results" to results.map { it.toMap() },
         )
+    }
+
+    private fun shellUidFromIdOutput(idOutput: String): String = when {
+        idOutput.contains("uid=2000") || idOutput.contains("uid=2000(shell)") -> "shell"
+        idOutput.contains("uid=") -> "app_or_other"
+        idOutput.isBlank() -> "unknown"
+        else -> "unknown"
     }
 
     private fun permissionCommands(context: Context): List<String> {
@@ -118,11 +202,11 @@ object AdbBridge {
         commands += "cmd appops set --user 0 $pkg android:system_alert_window allow"
 
         // Navigation / virtual-display helpers.
-        // These are usually signature/system permissions; keep them for true shell/privileged bridge tests.
+        // WRITE_SECURE_SETTINGS is a development permission and is grantable by uid=2000(shell).
+        // MEDIA_CONTENT_CONTROL, START_ACTIVITIES_FROM_BACKGROUND, and INJECT_EVENTS are
+        // signature/internal permissions on this BYD image; pm grant reports "not a
+        // changeable permission type", so do not count them as grant-flow failures.
         commands += "pm grant --user 0 $pkg android.permission.WRITE_SECURE_SETTINGS"
-        commands += "pm grant --user 0 $pkg android.permission.MEDIA_CONTENT_CONTROL"
-        commands += "pm grant --user 0 $pkg android.permission.START_ACTIVITIES_FROM_BACKGROUND"
-        commands += "pm grant --user 0 $pkg android.permission.INJECT_EVENTS"
 
         // Diagnostics only: BYDAUTO_* GET permissions are not changeable on this firmware.
         // Vehicle data is handled through BYD event/listener path, so we intentionally do not spam pm grant BYDAUTO_* here.
@@ -159,6 +243,44 @@ object AdbBridge {
         }
     }
 
+    private fun runAdbShell(context: Context, command: String): ShellCommandResult {
+        val result = LocalAdbClient.runShellCommandWithCandidates(
+            context = context,
+            command = command,
+            port = LOCAL_ADB_PORT,
+        )
+        return ShellCommandResult(
+            command = result.command,
+            started = result.started,
+            exitCode = result.exitCode,
+            output = result.output,
+        )
+    }
+
+    private fun runAdbInteractiveShell(
+        context: Context,
+        commands: List<String>,
+    ): AdbBatchResult {
+        val result = LocalAdbClient.runShellCommandsInteractiveWithCandidates(
+            context = context,
+            commands = commands,
+            port = LOCAL_ADB_PORT,
+        )
+        return AdbBatchResult(
+            host = result.host,
+            started = result.started,
+            error = result.error,
+            results = result.results.map {
+                ShellCommandResult(
+                    command = it.command,
+                    started = it.started,
+                    exitCode = it.exitCode,
+                    output = it.output,
+                )
+            },
+        )
+    }
+
     private data class ShellCommandResult(
         val command: String,
         val started: Boolean,
@@ -172,4 +294,11 @@ object AdbBridge {
             "output" to output,
         )
     }
+
+    private data class AdbBatchResult(
+        val host: String,
+        val started: Boolean,
+        val error: String?,
+        val results: List<ShellCommandResult>,
+    )
 }
