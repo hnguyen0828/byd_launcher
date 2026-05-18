@@ -8471,37 +8471,40 @@ class _VehicleHotspotLayer extends StatelessWidget {
     }
 
     final rawSpots = <_HotspotSpec>[
+      // Sealion 6 GLB uses negative Z as the rear/tail side.
+      // Keep window hotspot anchors consistent with the trunk anchor so
+      // front driver/passenger windows do not visually swap with rear windows.
       _HotspotSpec(
         hotspot: _VehicleHotspot.frontLeftWindow,
         label: 'Front Left Window',
         shortLabel: 'FL',
         icon: Icons.window_outlined,
-        position: project(-0.50, 0.20, -0.34),
-        cardAlignment: sideAlignment(-0.50, -0.34),
+        position: project(-0.50, 0.20, 0.28),
+        cardAlignment: sideAlignment(-0.50, 0.28),
       ),
       _HotspotSpec(
         hotspot: _VehicleHotspot.frontRightWindow,
         label: 'Front Right Window',
         shortLabel: 'FR',
         icon: Icons.window_outlined,
-        position: project(0.50, 0.20, -0.34),
-        cardAlignment: sideAlignment(0.50, -0.34),
+        position: project(0.50, 0.20, 0.28),
+        cardAlignment: sideAlignment(0.50, 0.28),
       ),
       _HotspotSpec(
         hotspot: _VehicleHotspot.rearLeftWindow,
         label: 'Rear Left Window',
         shortLabel: 'RL',
         icon: Icons.window_outlined,
-        position: project(-0.50, 0.19, 0.22),
-        cardAlignment: sideAlignment(-0.50, 0.22),
+        position: project(-0.50, 0.19, -0.36),
+        cardAlignment: sideAlignment(-0.50, -0.36),
       ),
       _HotspotSpec(
         hotspot: _VehicleHotspot.rearRightWindow,
         label: 'Rear Right Window',
         shortLabel: 'RR',
         icon: Icons.window_outlined,
-        position: project(0.50, 0.19, 0.22),
-        cardAlignment: sideAlignment(0.50, 0.22),
+        position: project(0.50, 0.19, -0.36),
+        cardAlignment: sideAlignment(0.50, -0.36),
       ),
       _HotspotSpec(
         hotspot: _VehicleHotspot.sunroof,
