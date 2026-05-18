@@ -7944,6 +7944,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
   _VehicleHotspot? _selectedHotspot;
   _VehicleHotspot? _pendingWindowHotspot;
   double? _pendingWindowTarget;
+  Timer? _lightEffectRevealTimer;
+  _DemoLightMode _visibleLightMode = _DemoLightMode.off;
   final Map<_VehicleHotspot, double> _hotspotLevels = {
     _VehicleHotspot.frontLeftWindow: 0,
     _VehicleHotspot.frontRightWindow: 0,
@@ -7956,6 +7958,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   @override
   void initState() {
     super.initState();
+    _visibleLightMode = widget.demoLightMode;
     if (widget.enable3dModel) {
       _scheduleColorApply();
     }
@@ -7964,6 +7967,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
   @override
   void didUpdateWidget(covariant _VehicleHero oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.demoLightMode != widget.demoLightMode) {
+      _syncLightEffectReveal(oldWidget.demoLightMode, widget.demoLightMode);
+    }
     if (oldWidget.windowLevels != widget.windowLevels) {
       _syncWindowLevelsFromVehicle();
     }
@@ -7992,6 +7998,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   void dispose() {
     _cancelColorTimers();
     _hotspotAutoHideTimer?.cancel();
+    _lightEffectRevealTimer?.cancel();
     _windowCommandSettleTimer?.cancel();
     _windowCommandDebounceTimer?.cancel();
     super.dispose();
@@ -8010,8 +8017,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final focusedOrbit = _focusedCameraOrbit;
     final focusOffset = _focusOffset;
     final focusScale = _focusScale;
-    final effectModeActive =
-        widget.demoLightMode != _DemoLightMode.off;
+    final effectModeActive = widget.demoLightMode != _DemoLightMode.off;
+    final visibleLightMode = effectModeActive
+        ? _visibleLightMode
+        : _DemoLightMode.off;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -8024,7 +8033,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
             reverse: widget.reverseRoadMotion,
             speedKmh: widget.vehicleSpeedKmh,
           ),
-          _LightStatusOverlay(mode: widget.demoLightMode),
+          _LightStatusOverlay(mode: visibleLightMode),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
             duration: const Duration(milliseconds: 520),
@@ -8111,6 +8120,38 @@ class _VehicleHeroState extends State<_VehicleHero> {
         ],
       ),
     );
+  }
+
+  void _syncLightEffectReveal(
+    _DemoLightMode oldMode,
+    _DemoLightMode newMode,
+  ) {
+    _lightEffectRevealTimer?.cancel();
+
+    if (newMode == _DemoLightMode.off) {
+      if (_visibleLightMode != _DemoLightMode.off) {
+        setState(() => _visibleLightMode = _DemoLightMode.off);
+      }
+      return;
+    }
+
+    // When lights are turned on from any manual/hotspot/rear camera angle,
+    // first let the vehicle rotate back to the fixed light/driving orbit.
+    // Only reveal the beam animation after that camera settle completes.
+    if (oldMode == _DemoLightMode.off) {
+      if (_visibleLightMode != _DemoLightMode.off) {
+        setState(() => _visibleLightMode = _DemoLightMode.off);
+      }
+      _lightEffectRevealTimer = Timer(const Duration(milliseconds: 640), () {
+        if (!mounted || widget.demoLightMode != newMode) return;
+        setState(() => _visibleLightMode = newMode);
+      });
+      return;
+    }
+
+    if (_visibleLightMode != newMode) {
+      setState(() => _visibleLightMode = newMode);
+    }
   }
 
   bool get _effectModeActive => widget.demoLightMode != _DemoLightMode.off;
