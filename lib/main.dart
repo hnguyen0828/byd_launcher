@@ -7567,43 +7567,63 @@ class _LightStatusPainter extends CustomPainter {
     final pulseAlpha = 0.95 + math.sin(pulse * math.pi * 2) * 0.035;
 
     final fogBank = Rect.fromCenter(
-      center: Offset(rearCenter.dx, lampY + size.height * 0.038),
-      width: size.width * 0.560,
-      height: size.height * 0.135,
+      center: Offset(rearCenter.dx, lampY + size.height * 0.030),
+      width: size.width * 0.820,
+      height: size.height * 0.220,
     );
     final fogBankPaint = Paint()
       ..shader = RadialGradient(
         colors: [
-          fogColor.withValues(alpha: (light ? 0.105 : 0.155) * pulseAlpha),
-          fogColor.withValues(alpha: (light ? 0.044 : 0.070) * pulseAlpha),
+          fogColor.withValues(alpha: (light ? 0.190 : 0.280) * pulseAlpha),
+          fogColor.withValues(alpha: (light ? 0.090 : 0.140) * pulseAlpha),
           Colors.transparent,
         ],
-        stops: const [0.0, 0.58, 1.0],
+        stops: const [0.0, 0.62, 1.0],
       ).createShader(fogBank)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
     canvas.drawOval(fogBank, fogBankPaint);
 
     for (final side in [-1.0, 1.0]) {
-      final lamp = Offset(rearCenter.dx + side * rearHalf * 0.82, lampY);
+      final lamp = Offset(rearCenter.dx + side * rearHalf * 0.92, lampY);
+      final sideHaze = Rect.fromCenter(
+        center: Offset(
+          lamp.dx + side * size.width * 0.060,
+          lamp.dy + size.height * 0.006,
+        ),
+        width: size.width * 0.300,
+        height: size.height * 0.115,
+      );
+      final sideHazePaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            fogColor.withValues(alpha: (light ? 0.220 : 0.320) * pulseAlpha),
+            redFogColor.withValues(alpha: (light ? 0.070 : 0.115) * pulseAlpha),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.54, 1.0],
+        ).createShader(sideHaze)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+      canvas.drawOval(sideHaze, sideHazePaint);
+
       final lampGlowRect = Rect.fromCircle(
         center: lamp,
-        radius: size.width * 0.030,
+        radius: size.width * 0.052,
       );
       final lampPaint = Paint()
         ..shader = RadialGradient(
           colors: [
-            redFogColor.withValues(alpha: (light ? 0.38 : 0.52) * pulseAlpha),
-            fogColor.withValues(alpha: (light ? 0.105 : 0.150) * pulseAlpha),
+            redFogColor.withValues(alpha: (light ? 0.62 : 0.82) * pulseAlpha),
+            fogColor.withValues(alpha: (light ? 0.230 : 0.330) * pulseAlpha),
             Colors.transparent,
           ],
         ).createShader(lampGlowRect)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.5);
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9.0);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromCenter(
             center: lamp,
-            width: size.width * 0.058,
-            height: size.height * 0.014,
+            width: size.width * 0.110,
+            height: size.height * 0.030,
           ),
           const Radius.circular(999),
         ),
@@ -7619,11 +7639,11 @@ class _LightStatusPainter extends CustomPainter {
     final phase = (math.sin(pulse * math.pi * 2) + 1.0) / 2.0;
     final blink = Curves.easeInOut.transform(phase);
     final center = Offset(
-      size.width * (0.500 + direction * 0.158),
-      size.height * 0.382,
+      size.width * (0.500 + direction * 0.100),
+      size.height * 0.405,
     );
 
-    final outerRadius = size.width * (0.024 + blink * 0.018);
+    final outerRadius = size.width * (0.030 + blink * 0.020);
     final haloPaint = Paint()
       ..shader = RadialGradient(
         colors: [
@@ -7640,7 +7660,7 @@ class _LightStatusPainter extends CustomPainter {
       ..color = amber.withValues(alpha: (light ? 0.30 : 0.44) * blink)
       ..style = PaintingStyle.fill
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
-    canvas.drawCircle(center, size.width * 0.013, corePaint);
+    canvas.drawCircle(center, size.width * 0.015, corePaint);
   }
 
   @override
