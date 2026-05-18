@@ -166,6 +166,10 @@ object PermissionBridge {
             "android.permission.BYDAUTO_SPEED_GET",
             "android.permission.BYDAUTO_GEARBOX_GET",
             "android.permission.BYDAUTO_AC_COMMON",
+            "android.permission.BYDAUTO_LIGHT_GET",
+            "android.permission.BYDAUTO_LIGHT_COMMON",
+            "android.permission.BYDAUTO_RADAR_GET",
+            "android.permission.BYDAUTO_RADAR_COMMON",
         )
         val navigationSystemReady = hasAnyPermissions(
             "android.permission.START_ACTIVITIES_FROM_BACKGROUND",
@@ -327,6 +331,10 @@ object PermissionBridge {
         "android.permission.BYDAUTO_SPEED_GET",
         "android.permission.BYDAUTO_GEARBOX_GET",
         "android.permission.BYDAUTO_AC_COMMON",
+        "android.permission.BYDAUTO_LIGHT_GET",
+        "android.permission.BYDAUTO_LIGHT_COMMON",
+        "android.permission.BYDAUTO_RADAR_GET",
+        "android.permission.BYDAUTO_RADAR_COMMON",
         "android.permission.BYDACQUISITION_SEND_BUFFER",
         "android.permission.BYDACQUISITION_SEND_FILE",
         "com.byd.ditrainer.permission.CORE",

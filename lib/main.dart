@@ -85,12 +85,17 @@ class _VehicleSnapshot {
     this.outsideTemperatureC,
     this.tpms = const {},
     this.windowLevels = const {},
+    this.lightMode = _DemoLightMode.off,
+    this.radarLevel = _DemoRadarLevel.off,
+    this.radarZone = _DemoRadarZone.rear,
   });
 
   factory _VehicleSnapshot.fromMap(Map<dynamic, dynamic> map) {
     final tpmsMap = map['tpms'];
     final bodyworkMap = map['bodywork'];
     final windowsMap = bodyworkMap is Map ? bodyworkMap['windows'] : null;
+    final lightMap = map['lights'];
+    final radarMap = map['radar'];
     return _VehicleSnapshot(
       available: map['available'] == true,
       speedKmh: _doubleFromMap(map, 'speedKmh'),
@@ -108,6 +113,9 @@ class _VehicleSnapshot {
             }
           : const {},
       windowLevels: _windowLevelsFromMap(windowsMap),
+      lightMode: _lightModeFromMap(lightMap),
+      radarLevel: _radarLevelFromMap(radarMap),
+      radarZone: _radarZoneFromMap(radarMap),
     );
   }
 
@@ -120,8 +128,78 @@ class _VehicleSnapshot {
   final int? outsideTemperatureC;
   final Map<String, _TyreSnapshot> tpms;
   final Map<int, double> windowLevels;
+  final _DemoLightMode lightMode;
+  final _DemoRadarLevel radarLevel;
+  final _DemoRadarZone radarZone;
 
   _TyreSnapshot tyre(String key) => tpms[key] ?? const _TyreSnapshot();
+}
+
+_DemoLightMode _lightModeFromMap(Object? lightMap) {
+  if (lightMap is! Map) return _DemoLightMode.off;
+  final statuses = lightMap['statuses'];
+  if (statuses is! Map) return _DemoLightMode.off;
+  final on = <int>{};
+  for (final entry in statuses.entries) {
+    final area = int.tryParse(entry.key.toString());
+    final state = entry.value is num ? (entry.value as num).toInt() : null;
+    if (area != null && state == 1) on.add(area);
+  }
+  if (on.contains(4)) return _DemoLightMode.turnLeft;
+  if (on.contains(5)) return _DemoLightMode.turnRight;
+  if (on.contains(3)) return _DemoLightMode.highBeam;
+  if (on.contains(6) || on.contains(7)) return _DemoLightMode.fog;
+  if (on.contains(2)) return _DemoLightMode.lowBeam;
+  if (on.contains(1) || lightMap['auto'] == 1) return _DemoLightMode.auto;
+  return _DemoLightMode.off;
+}
+
+_DemoRadarLevel _radarLevelFromMap(Object? radarMap) {
+  if (radarMap is! Map) return _DemoRadarLevel.off;
+  final probes = radarMap['probes'];
+  if (probes is! Map || probes.isEmpty) return _DemoRadarLevel.off;
+  var maxState = 0;
+  for (final value in probes.values) {
+    if (value is num) maxState = math.max(maxState, value.toInt());
+  }
+  return switch (maxState) {
+    4 => _DemoRadarLevel.veryClose,
+    3 => _DemoRadarLevel.close,
+    2 => _DemoRadarLevel.far,
+    1 => _DemoRadarLevel.safe,
+    _ => _DemoRadarLevel.off,
+  };
+}
+
+_DemoRadarZone _radarZoneFromMap(Object? radarMap) {
+  if (radarMap is! Map) return _DemoRadarZone.rear;
+  final probes = radarMap['probes'];
+  if (probes is! Map || probes.isEmpty) return _DemoRadarZone.rear;
+  final active = <int>[];
+  for (final entry in probes.entries) {
+    final area = int.tryParse(entry.key.toString());
+    final state = entry.value is num ? (entry.value as num).toInt() : 0;
+    if (area != null && state > 0) active.add(area);
+  }
+  if (active.isEmpty) return _DemoRadarZone.rear;
+  final front = active.any(
+    (area) => area == 1 || area == 2 || area == 7 || area == 8,
+  );
+  final rear = active.any((area) => area == 3 || area == 4);
+  final left = active.any(
+    (area) => area == 1 || area == 3 || area == 5 || area == 7,
+  );
+  final right = active.any(
+    (area) => area == 2 || area == 4 || area == 6 || area == 8,
+  );
+  if ((front && rear) || (left && right && active.length > 1)) {
+    return _DemoRadarZone.all;
+  }
+  if (front) return _DemoRadarZone.front;
+  if (rear) return _DemoRadarZone.rear;
+  if (left) return _DemoRadarZone.left;
+  if (right) return _DemoRadarZone.right;
+  return _DemoRadarZone.rear;
 }
 
 Map<int, double> _windowLevelsFromMap(Object? windowsMap) {
@@ -3944,14 +4022,21 @@ class _VehicleCanvas extends StatelessWidget {
     final portraitMode = layoutMode == _LauncherLayoutMode.portrait;
     final demoEffectsAllowed =
         effectiveGear == _VehicleGear.d || effectiveGear == _VehicleGear.r;
-    final visibleDemoLightMode =
-        demoEffectsAllowed && debugModeEnabled && lightEffectEnabled
+    final visibleDemoLightMode = vehicleSnapshot.lightMode != _DemoLightMode.off
+        ? vehicleSnapshot.lightMode
+        : demoEffectsAllowed && debugModeEnabled && lightEffectEnabled
         ? demoLightMode
         : _DemoLightMode.off;
     final visibleDemoRadarLevel =
-        demoEffectsAllowed && debugModeEnabled && radarEffectEnabled
+        vehicleSnapshot.radarLevel != _DemoRadarLevel.off
+        ? vehicleSnapshot.radarLevel
+        : demoEffectsAllowed && debugModeEnabled && radarEffectEnabled
         ? demoRadarLevel
         : _DemoRadarLevel.off;
+    final visibleDemoRadarZone =
+        vehicleSnapshot.radarLevel != _DemoRadarLevel.off
+        ? vehicleSnapshot.radarZone
+        : demoRadarZone;
 
     return Padding(
       padding: wallpaperMode
@@ -3982,7 +4067,7 @@ class _VehicleCanvas extends StatelessWidget {
                   windowLevels: vehicleSnapshot.windowLevels,
                   demoLightMode: visibleDemoLightMode,
                   demoRadarLevel: visibleDemoRadarLevel,
-                  demoRadarZone: demoRadarZone,
+                  demoRadarZone: visibleDemoRadarZone,
                 ),
               ),
             ),
@@ -8237,6 +8322,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   final List<Timer> _colorRetryTimers = [];
   Timer? _hotspotAutoHideTimer;
   Timer? _windowCommandSettleTimer;
+  Timer? _windowCommandDebounceTimer;
   bool _hotspotsVisible = false;
   int _hotspotAnimationSeed = 0;
   _VehicleHotspot? _selectedHotspot;
@@ -8295,6 +8381,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
     _cancelColorTimers();
     _hotspotAutoHideTimer?.cancel();
     _windowCommandSettleTimer?.cancel();
+    _windowCommandDebounceTimer?.cancel();
     super.dispose();
   }
 
@@ -8517,20 +8604,6 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && hotspot == _VehicleHotspot.trunk) {
       return;
     }
-    final isControllableHotspot = switch (hotspot) {
-      _VehicleHotspot.frontLeftWindow ||
-      _VehicleHotspot.frontRightWindow ||
-      _VehicleHotspot.rearLeftWindow ||
-      _VehicleHotspot.rearRightWindow ||
-      _VehicleHotspot.sunroof ||
-      _VehicleHotspot.trunk => true,
-    };
-    if (isControllableHotspot) {
-      final currentLevel = _hotspotLevels[hotspot] ?? 0;
-      final nextLevel = currentLevel >= 0.5 ? 0.0 : 1.0;
-      _setHotspotLevel(hotspot, nextLevel);
-      return;
-    }
     setState(() {
       _hotspotsVisible = true;
       _selectedHotspot = hotspot;
@@ -8559,18 +8632,32 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (clampedLevel <= 0.02 || clampedLevel >= 0.98) {
       unawaited(_sendBodyworkHotspotCommand(hotspot, clampedLevel));
       if (windowHotspot) {
-        _windowCommandSettleTimer?.cancel();
-        _windowCommandSettleTimer = Timer(const Duration(seconds: 5), () {
-          if (!mounted || _pendingWindowHotspot != hotspot) return;
-          setState(() {
-            _pendingWindowHotspot = null;
-            _pendingWindowTarget = null;
-          });
-          _syncWindowLevelsFromVehicle();
-        });
+        _scheduleWindowCommandSettle(hotspot);
       }
+    } else if (windowHotspot) {
+      _windowCommandDebounceTimer?.cancel();
+      _windowCommandDebounceTimer = Timer(
+        const Duration(milliseconds: 280),
+        () {
+          if (!mounted) return;
+          unawaited(_sendBodyworkHotspotCommand(hotspot, clampedLevel));
+          _scheduleWindowCommandSettle(hotspot);
+        },
+      );
     }
     _restartHotspotAutoHideTimer();
+  }
+
+  void _scheduleWindowCommandSettle(_VehicleHotspot hotspot) {
+    _windowCommandSettleTimer?.cancel();
+    _windowCommandSettleTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted || _pendingWindowHotspot != hotspot) return;
+      setState(() {
+        _pendingWindowHotspot = null;
+        _pendingWindowTarget = null;
+      });
+      _syncWindowLevelsFromVehicle();
+    });
   }
 
   Future<void> _sendBodyworkHotspotCommand(
@@ -8584,16 +8671,32 @@ class _VehicleHeroState extends State<_VehicleHero> {
     switch (hotspot) {
       case _VehicleHotspot.frontLeftWindow:
         method = 'controlWindow';
-        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
+        arguments = {
+          'area': _windowAreaForHotspot(hotspot),
+          'action': action,
+          'percent': (level * 100).round(),
+        };
       case _VehicleHotspot.frontRightWindow:
         method = 'controlWindow';
-        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
+        arguments = {
+          'area': _windowAreaForHotspot(hotspot),
+          'action': action,
+          'percent': (level * 100).round(),
+        };
       case _VehicleHotspot.rearLeftWindow:
         method = 'controlWindow';
-        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
+        arguments = {
+          'area': _windowAreaForHotspot(hotspot),
+          'action': action,
+          'percent': (level * 100).round(),
+        };
       case _VehicleHotspot.rearRightWindow:
         method = 'controlWindow';
-        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
+        arguments = {
+          'area': _windowAreaForHotspot(hotspot),
+          'action': action,
+          'percent': (level * 100).round(),
+        };
       case _VehicleHotspot.sunroof:
         method = 'controlSunroof';
         arguments = {'action': action};
