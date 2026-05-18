@@ -25,6 +25,7 @@ const String _landscapeSidebarPositionPreferenceKey =
     'launcher.landscapeSidebarPosition';
 const String _navigationDefaultPackagePreferenceKey =
     'launcher.navigation.defaultPackage';
+const String _embeddedMapScalePreferenceKey = 'launcher.navigation.mapScale';
 const String _launchNavigationWithLauncherPreferenceKey =
     'launcher.navigation.launchWithLauncher';
 const String _favoriteAppsPreferenceKey = 'launcher.favoriteApps';
@@ -541,6 +542,33 @@ enum _DemoLightMode { off, auto, lowBeam, highBeam, fog, turnLeft, turnRight }
 
 enum _VehicleRenderQuality { low, medium, high }
 
+enum _EmbeddedMapScale { compact, balanced, oem, comfortable }
+
+int _embeddedMapScaleDensityDpi(_EmbeddedMapScale scale) {
+  return switch (scale) {
+    _EmbeddedMapScale.compact => 190,
+    _EmbeddedMapScale.balanced => 230,
+    _EmbeddedMapScale.oem => 260,
+    _EmbeddedMapScale.comfortable => 300,
+  };
+}
+
+String _embeddedMapScaleLabel(_EmbeddedMapScale scale) {
+  return switch (scale) {
+    _EmbeddedMapScale.compact => 'Compact',
+    _EmbeddedMapScale.balanced => 'Balanced',
+    _EmbeddedMapScale.oem => 'OEM',
+    _EmbeddedMapScale.comfortable => 'Comfort',
+  };
+}
+
+_EmbeddedMapScale _parseEmbeddedMapScale(String? value) {
+  return _EmbeddedMapScale.values.firstWhere(
+    (scale) => scale.name == value,
+    orElse: () => _EmbeddedMapScale.oem,
+  );
+}
+
 enum _VehicleHotspot {
   frontLeftWindow,
   frontRightWindow,
@@ -612,6 +640,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
         'Open the default map app when this launcher starts.',
     'launchNavigationMissing':
         'Install or reload a map app before enabling this.',
+    'mapScale': 'Map scale',
+    'mapScaleSubtitle': 'Change embedded map text and button size.',
     'vehicleModel': 'Vehicle model',
     'vehicleModelSubtitle': 'Choose the 3D model shown on the home screen.',
     'vehicleColor': 'Vehicle color',
@@ -682,6 +712,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'launchNavigation': 'Mở dẫn đường',
     'launchNavigationReady': 'Mở app bản đồ mặc định khi launcher khởi động.',
     'launchNavigationMissing': 'Cài hoặc tải lại app bản đồ trước khi bật.',
+    'mapScale': 'Map scale',
+    'mapScaleSubtitle': 'Đổi kích thước chữ và nút của bản đồ nhúng.',
     'vehicleModel': 'Mẫu xe',
     'vehicleModelSubtitle': 'Chọn model 3D hiển thị ở màn hình chính.',
     'vehicleColor': 'Màu xe',
@@ -910,6 +942,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   List<String> _favoriteAppPackages = const [];
   List<_NavigationApp> _navigationApps = const [];
   String? _selectedNavigationPackage;
+  _EmbeddedMapScale _embeddedMapScale = _EmbeddedMapScale.oem;
   bool _launchNavigationWithLauncher = false;
   bool _defaultLauncherEnabled = false;
   bool _wallpaperButtonEnabled = true;
@@ -1083,10 +1116,12 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       onLayoutModeChanged: _setLayoutMode,
                       navigationApps: _navigationApps,
                       selectedNavigationPackage: _selectedNavigationPackage,
+                      embeddedMapScale: _embeddedMapScale,
                       launchNavigationWithLauncher:
                           _launchNavigationWithLauncher,
                       defaultLauncherEnabled: _defaultLauncherEnabled,
                       onDefaultNavigationAppChanged: _setDefaultNavigationApp,
+                      onEmbeddedMapScaleChanged: _setEmbeddedMapScale,
                       onNavigationReloadRequested: _reloadNavigationApps,
                       onDefaultNavigationOpenRequested:
                           _openDefaultNavigationApp,
@@ -1345,6 +1380,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     );
     final launchWithLauncher =
         prefs.getBool(_launchNavigationWithLauncherPreferenceKey) ?? false;
+    final embeddedMapScale = _parseEmbeddedMapScale(
+      prefs.getString(_embeddedMapScalePreferenceKey),
+    );
     final apps = await _loadNavigationAppsFromPlatform();
     final selectedPackage = _resolveNavigationPackage(apps, storedPackage);
     final effectiveLaunchWithLauncher =
@@ -1354,6 +1392,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     setState(() {
       _navigationApps = apps;
       _selectedNavigationPackage = selectedPackage;
+      _embeddedMapScale = embeddedMapScale;
       _launchNavigationWithLauncher = effectiveLaunchWithLauncher;
     });
 
@@ -1491,6 +1530,13 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _navigationDefaultPackagePreferenceKey,
       app.packageName,
     );
+  }
+
+  Future<void> _setEmbeddedMapScale(_EmbeddedMapScale scale) async {
+    if (scale == _embeddedMapScale) return;
+    setState(() => _embeddedMapScale = scale);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_embeddedMapScalePreferenceKey, scale.name);
   }
 
   Future<void> _reloadNavigationApps() async {
@@ -3923,10 +3969,12 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onLayoutModeChanged,
     required this.navigationApps,
     required this.selectedNavigationPackage,
+    required this.embeddedMapScale,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.wallpaperButtonEnabled,
     required this.onDefaultNavigationAppChanged,
+    required this.onEmbeddedMapScaleChanged,
     required this.onNavigationReloadRequested,
     required this.onDefaultNavigationOpenRequested,
     required this.onLaunchNavigationWithLauncherChanged,
@@ -3975,10 +4023,12 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<_LauncherLayoutMode> onLayoutModeChanged;
   final List<_NavigationApp> navigationApps;
   final String? selectedNavigationPackage;
+  final _EmbeddedMapScale embeddedMapScale;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool wallpaperButtonEnabled;
   final ValueChanged<_NavigationApp> onDefaultNavigationAppChanged;
+  final ValueChanged<_EmbeddedMapScale> onEmbeddedMapScaleChanged;
   final VoidCallback onNavigationReloadRequested;
   final VoidCallback onDefaultNavigationOpenRequested;
   final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
@@ -4031,6 +4081,7 @@ class _VehicleCanvas extends StatelessWidget {
                   key: const ValueKey('navigation-persistent'),
                   apps: navigationApps,
                   selectedPackage: selectedNavigationPackage,
+                  mapScale: embeddedMapScale,
                   onAppSelected: onDefaultNavigationAppChanged,
                   onReload: onNavigationReloadRequested,
                   onOpen: onDefaultNavigationOpenRequested,
@@ -4109,9 +4160,11 @@ class _VehicleCanvas extends StatelessWidget {
                         onLandscapeSidebarPositionChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
                     defaultLauncherEnabled: defaultLauncherEnabled,
+                    embeddedMapScale: embeddedMapScale,
                     hasNavigationApps: navigationApps.isNotEmpty,
                     onLaunchNavigationWithLauncherChanged:
                         onLaunchNavigationWithLauncherChanged,
+                    onEmbeddedMapScaleChanged: onEmbeddedMapScaleChanged,
                     onDefaultLauncherChanged: onDefaultLauncherChanged,
                     wallpaperFolderPath: wallpaperFolderPath,
                     wallpaperIntervalSeconds: wallpaperIntervalSeconds,
@@ -4240,6 +4293,7 @@ class _NavigationPanel extends StatefulWidget {
   const _NavigationPanel({
     required this.apps,
     required this.selectedPackage,
+    required this.mapScale,
     required this.onAppSelected,
     required this.onReload,
     required this.onOpen,
@@ -4248,6 +4302,7 @@ class _NavigationPanel extends StatefulWidget {
 
   final List<_NavigationApp> apps;
   final String? selectedPackage;
+  final _EmbeddedMapScale mapScale;
   final ValueChanged<_NavigationApp> onAppSelected;
   final VoidCallback onReload;
   final VoidCallback onOpen;
@@ -4319,6 +4374,7 @@ class _NavigationPanelState extends State<_NavigationPanel> {
           Positioned.fill(
             child: _EmbeddedNavigationSurface(
               app: selectedApp,
+              mapScale: widget.mapScale,
               restartSeed: _restartSeed,
               onOpen: selectedApp == null ? null : widget.onOpen,
             ),
@@ -4365,6 +4421,7 @@ class _NavigationPanelState extends State<_NavigationPanel> {
                         apps: widget.apps,
                         primaryApps: _primaryApps,
                         selectedPackage: selectedApp?.packageName,
+                        mapScale: widget.mapScale,
                         onAppSelected: widget.onAppSelected,
                         onReload: _restartSelectedMap,
                         onCollapse: () => setState(() => _barCollapsed = true),
@@ -4381,11 +4438,13 @@ class _NavigationPanelState extends State<_NavigationPanel> {
 class _EmbeddedNavigationSurface extends StatelessWidget {
   const _EmbeddedNavigationSurface({
     required this.app,
+    required this.mapScale,
     required this.restartSeed,
     required this.onOpen,
   });
 
   final _NavigationApp? app;
+  final _EmbeddedMapScale mapScale;
   final int restartSeed;
   final VoidCallback? onOpen;
 
@@ -4403,8 +4462,9 @@ class _EmbeddedNavigationSurface extends StatelessWidget {
 
     if (defaultTargetPlatform == TargetPlatform.android) {
       return _NavigationVirtualDisplayView(
-        key: ValueKey('navigation-vd-${app.packageName}-$restartSeed'),
+        key: ValueKey('navigation-vd-${app.packageName}-${mapScale.name}-$restartSeed'),
         app: app,
+        mapScale: mapScale,
       );
     }
 
@@ -4418,9 +4478,14 @@ class _EmbeddedNavigationSurface extends StatelessWidget {
 }
 
 class _NavigationVirtualDisplayView extends StatefulWidget {
-  const _NavigationVirtualDisplayView({super.key, required this.app});
+  const _NavigationVirtualDisplayView({
+    super.key,
+    required this.app,
+    required this.mapScale,
+  });
 
   final _NavigationApp app;
+  final _EmbeddedMapScale mapScale;
 
   @override
   State<_NavigationVirtualDisplayView> createState() =>
@@ -4437,7 +4502,8 @@ class _NavigationVirtualDisplayViewState
   @override
   void didUpdateWidget(covariant _NavigationVirtualDisplayView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.app.packageName != widget.app.packageName) {
+    if (oldWidget.app.packageName != widget.app.packageName ||
+        oldWidget.mapScale != widget.mapScale) {
       _disposeSession();
       _textureId = null;
       _textureSize = null;
@@ -4516,9 +4582,7 @@ class _NavigationVirtualDisplayViewState
               'packageName': widget.app.packageName,
               'width': width,
               'height': height,
-              'densityDpi': (160 * MediaQuery.devicePixelRatioOf(context))
-                  .round()
-                  .clamp(160, 320),
+              'densityDpi': _embeddedMapScaleDensityDpi(widget.mapScale),
             });
         if (!mounted) return;
         setState(() {
@@ -4639,6 +4703,7 @@ class _NavigationAppPicker extends StatelessWidget {
     required this.apps,
     required this.primaryApps,
     required this.selectedPackage,
+    required this.mapScale,
     required this.onAppSelected,
     required this.onReload,
     required this.onCollapse,
@@ -4647,6 +4712,7 @@ class _NavigationAppPicker extends StatelessWidget {
   final List<_NavigationApp> apps;
   final List<_NavigationApp> primaryApps;
   final String? selectedPackage;
+  final _EmbeddedMapScale mapScale;
   final ValueChanged<_NavigationApp> onAppSelected;
   final VoidCallback onReload;
   final VoidCallback onCollapse;
@@ -5604,8 +5670,10 @@ class _SettingsPanel extends StatelessWidget {
     required this.onLandscapeSidebarPositionChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
+    required this.embeddedMapScale,
     required this.hasNavigationApps,
     required this.onLaunchNavigationWithLauncherChanged,
+    required this.onEmbeddedMapScaleChanged,
     required this.onDefaultLauncherChanged,
     required this.wallpaperFolderPath,
     required this.wallpaperIntervalSeconds,
@@ -5638,8 +5706,10 @@ class _SettingsPanel extends StatelessWidget {
   onLandscapeSidebarPositionChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
+  final _EmbeddedMapScale embeddedMapScale;
   final bool hasNavigationApps;
   final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
+  final ValueChanged<_EmbeddedMapScale> onEmbeddedMapScaleChanged;
   final ValueChanged<bool> onDefaultLauncherChanged;
   final String? wallpaperFolderPath;
   final int wallpaperIntervalSeconds;
@@ -5672,9 +5742,11 @@ class _SettingsPanel extends StatelessWidget {
       onLandscapeSidebarPositionChanged: onLandscapeSidebarPositionChanged,
       launchNavigationWithLauncher: launchNavigationWithLauncher,
       defaultLauncherEnabled: defaultLauncherEnabled,
+      embeddedMapScale: embeddedMapScale,
       hasNavigationApps: hasNavigationApps,
       onLaunchNavigationWithLauncherChanged:
           onLaunchNavigationWithLauncherChanged,
+      onEmbeddedMapScaleChanged: onEmbeddedMapScaleChanged,
       onDefaultLauncherChanged: onDefaultLauncherChanged,
       wallpaperFolderPath: wallpaperFolderPath,
       wallpaperIntervalSeconds: wallpaperIntervalSeconds,
@@ -5768,9 +5840,11 @@ class _SettingsPanel extends StatelessWidget {
                         onLandscapeSidebarPositionChanged,
                     launchNavigationWithLauncher: launchNavigationWithLauncher,
                     defaultLauncherEnabled: defaultLauncherEnabled,
+                    embeddedMapScale: embeddedMapScale,
                     hasNavigationApps: hasNavigationApps,
                     onLaunchNavigationWithLauncherChanged:
                         onLaunchNavigationWithLauncherChanged,
+                    onEmbeddedMapScaleChanged: onEmbeddedMapScaleChanged,
                     onDefaultLauncherChanged: onDefaultLauncherChanged,
                     wallpaperFolderPath: wallpaperFolderPath,
                     wallpaperIntervalSeconds: wallpaperIntervalSeconds,
@@ -5835,8 +5909,10 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.onLandscapeSidebarPositionChanged,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
+    required this.embeddedMapScale,
     required this.hasNavigationApps,
     required this.onLaunchNavigationWithLauncherChanged,
+    required this.onEmbeddedMapScaleChanged,
     required this.onDefaultLauncherChanged,
     required this.wallpaperFolderPath,
     required this.wallpaperIntervalSeconds,
@@ -5869,8 +5945,10 @@ class _SettingsMainColumn extends StatelessWidget {
   onLandscapeSidebarPositionChanged;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
+  final _EmbeddedMapScale embeddedMapScale;
   final bool hasNavigationApps;
   final ValueChanged<bool> onLaunchNavigationWithLauncherChanged;
+  final ValueChanged<_EmbeddedMapScale> onEmbeddedMapScaleChanged;
   final ValueChanged<bool> onDefaultLauncherChanged;
   final String? wallpaperFolderPath;
   final int wallpaperIntervalSeconds;
@@ -6055,6 +6133,16 @@ class _SettingsMainColumn extends StatelessWidget {
                 child: _LandscapeSidebarPositionPicker(
                   selectedPosition: landscapeSidebarPosition,
                   onChanged: onLandscapeSidebarPositionChanged,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SettingsInlineControl(
+                icon: Icons.zoom_out_map_rounded,
+                title: _t(context, 'mapScale'),
+                subtitle: _t(context, 'mapScaleSubtitle'),
+                child: _EmbeddedMapScalePicker(
+                  selectedScale: embeddedMapScale,
+                  onChanged: onEmbeddedMapScaleChanged,
                 ),
               ),
               const SizedBox(height: 12),
@@ -6793,6 +6881,103 @@ class _ThemeModeOption extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _EmbeddedMapScalePicker extends StatelessWidget {
+  const _EmbeddedMapScalePicker({
+    required this.selectedScale,
+    required this.onChanged,
+  });
+
+  final _EmbeddedMapScale selectedScale;
+  final ValueChanged<_EmbeddedMapScale> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return Container(
+      height: 44,
+      width: 286,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: light
+            ? const Color(0xFFE5EDF6).withValues(alpha: 0.72)
+            : Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: light
+              ? Colors.white.withValues(alpha: 0.88)
+              : Colors.white.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Row(
+        children: [
+          for (final scale in _EmbeddedMapScale.values)
+            _MapScaleOption(
+              label: _embeddedMapScaleLabel(scale),
+              selected: selectedScale == scale,
+              onTap: () => onChanged(scale),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapScaleOption extends StatelessWidget {
+  const _MapScaleOption({
+    required this.label,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected
+        ? _tone(context, _textPrimary)
+        : _tone(context, _textMuted);
+
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: selected
+                ? _accentSoftBlue.withValues(alpha: 0.16)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: selected
+                ? Border.all(color: _accentSoftBlue.withValues(alpha: 0.28))
+                : null,
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: color,
+                  weight: selected ? FontWeight.w700 : FontWeight.w500,
+                  size: 11.2,
+                ),
               ),
             ),
           ),
