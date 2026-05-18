@@ -7253,7 +7253,7 @@ Color _demoRadarColor(_DemoRadarLevel level) {
 }
 
 Offset _vehicleEffectAnchor(Size size) {
-  return Offset(size.width * 0.505, size.height * 0.600);
+  return Offset(size.width * 0.505, size.height * 0.650);
 }
 
 class _LightStatusOverlay extends StatefulWidget {
@@ -7458,92 +7458,239 @@ class _ParkingRadarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (level == _DemoRadarLevel.off) return;
+
     final color = _demoRadarColor(level);
     final severity = (level.index / (_DemoRadarLevel.values.length - 1))
         .clamp(0.18, 1.0)
         .toDouble();
-    final themeAlphaScale = light ? 0.86 : 1.0;
-    final center = _vehicleEffectAnchor(size);
-    final baseRect = Rect.fromCenter(
-      center: center,
-      width: size.width * (0.33 + severity * 0.10),
-      height: size.height * (0.205 + severity * 0.07),
-    );
+    final themeAlphaScale = light ? 0.78 : 1.0;
 
+    // OEM parking radar tuning for the current D/R camera: the anchor is
+    // intentionally a little below the visual center of the 3D vehicle so the
+    // arcs feel attached to the bumper/side sensors instead of floating.
+    final center = Offset(size.width * 0.500, size.height * 0.626);
+    final carWidth = size.width * 0.224;
+    final carHeight = size.height * 0.405;
+    final sideGap = size.width * 0.015;
+    final rearGap = size.height * 0.000;
+    final frontGap = size.height * 0.006;
+
+    final pulse = level == _DemoRadarLevel.veryClose
+        ? math.sin(progress * math.pi * 2).abs()
+        : math.sin(progress * math.pi * 2).abs() * 0.22;
+    final pulseAlpha = level == _DemoRadarLevel.veryClose
+        ? 0.80 + pulse * 0.20
+        : 0.92 + pulse * 0.08;
+    final pulseOffset = level == _DemoRadarLevel.veryClose ? pulse * 2.2 : 0.0;
+
+    final glowRadius = size.shortestSide * (0.145 + severity * 0.048);
     final glowPaint = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              color.withValues(alpha: (light ? 0.09 : 0.12) * severity),
-              color.withValues(alpha: (light ? 0.04 : 0.07) * severity),
-              Colors.transparent,
-            ],
-          ).createShader(
-            Rect.fromCircle(center: center, radius: size.shortestSide * 0.34),
-          );
-    canvas.drawCircle(center, size.shortestSide * 0.34, glowPaint);
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: (light ? 0.030 : 0.050) * severity),
+          color.withValues(alpha: (light ? 0.012 : 0.026) * severity),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.52, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: glowRadius));
+    canvas.drawCircle(center, glowRadius, glowPaint);
 
-    final arcs = level == _DemoRadarLevel.safe ? 2 : 3;
-    for (var i = 0; i < arcs; i++) {
-      final inflate =
-          i * 22.0 +
-          (level == _DemoRadarLevel.veryClose ? progress * 12.0 : 0.0);
-      final rect = baseRect.inflate(inflate);
-      final alpha = (0.34 - i * 0.065) * severity;
-      final paint = Paint()
-        ..color = color.withValues(
-          alpha: (alpha * themeAlphaScale).clamp(0.07, 0.72).toDouble(),
-        )
-        ..strokeWidth = lerpDouble(2.2, 6.2, severity)! - i * 0.45
+    final layerCount = switch (level) {
+      _DemoRadarLevel.safe => 2,
+      _DemoRadarLevel.far => 3,
+      _DemoRadarLevel.medium ||
+      _DemoRadarLevel.close ||
+      _DemoRadarLevel.veryClose => 4,
+      _DemoRadarLevel.off => 0,
+    };
+    final baseStroke = lerpDouble(1.8, 4.6, severity)!;
+
+    Paint segmentPaint(int layer, double alphaScale) {
+      final layerFade = (1.0 - layer * 0.18).clamp(0.34, 1.0).toDouble();
+      final alpha =
+          (0.42 * severity * layerFade * alphaScale * pulseAlpha * themeAlphaScale)
+              .clamp(0.035, light ? 0.54 : 0.66)
+              .toDouble();
+      return Paint()
+        ..color = color.withValues(alpha: alpha)
+        ..strokeWidth = (baseStroke - layer * 0.34).clamp(1.45, 4.9).toDouble()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
         ..maskFilter = MaskFilter.blur(
           BlurStyle.normal,
-          level == _DemoRadarLevel.veryClose ? 4 : 2,
+          level == _DemoRadarLevel.veryClose ? 1.05 : 0.62,
         );
+    }
 
-      void drawWeightedArc(
-        double startAngle,
-        double sweepAngle,
-        double alphaScale,
-      ) {
-        final weightedPaint = Paint()
-          ..color = color.withValues(
-            alpha: (alpha * alphaScale * themeAlphaScale)
-                .clamp(0.04, 0.72)
-                .toDouble(),
-          )
-          ..strokeWidth = paint.strokeWidth
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..maskFilter = paint.maskFilter;
-        canvas.drawArc(rect, startAngle, sweepAngle, false, weightedPaint);
+    void drawSegments({
+      required Rect rect,
+      required double startAngle,
+      required double sweepAngle,
+      required int segments,
+      required Paint paint,
+    }) {
+      final gap = math.pi * 0.036;
+      final segmentSweep = (sweepAngle - gap * (segments - 1)) / segments;
+      for (var i = 0; i < segments; i++) {
+        canvas.drawArc(
+          rect,
+          startAngle + i * (segmentSweep + gap),
+          segmentSweep,
+          false,
+          paint,
+        );
       }
+    }
 
-      void drawRear([double alphaScale = 1.0]) =>
-          drawWeightedArc(math.pi * 0.18, math.pi * 0.64, alphaScale);
-      void drawFront([double alphaScale = 1.0]) =>
-          drawWeightedArc(math.pi * 1.18, math.pi * 0.64, alphaScale);
-      void drawLeft() =>
-          canvas.drawArc(rect, math.pi * 0.86, math.pi * 0.22, false, paint);
-      void drawRight() =>
-          canvas.drawArc(rect, math.pi * -0.08, math.pi * 0.22, false, paint);
+    // A subtle perspective helper: front arcs are tighter and flatter, rear
+    // arcs are wider and lower. Side arcs lean slightly with the road plane.
+    void withPerspective({
+      required Offset pivot,
+      required double tilt,
+      required VoidCallback draw,
+    }) {
+      canvas.save();
+      canvas.translate(pivot.dx, pivot.dy);
+      canvas.rotate(tilt);
+      canvas.translate(-pivot.dx, -pivot.dy);
+      draw();
+      canvas.restore();
+    }
 
-      switch (zone) {
-        case _DemoRadarZone.rear:
-          drawRear();
-        case _DemoRadarZone.front:
-          drawFront();
-        case _DemoRadarZone.left:
-          drawLeft();
-        case _DemoRadarZone.right:
-          drawRight();
-        case _DemoRadarZone.all:
-          drawRear(1.08);
-          drawFront(0.58);
-          drawLeft();
-          drawRight();
-      }
+    void drawRear([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx, center.dy + carHeight * 0.52);
+      withPerspective(
+        pivot: pivot,
+        tilt: 0.0,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.height * 0.020 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(
+                center.dx,
+                center.dy + carHeight * 0.430 + rearGap + offset,
+              ),
+              width: carWidth * 0.98 + t * size.width * 0.030,
+              height: size.height * 0.090 + t * size.height * 0.018,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * 0.09,
+              sweepAngle: math.pi * 0.82,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (1.26 - t * 0.070)),
+            );
+          }
+        },
+      );
+    }
+
+    void drawFront([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx, center.dy - carHeight * 0.54);
+      withPerspective(
+        pivot: pivot,
+        tilt: 0.0,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.height * 0.017 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(
+                center.dx,
+                center.dy - carHeight * 0.455 - frontGap - offset,
+              ),
+              width: carWidth * 0.86 + t * size.width * 0.024,
+              height: size.height * 0.074 + t * size.height * 0.016,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * 1.10,
+              sweepAngle: math.pi * 0.80,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (1.02 - t * 0.060)),
+            );
+          }
+        },
+      );
+    }
+
+    void drawLeft([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx - carWidth * 0.53, center.dy);
+      withPerspective(
+        pivot: pivot,
+        tilt: -0.045,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.width * 0.014 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(
+                center.dx - carWidth * 0.50 - sideGap - offset,
+                center.dy + size.height * 0.006,
+              ),
+              width: size.width * 0.086 + t * size.width * 0.021,
+              height: carHeight * 0.700 + t * size.height * 0.015,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * 0.625,
+              sweepAngle: math.pi * 0.750,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (0.72 - t * 0.028)),
+            );
+          }
+        },
+      );
+    }
+
+    void drawRight([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx + carWidth * 0.53, center.dy);
+      withPerspective(
+        pivot: pivot,
+        tilt: 0.045,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.width * 0.014 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(
+                center.dx + carWidth * 0.50 + sideGap + offset,
+                center.dy + size.height * 0.006,
+              ),
+              width: size.width * 0.086 + t * size.width * 0.021,
+              height: carHeight * 0.700 + t * size.height * 0.015,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * -0.375,
+              sweepAngle: math.pi * 0.750,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (0.72 - t * 0.028)),
+            );
+          }
+        },
+      );
+    }
+
+    switch (zone) {
+      case _DemoRadarZone.rear:
+        drawRear();
+      case _DemoRadarZone.front:
+        drawFront();
+      case _DemoRadarZone.left:
+        drawLeft();
+      case _DemoRadarZone.right:
+        drawRight();
+      case _DemoRadarZone.all:
+        // All mode should feel like four sensor groups, not one big speaker
+        // waveform. Rear is kept strongest for reverse/parking context; front
+        // and side groups are intentionally quieter to keep the vehicle clean.
+        drawRear(level == _DemoRadarLevel.veryClose ? 1.15 : 1.02);
+        drawFront(level == _DemoRadarLevel.veryClose ? 0.68 : 0.58);
+        drawLeft(0.66);
+        drawRight(0.66);
     }
   }
 
@@ -7555,7 +7702,6 @@ class _ParkingRadarPainter extends CustomPainter {
         oldDelegate.progress != progress;
   }
 }
-
 class _MiniAction extends StatelessWidget {
   const _MiniAction({required this.icon, required this.label, this.onTap});
 
@@ -7749,6 +7895,11 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && _selectedHotspot == _VehicleHotspot.trunk) {
       _selectedHotspot = null;
     }
+    if (widget.demoRadarLevel != _DemoRadarLevel.off) {
+      _hotspotsVisible = false;
+      _selectedHotspot = null;
+      _hotspotAutoHideTimer?.cancel();
+    }
 
     if (oldWidget.vehicleColor != widget.vehicleColor ||
         oldWidget.vehicleModelAsset != widget.vehicleModelAsset ||
@@ -7780,10 +7931,11 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final focusedOrbit = _focusedCameraOrbit;
     final focusOffset = _focusOffset;
     final focusScale = _focusScale;
+    final radarModeActive = widget.demoRadarLevel != _DemoRadarLevel.off;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTap: _showHotspots,
+      onTap: radarModeActive ? null : _showHotspots,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -7856,20 +8008,21 @@ class _VehicleHeroState extends State<_VehicleHero> {
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
-          _VehicleHotspotLayer(
-            visible: _hotspotsVisible,
-            selectedHotspot: _selectedHotspot,
-            levels: _hotspotLevels,
-            onHotspotTap: _selectHotspot,
-            onSetLevel: _setHotspotLevel,
-            onDismiss: _hideHotspots,
-            animationSeed: _hotspotAnimationSeed,
-            allowTrunk: !widget.roadMotionActive,
-            cameraOrbit: focusedOrbit,
-            focusOffset: focusOffset,
-            focusScale: focusScale,
-            focusActive: _selectedHotspot != null && !widget.roadMotionActive,
-          ),
+          if (!radarModeActive)
+            _VehicleHotspotLayer(
+              visible: _hotspotsVisible,
+              selectedHotspot: _selectedHotspot,
+              levels: _hotspotLevels,
+              onHotspotTap: _selectHotspot,
+              onSetLevel: _setHotspotLevel,
+              onDismiss: _hideHotspots,
+              animationSeed: _hotspotAnimationSeed,
+              allowTrunk: !widget.roadMotionActive,
+              cameraOrbit: focusedOrbit,
+              focusOffset: focusOffset,
+              focusScale: focusScale,
+              focusActive: _selectedHotspot != null && !widget.roadMotionActive,
+            ),
         ],
       ),
     );
@@ -7934,7 +8087,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   void _showHotspots() {
-    if (!mounted) return;
+    if (!mounted || widget.demoRadarLevel != _DemoRadarLevel.off) return;
     setState(() => _hotspotsVisible = true);
     _restartHotspotAutoHideTimer();
   }
