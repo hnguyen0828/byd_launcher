@@ -17,8 +17,6 @@ import android.hardware.bydauto.gearbox.AbsBYDAutoGearboxListener
 import android.hardware.bydauto.gearbox.BYDAutoGearboxDevice
 import android.hardware.bydauto.light.AbsBYDAutoLightListener
 import android.hardware.bydauto.light.BYDAutoLightDevice
-import android.hardware.bydauto.radar.AbsBYDAutoRadarListener
-import android.hardware.bydauto.radar.BYDAutoRadarDevice
 import android.hardware.bydauto.speed.AbsBYDAutoSpeedListener
 import android.hardware.bydauto.speed.BYDAutoSpeedDevice
 import android.hardware.bydauto.statistic.AbsBYDAutoStatisticListener
@@ -56,7 +54,6 @@ class VehicleBridge {
         private var attemptedBodyworkDevice = false
         private var attemptedDoorLockDevice = false
         private var attemptedLightDevice = false
-        private var attemptedRadarDevice = false
 
         private var speedDevice: BYDAutoSpeedDevice? = null
         private var statisticDevice: BYDAutoStatisticDevice? = null
@@ -66,7 +63,6 @@ class VehicleBridge {
         private var bodyworkDevice: BYDAutoBodyworkDevice? = null
         private var doorLockDevice: BYDAutoDoorLockDevice? = null
         private var lightDevice: BYDAutoLightDevice? = null
-        private var radarDevice: BYDAutoRadarDevice? = null
         private var deviceManager: BYDAutoDeviceManager? = null
 
         private var speedListener: AbsBYDAutoSpeedListener? = null
@@ -77,7 +73,6 @@ class VehicleBridge {
         private var bodyworkListener: AbsBYDAutoBodyworkListener? = null
         private var doorLockListener: AbsBYDAutoDoorLockListener? = null
         private var lightListener: AbsBYDAutoLightListener? = null
-        private var radarListener: AbsBYDAutoRadarListener? = null
         private var globalManagerListener: BYDAutoManager.OnBYDAutoListener? = null
 
         private const val SNAPSHOT_EMIT_INTERVAL_MS = 3000L
@@ -135,8 +130,6 @@ class VehicleBridge {
         private var cachedBatteryVoltageLevel: Int? = null
         private val cachedLights = mutableMapOf<Int, Int>()
         private var cachedLightAutoStatus: Int? = null
-        private val cachedRadar = mutableMapOf<Int, Int>()
-        private var cachedReverseRadarSwitch: Int? = null
 
         fun register(binaryMessenger: BinaryMessenger, context: Context) {
             appContext = context.applicationContext
@@ -522,7 +515,7 @@ class VehicleBridge {
             }
         }
 
-        private fun pollLightRadarSnapshot() {
+        private fun pollLightSnapshot() {
             lightDevice?.let { device ->
                 val areas = listOf(
                     BYDAutoLightDevice.LIGHT_SIDE,
@@ -539,30 +532,6 @@ class VehicleBridge {
                 }
                 val autoState = safe("light get auto status") { device.getLightAutoStatus() }
                 if (autoState != null) cachedLightAutoStatus = autoState
-            }
-
-            radarDevice?.let { device ->
-                val states = safe("radar get all probe states") { device.getAllRadarProbeStates() }
-                if (states != null) {
-                    states.forEachIndexed { index, state -> cachedRadar[index + 1] = state }
-                } else {
-                    val areas = listOf(
-                        BYDAutoRadarDevice.RADAR_AREA_LEFT_FRONT,
-                        BYDAutoRadarDevice.RADAR_AREA_RIGHT_FRONT,
-                        BYDAutoRadarDevice.RADAR_AREA_LEFT_REAR,
-                        BYDAutoRadarDevice.RADAR_AREA_RIGHT_REAR,
-                        BYDAutoRadarDevice.RADAR_AREA_LEFT,
-                        BYDAutoRadarDevice.RADAR_AREA_RIGHT,
-                        BYDAutoRadarDevice.RADAR_AREA_FRONT_LEFT_MID,
-                        BYDAutoRadarDevice.RADAR_AREA_FRONT_RIGHT_MID,
-                    )
-                    areas.forEach { area ->
-                        val state = safe("radar get probe area=$area") { device.getRadarProbeState(area) }
-                        if (state != null) cachedRadar[area] = state
-                    }
-                }
-                val reverseState = safe("radar get reverse switch") { device.getReverseRadarSwitchState() }
-                if (reverseState != null) cachedReverseRadarSwitch = reverseState
             }
         }
 
@@ -584,7 +553,7 @@ class VehicleBridge {
         private fun getVehicleSnapshot(): Map<String, Any?> {
             pollStatisticSnapshotThrottled()
             pollTyreSnapshotThrottled()
-            pollLightRadarSnapshot()
+            pollLightSnapshot()
 
             val snapshotLogNow = SystemClock.elapsedRealtime()
             if (snapshotLogNow - lastSnapshotLogMs >= 5000L) {
@@ -632,10 +601,6 @@ class VehicleBridge {
                     "auto" to cachedLightAutoStatus,
                     "statuses" to cachedLights.mapKeys { it.key.toString() },
                 ),
-                "radar" to mapOf(
-                    "reverseSwitch" to cachedReverseRadarSwitch,
-                    "probes" to cachedRadar.mapKeys { it.key.toString() },
-                ),
             )
         }
 
@@ -677,22 +642,18 @@ class VehicleBridge {
                 attemptedLightDevice = true
                 lightDevice = safe("get light device") { BYDAutoLightDevice.getInstance(bydContext) }
             }
-            if (!attemptedRadarDevice) {
-                attemptedRadarDevice = true
-                radarDevice = safe("get radar device") { BYDAutoRadarDevice.getInstance(bydContext) }
-            }
             if (deviceManager == null) {
                 deviceManager = safe("get BYDAutoDeviceManager") { BYDAutoDeviceManager.getInstance(bydContext) }
             }
 
-            cachedAvailable = listOf(speedDevice, statisticDevice, tyreDevice, gearboxDevice, acDevice, bodyworkDevice, doorLockDevice, lightDevice, radarDevice).any { it != null }
+            cachedAvailable = listOf(speedDevice, statisticDevice, tyreDevice, gearboxDevice, acDevice, bodyworkDevice, doorLockDevice, lightDevice).any { it != null }
 
             FileLogger.log(
                 appContext,
                 "BYD devices for listener/probe mode: speed=${speedDevice != null}, " +
                     "statistic=${statisticDevice != null}, tyre=${tyreDevice != null}, " +
                     "gearbox=${gearboxDevice != null}, ac=${acDevice != null}, bodywork=${bodyworkDevice != null}, " +
-                    "doorlock=${doorLockDevice != null}, light=${lightDevice != null}, radar=${radarDevice != null}, " +
+                    "doorlock=${doorLockDevice != null}, light=${lightDevice != null}, " +
                     "manager=${deviceManager != null}"
             )
 
@@ -704,7 +665,6 @@ class VehicleBridge {
             logDeviceMethods("bodywork", bodyworkDevice)
             logDeviceMethods("doorlock", doorLockDevice)
             logDeviceMethods("light", lightDevice)
-            logDeviceMethods("radar", radarDevice)
         }
 
         private fun ensureListenersRegistered() {
@@ -725,7 +685,6 @@ class VehicleBridge {
             bodyworkListener = safe("create bodywork listener") { createBodyworkListener() }
             doorLockListener = safe("create doorlock listener") { createDoorLockListener() }
             lightListener = safe("create light listener") { createLightListener() }
-            radarListener = safe("create radar listener") { createRadarListener() }
 
             // Safe statistic mode:
             // - Keep typed listeners for speed/gear/tyre/bodywork.
@@ -745,7 +704,6 @@ class VehicleBridge {
             bodyworkListener?.let { listener -> registerTyped("bodywork") { bodyworkDevice?.registerListener(listener) } }
             doorLockListener?.let { listener -> registerTyped("doorlock") { doorLockDevice?.registerListener(listener) } }
             lightListener?.let { listener -> registerTyped("light") { lightDevice?.registerListener(listener) } }
-            radarListener?.let { listener -> registerTyped("radar") { radarDevice?.registerListener(listener) } }
 
             FileLogger.log(appContext, "BYD next map listener registration completed/attempted")
         }
@@ -1069,7 +1027,6 @@ class VehicleBridge {
             enableDevice(manager, "bodywork", bodyworkDevice)
             enableDevice(manager, "doorlock", doorLockDevice)
             enableDevice(manager, "light", lightDevice)
-            enableDevice(manager, "radar", radarDevice)
         }
 
         private fun enableDevice(manager: BYDAutoDeviceManager, label: String, device: IBYDAutoDevice?) {
@@ -1384,23 +1341,6 @@ class VehicleBridge {
                 }
             }
         }
-
-        private fun createRadarListener(): AbsBYDAutoRadarListener {
-            return object : AbsBYDAutoRadarListener() {
-                override fun onRadarProbeStateChanged(area: Int, state: Int) {
-                    cachedRadar[area] = state
-                    logRealtime("RADAR CALLBACK area=$area state=$state")
-                    emitSnapshot()
-                }
-
-                override fun onReverseRadarSwitchStateChanged(state: Int) {
-                    cachedReverseRadarSwitch = state
-                    logRealtime("RADAR CALLBACK reverseSwitch=$state")
-                    emitSnapshot()
-                }
-            }
-        }
-
         private fun createDoorLockListener(): AbsBYDAutoDoorLockListener {
             return object : AbsBYDAutoDoorLockListener() {
                 override fun onDoorLockStatusChanged(area: Int, state: Int) {

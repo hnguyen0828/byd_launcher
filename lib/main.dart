@@ -19,7 +19,6 @@ const String _vehicleModelPreferenceKey = 'launcher.vehicleModelAsset';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
 const String _lightEffectEnabledPreferenceKey = 'launcher.lightEffectEnabled';
-const String _radarEffectEnabledPreferenceKey = 'launcher.radarEffectEnabled';
 const String _debugModePreferenceKey = 'launcher.debugMode';
 const String _layoutModePreferenceKey = 'launcher.layoutMode';
 const String _landscapeSidebarPositionPreferenceKey =
@@ -86,8 +85,6 @@ class _VehicleSnapshot {
     this.tpms = const {},
     this.windowLevels = const {},
     this.lightMode = _DemoLightMode.off,
-    this.radarLevel = _DemoRadarLevel.off,
-    this.radarZone = _DemoRadarZone.rear,
   });
 
   factory _VehicleSnapshot.fromMap(Map<dynamic, dynamic> map) {
@@ -95,7 +92,6 @@ class _VehicleSnapshot {
     final bodyworkMap = map['bodywork'];
     final windowsMap = bodyworkMap is Map ? bodyworkMap['windows'] : null;
     final lightMap = map['lights'];
-    final radarMap = map['radar'];
     return _VehicleSnapshot(
       available: map['available'] == true,
       speedKmh: _doubleFromMap(map, 'speedKmh'),
@@ -114,8 +110,6 @@ class _VehicleSnapshot {
           : const {},
       windowLevels: _windowLevelsFromMap(windowsMap),
       lightMode: _lightModeFromMap(lightMap),
-      radarLevel: _radarLevelFromMap(radarMap),
-      radarZone: _radarZoneFromMap(radarMap),
     );
   }
 
@@ -129,8 +123,6 @@ class _VehicleSnapshot {
   final Map<String, _TyreSnapshot> tpms;
   final Map<int, double> windowLevels;
   final _DemoLightMode lightMode;
-  final _DemoRadarLevel radarLevel;
-  final _DemoRadarZone radarZone;
 
   _TyreSnapshot tyre(String key) => tpms[key] ?? const _TyreSnapshot();
 }
@@ -152,54 +144,6 @@ _DemoLightMode _lightModeFromMap(Object? lightMap) {
   if (on.contains(2)) return _DemoLightMode.lowBeam;
   if (on.contains(1) || lightMap['auto'] == 1) return _DemoLightMode.auto;
   return _DemoLightMode.off;
-}
-
-_DemoRadarLevel _radarLevelFromMap(Object? radarMap) {
-  if (radarMap is! Map) return _DemoRadarLevel.off;
-  final probes = radarMap['probes'];
-  if (probes is! Map || probes.isEmpty) return _DemoRadarLevel.off;
-  var maxState = 0;
-  for (final value in probes.values) {
-    if (value is num) maxState = math.max(maxState, value.toInt());
-  }
-  return switch (maxState) {
-    4 => _DemoRadarLevel.veryClose,
-    3 => _DemoRadarLevel.close,
-    2 => _DemoRadarLevel.far,
-    1 => _DemoRadarLevel.safe,
-    _ => _DemoRadarLevel.off,
-  };
-}
-
-_DemoRadarZone _radarZoneFromMap(Object? radarMap) {
-  if (radarMap is! Map) return _DemoRadarZone.rear;
-  final probes = radarMap['probes'];
-  if (probes is! Map || probes.isEmpty) return _DemoRadarZone.rear;
-  final active = <int>[];
-  for (final entry in probes.entries) {
-    final area = int.tryParse(entry.key.toString());
-    final state = entry.value is num ? (entry.value as num).toInt() : 0;
-    if (area != null && state > 0) active.add(area);
-  }
-  if (active.isEmpty) return _DemoRadarZone.rear;
-  final front = active.any(
-    (area) => area == 1 || area == 2 || area == 7 || area == 8,
-  );
-  final rear = active.any((area) => area == 3 || area == 4);
-  final left = active.any(
-    (area) => area == 1 || area == 3 || area == 5 || area == 7,
-  );
-  final right = active.any(
-    (area) => area == 2 || area == 4 || area == 6 || area == 8,
-  );
-  if ((front && rear) || (left && right && active.length > 1)) {
-    return _DemoRadarZone.all;
-  }
-  if (front) return _DemoRadarZone.front;
-  if (rear) return _DemoRadarZone.rear;
-  if (left) return _DemoRadarZone.left;
-  if (right) return _DemoRadarZone.right;
-  return _DemoRadarZone.rear;
 }
 
 Map<int, double> _windowLevelsFromMap(Object? windowsMap) {
@@ -308,9 +252,30 @@ class _LauncherApp {
 
 const List<_NavigationApp> _previewNavigationApps = [
   _NavigationApp(label: 'BYD', packageName: 'com.byd.navigation'),
-  _NavigationApp(label: 'Google', packageName: 'com.google.android.apps.maps'),
+  _NavigationApp(label: 'Google Map', packageName: 'com.google.android.apps.maps'),
   _NavigationApp(label: 'Waze', packageName: 'com.waze'),
 ];
+
+String _navigationAppDisplayLabel(_NavigationApp app) {
+  final packageName = app.packageName.toLowerCase();
+  final label = app.label.trim();
+  if (packageName == 'com.google.android.apps.maps' ||
+      label.toLowerCase() == 'maps' ||
+      label.toLowerCase() == 'google maps') {
+    return 'Google Map';
+  }
+  if (packageName == 'com.waze' || label.toLowerCase().contains('waze')) {
+    return 'Waze';
+  }
+  return label.isEmpty ? app.packageName : label;
+}
+
+int _navigationAppSortRank(_NavigationApp app) {
+  final packageName = app.packageName.toLowerCase();
+  if (packageName == 'com.google.android.apps.maps') return 0;
+  if (packageName == 'com.waze') return 1;
+  return 2;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -572,9 +537,7 @@ enum _VehicleGear { p, r, n, d }
 
 enum _DemoLightMode { off, auto, lowBeam, highBeam, fog, turnLeft, turnRight }
 
-enum _DemoRadarLevel { off, safe, far, medium, close, veryClose }
 
-enum _DemoRadarZone { rear, front, left, right, all }
 
 enum _VehicleRenderQuality { low, medium, high }
 
@@ -662,11 +625,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'system': 'System',
     'renderQuality': '3D render quality',
     'lightEffect': 'Light effect',
-    'lightEffectSubtitle': 'Show the animated beam overlay on the vehicle.',
-    'radarEffect': 'Radar effect',
-    'radarEffectSubtitle': 'Show the animated parking radar overlay.',
-    'debugMode': 'Debug mode',
-    'debugModeSubtitle': 'Enable demo gear, light and radar controls.',
+    'lightEffectSubtitle': 'Show the animated beam overlay on the vehicle.',    'debugMode': 'Debug mode',
+    'debugModeSubtitle': 'Enable demo gear and light controls.',
     'ambientSubtitle': 'Use images from the app Ambient folder.',
     'showAmbientButton': 'Show Ambient button',
     'showAmbientButtonSubtitle':
@@ -734,11 +694,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'system': 'Hệ thống',
     'renderQuality': 'Chất lượng 3D',
     'lightEffect': 'Hiệu ứng đèn',
-    'lightEffectSubtitle': 'Hiển thị animation luồng sáng trên xe.',
-    'radarEffect': 'Hiệu ứng radar',
-    'radarEffectSubtitle': 'Hiển thị animation radar quanh xe.',
-    'debugMode': 'Debug mode',
-    'debugModeSubtitle': 'Bật điều khiển demo số, đèn và radar.',
+    'lightEffectSubtitle': 'Hiển thị animation luồng sáng trên xe.',    'debugMode': 'Debug mode',
+    'debugModeSubtitle': 'Bật điều khiển demo số và đèn.',
     'ambientSubtitle': 'Dùng ảnh từ thư mục Ambient của app.',
     'showAmbientButton': 'Hiện nút Ambient',
     'showAmbientButtonSubtitle': 'Hiện hoặc ẩn tab Ambient ở dock dưới.',
@@ -965,11 +922,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   bool _transitionLoading = false;
   double _vehicleSpeedKmh = 0;
   _DemoLightMode _demoLightMode = _DemoLightMode.off;
-  _DemoRadarLevel _demoRadarLevel = _DemoRadarLevel.off;
-  _DemoRadarZone _demoRadarZone = _DemoRadarZone.rear;
   bool _lightEffectEnabled = true;
-  bool _radarEffectEnabled = true;
   bool _debugModeEnabled = false;
+  bool _keepLightCameraOrbitAfterOff = false;
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
@@ -978,6 +933,12 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _effectiveGear == _VehicleGear.d || _effectiveGear == _VehicleGear.r;
 
   bool get _reverseRoadMotion => _effectiveGear == _VehicleGear.r;
+
+  bool get _lightEffectCameraActive {
+    if (!_lightEffectEnabled) return false;
+    if (_vehicleSnapshot.lightMode != _DemoLightMode.off) return true;
+    return _debugModeEnabled && _demoLightMode != _DemoLightMode.off;
+  }
 
   _VehicleGear get _effectiveGear => _vehicleSnapshot.gear ?? _selectedGear;
 
@@ -1033,7 +994,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   String get _cameraOrbit {
-    if (_roadMotionActive) {
+    if (_roadMotionActive || _lightEffectCameraActive || _keepLightCameraOrbitAfterOff) {
       return '180deg 78deg 99%';
     }
 
@@ -1105,19 +1066,16 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       reverseRoadMotion: _reverseRoadMotion,
                       vehicleSpeedKmh: _effectiveSpeedKmh,
                       demoLightMode: _demoLightMode,
-                      demoRadarLevel: _demoRadarLevel,
-                      demoRadarZone: _demoRadarZone,
                       debugModeEnabled: _debugModeEnabled,
                       onDemoLightModeChanged: (mode) =>
-                          setState(() => _demoLightMode = mode),
-                      onDemoRadarLevelChanged: (level) =>
-                          setState(() => _demoRadarLevel = level),
-                      onDemoRadarZoneChanged: (zone) =>
-                          setState(() => _demoRadarZone = zone),
+                          _setDemoLightMode(mode),
                       effectiveGear: _effectiveGear,
                       vehicleSnapshot: _vehicleSnapshot,
                       onGearChanged: _setGear,
-                      onViewChanged: (view) => setState(() => _view = view),
+                      onViewChanged: (view) => setState(() {
+                        _view = view;
+                        _keepLightCameraOrbitAfterOff = false;
+                      }),
                       onTabChanged: _handleTabChanged,
                       onVehicleModelChanged: _setVehicleModel,
                       onVehicleColorChanged: _setVehicleColor,
@@ -1145,9 +1103,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       onWallpaperButtonEnabledChanged:
                           _setWallpaperButtonEnabled,
                       lightEffectEnabled: _lightEffectEnabled,
-                      radarEffectEnabled: _radarEffectEnabled,
                       onLightEffectEnabledChanged: _setLightEffectEnabled,
-                      onRadarEffectEnabledChanged: _setRadarEffectEnabled,
                       onDebugModeChanged: _setDebugModeEnabled,
                       themeMode: widget.themeMode,
                       onThemeModeChanged: widget.onThemeModeChanged,
@@ -1217,6 +1173,41 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _scheduleWallpaperTimer();
   }
 
+  bool get _parkOrNeutralGear =>
+      _effectiveGear == _VehicleGear.p || _effectiveGear == _VehicleGear.n;
+
+  void _setDemoLightMode(_DemoLightMode mode) {
+    setState(() {
+      final wasLightActive =
+          _demoLightMode != _DemoLightMode.off ||
+          _vehicleSnapshot.lightMode != _DemoLightMode.off;
+      _demoLightMode = mode;
+      if (!_parkOrNeutralGear) {
+        _keepLightCameraOrbitAfterOff = false;
+      } else if (mode == _DemoLightMode.off && wasLightActive) {
+        _keepLightCameraOrbitAfterOff = true;
+      } else if (mode != _DemoLightMode.off) {
+        _keepLightCameraOrbitAfterOff = false;
+      }
+    });
+  }
+
+  void _applyVehicleSnapshot(_VehicleSnapshot snapshot) {
+    final wasLightActive = _vehicleSnapshot.lightMode != _DemoLightMode.off ||
+        (_debugModeEnabled && _demoLightMode != _DemoLightMode.off);
+    final isLightActive = snapshot.lightMode != _DemoLightMode.off ||
+        (_debugModeEnabled && _demoLightMode != _DemoLightMode.off);
+    final gear = snapshot.gear ?? _selectedGear;
+    final parkOrNeutral = gear == _VehicleGear.p || gear == _VehicleGear.n;
+
+    _vehicleSnapshot = snapshot;
+    if (!parkOrNeutral || isLightActive) {
+      _keepLightCameraOrbitAfterOff = false;
+    } else if (wasLightActive && !isLightActive) {
+      _keepLightCameraOrbitAfterOff = true;
+    }
+  }
+
   void _showTransitionLoading({
     Duration duration = const Duration(milliseconds: 620),
   }) {
@@ -1233,6 +1224,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   void _setGear(_VehicleGear gear) {
     setState(() {
       _selectedGear = gear;
+      _keepLightCameraOrbitAfterOff = false;
       _vehicleSpeedKmh = switch (gear) {
         _VehicleGear.d => 24,
         _VehicleGear.r => 8,
@@ -1297,8 +1289,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     );
     final lightEffectEnabled =
         prefs.getBool(_lightEffectEnabledPreferenceKey) ?? true;
-    final radarEffectEnabled =
-        prefs.getBool(_radarEffectEnabledPreferenceKey) ?? true;
     final debugModeEnabled = prefs.getBool(_debugModePreferenceKey) ?? false;
     await _applyLayoutModeOrientation(layoutMode);
     if (!mounted) return;
@@ -1306,7 +1296,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _layoutMode = layoutMode;
       _landscapeSidebarPosition = sidebarPosition;
       _lightEffectEnabled = lightEffectEnabled;
-      _radarEffectEnabled = radarEffectEnabled;
       _debugModeEnabled = debugModeEnabled;
     });
   }
@@ -1329,11 +1318,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     await prefs.setBool(_lightEffectEnabledPreferenceKey, value);
   }
 
-  Future<void> _setRadarEffectEnabled(bool value) async {
-    setState(() => _radarEffectEnabled = value);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_radarEffectEnabledPreferenceKey, value);
-  }
 
   Future<void> _setLayoutMode(_LauncherLayoutMode value) async {
     if (value == _layoutMode) return;
@@ -1373,9 +1357,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _launchNavigationWithLauncher = effectiveLaunchWithLauncher;
     });
 
-    if (effectiveLaunchWithLauncher) {
-      unawaited(_launchNavigationApp(selectedPackage));
-    }
+    // Keep the selected navigation app ready for the embedded Navigation tab,
+    // but do not bring the external map app to the foreground on launcher start.
+    // The embedded virtual-display map is created only when the Navigation tab is opened.
   }
 
   Future<List<_NavigationApp>> _loadNavigationAppsFromPlatform() async {
@@ -1387,7 +1371,16 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
           .whereType<Map<dynamic, dynamic>>()
           .map(_NavigationApp.fromMap)
           .where((app) => app.label.isNotEmpty && app.packageName.isNotEmpty)
-          .toList();
+          .toList()
+        ..sort((a, b) {
+          final rank = _navigationAppSortRank(a).compareTo(
+            _navigationAppSortRank(b),
+          );
+          if (rank != 0) return rank;
+          return _navigationAppDisplayLabel(
+            a,
+          ).toLowerCase().compareTo(_navigationAppDisplayLabel(b).toLowerCase());
+        });
       return apps;
     } catch (_) {
       return defaultTargetPlatform == TargetPlatform.android
@@ -1675,13 +1668,13 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         'getVehicleSnapshot',
       );
       if (!mounted || data == null) return;
-      setState(() => _vehicleSnapshot = _VehicleSnapshot.fromMap(data));
+      setState(() => _applyVehicleSnapshot(_VehicleSnapshot.fromMap(data)));
     } catch (_) {}
   }
 
   void _handleVehicleSnapshotEvent(dynamic value) {
     if (!mounted || value is! Map) return;
-    setState(() => _vehicleSnapshot = _VehicleSnapshot.fromMap(value));
+    setState(() => _applyVehicleSnapshot(_VehicleSnapshot.fromMap(value)));
   }
 }
 
@@ -3916,14 +3909,9 @@ class _VehicleCanvas extends StatelessWidget {
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
     required this.demoLightMode,
-    required this.demoRadarLevel,
-    required this.demoRadarZone,
     required this.debugModeEnabled,
     required this.lightEffectEnabled,
-    required this.radarEffectEnabled,
     required this.onDemoLightModeChanged,
-    required this.onDemoRadarLevelChanged,
-    required this.onDemoRadarZoneChanged,
     required this.effectiveGear,
     required this.vehicleSnapshot,
     required this.onGearChanged,
@@ -3951,7 +3939,6 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onWallpaperIntervalChanged,
     required this.onWallpaperButtonEnabledChanged,
     required this.onLightEffectEnabledChanged,
-    required this.onRadarEffectEnabledChanged,
     required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -3974,14 +3961,9 @@ class _VehicleCanvas extends StatelessWidget {
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
   final _DemoLightMode demoLightMode;
-  final _DemoRadarLevel demoRadarLevel;
-  final _DemoRadarZone demoRadarZone;
   final bool debugModeEnabled;
   final bool lightEffectEnabled;
-  final bool radarEffectEnabled;
   final ValueChanged<_DemoLightMode> onDemoLightModeChanged;
-  final ValueChanged<_DemoRadarLevel> onDemoRadarLevelChanged;
-  final ValueChanged<_DemoRadarZone> onDemoRadarZoneChanged;
   final _VehicleGear effectiveGear;
   final _VehicleSnapshot vehicleSnapshot;
   final ValueChanged<_VehicleGear> onGearChanged;
@@ -4009,7 +3991,6 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<int> onWallpaperIntervalChanged;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final ValueChanged<bool> onLightEffectEnabledChanged;
-  final ValueChanged<bool> onRadarEffectEnabledChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -4020,23 +4001,14 @@ class _VehicleCanvas extends StatelessWidget {
   Widget build(BuildContext context) {
     final wallpaperMode = activeTab == _LauncherTab.wallpaper;
     final portraitMode = layoutMode == _LauncherLayoutMode.portrait;
-    final demoEffectsAllowed =
-        effectiveGear == _VehicleGear.d || effectiveGear == _VehicleGear.r;
-    final visibleDemoLightMode = vehicleSnapshot.lightMode != _DemoLightMode.off
+    final candidateLightMode = vehicleSnapshot.lightMode != _DemoLightMode.off
         ? vehicleSnapshot.lightMode
-        : demoEffectsAllowed && debugModeEnabled && lightEffectEnabled
+        : debugModeEnabled
         ? demoLightMode
         : _DemoLightMode.off;
-    final visibleDemoRadarLevel =
-        vehicleSnapshot.radarLevel != _DemoRadarLevel.off
-        ? vehicleSnapshot.radarLevel
-        : demoEffectsAllowed && debugModeEnabled && radarEffectEnabled
-        ? demoRadarLevel
-        : _DemoRadarLevel.off;
-    final visibleDemoRadarZone =
-        vehicleSnapshot.radarLevel != _DemoRadarLevel.off
-        ? vehicleSnapshot.radarZone
-        : demoRadarZone;
+    final visibleDemoLightMode = lightEffectEnabled
+        ? candidateLightMode
+        : _DemoLightMode.off;
 
     return Padding(
       padding: wallpaperMode
@@ -4046,6 +4018,26 @@ class _VehicleCanvas extends StatelessWidget {
           : const EdgeInsets.fromLTRB(26, 28, 38, 28),
       child: Stack(
         children: [
+          Positioned.fill(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: wallpaperMode ? 0 : 68,
+            child: IgnorePointer(
+              ignoring: activeTab != _LauncherTab.map,
+              child: Opacity(
+                opacity: activeTab == _LauncherTab.map ? 1.0 : 0.0,
+                child: _NavigationPanel(
+                  key: const ValueKey('navigation-persistent'),
+                  apps: navigationApps,
+                  selectedPackage: selectedNavigationPackage,
+                  onAppSelected: onDefaultNavigationAppChanged,
+                  onReload: onNavigationReloadRequested,
+                  onOpen: onDefaultNavigationOpenRequested,
+                ),
+              ),
+            ),
+          ),
           Positioned.fill(
             left: 0,
             top: 0,
@@ -4066,8 +4058,6 @@ class _VehicleCanvas extends StatelessWidget {
                   vehicleSpeedKmh: vehicleSpeedKmh,
                   windowLevels: vehicleSnapshot.windowLevels,
                   demoLightMode: visibleDemoLightMode,
-                  demoRadarLevel: visibleDemoRadarLevel,
-                  demoRadarZone: visibleDemoRadarZone,
                 ),
               ),
             ),
@@ -4083,12 +4073,13 @@ class _VehicleCanvas extends StatelessWidget {
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeOutCubic,
                 layoutBuilder: (currentChild, previousChildren) {
+                  // Do not keep previous tab surfaces alive during tab transitions.
+                  // Embedded navigation uses a native VirtualDisplay; retaining the
+                  // previous Navigation child here can leave the map Activity alive
+                  // briefly and let it jump to the main/fullscreen display on some ROMs.
                   return Stack(
                     fit: StackFit.expand,
                     children: [
-                      ...previousChildren.map(
-                        (child) => Positioned.fill(child: child),
-                      ),
                       if (currentChild != null)
                         Positioned.fill(child: currentChild),
                     ],
@@ -4123,10 +4114,8 @@ class _VehicleCanvas extends StatelessWidget {
                     onWallpaperButtonEnabledChanged:
                         onWallpaperButtonEnabledChanged,
                     lightEffectEnabled: lightEffectEnabled,
-                    radarEffectEnabled: radarEffectEnabled,
                     debugModeEnabled: debugModeEnabled,
                     onLightEffectEnabledChanged: onLightEffectEnabledChanged,
-                    onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
                     onDebugModeChanged: onDebugModeChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
@@ -4140,13 +4129,8 @@ class _VehicleCanvas extends StatelessWidget {
                     imageIndex: wallpaperIndex,
                     onReload: onWallpaperReloadRequested,
                   ),
-                  _ => _NavigationPanel(
-                    key: const ValueKey('navigation'),
-                    apps: navigationApps,
-                    selectedPackage: selectedNavigationPackage,
-                    onAppSelected: onDefaultNavigationAppChanged,
-                    onReload: onNavigationReloadRequested,
-                    onOpen: onDefaultNavigationOpenRequested,
+                  _ => const SizedBox.shrink(
+                    key: ValueKey('navigation-overlay-placeholder'),
                   ),
                 },
               ),
@@ -4161,11 +4145,7 @@ class _VehicleCanvas extends StatelessWidget {
                 onRear: () => onViewChanged(_VehicleView.rear),
                 debugModeEnabled: debugModeEnabled,
                 lightMode: demoLightMode,
-                radarLevel: demoRadarLevel,
-                radarZone: demoRadarZone,
                 onLightModeChanged: onDemoLightModeChanged,
-                onRadarLevelChanged: onDemoRadarLevelChanged,
-                onRadarZoneChanged: onDemoRadarZoneChanged,
               ),
             ),
           if (activeTab == _LauncherTab.status)
@@ -4214,8 +4194,6 @@ class _VehicleStage extends StatelessWidget {
     required this.vehicleSpeedKmh,
     required this.windowLevels,
     required this.demoLightMode,
-    required this.demoRadarLevel,
-    required this.demoRadarZone,
   });
 
   final bool enable3dModel;
@@ -4228,8 +4206,6 @@ class _VehicleStage extends StatelessWidget {
   final double vehicleSpeedKmh;
   final Map<int, double> windowLevels;
   final _DemoLightMode demoLightMode;
-  final _DemoRadarLevel demoRadarLevel;
-  final _DemoRadarZone demoRadarZone;
 
   @override
   Widget build(BuildContext context) {
@@ -4246,15 +4222,13 @@ class _VehicleStage extends StatelessWidget {
           vehicleSpeedKmh: vehicleSpeedKmh,
           windowLevels: windowLevels,
           demoLightMode: demoLightMode,
-          demoRadarLevel: demoRadarLevel,
-          demoRadarZone: demoRadarZone,
         ),
       ),
     );
   }
 }
 
-class _NavigationPanel extends StatelessWidget {
+class _NavigationPanel extends StatefulWidget {
   const _NavigationPanel({
     required this.apps,
     required this.selectedPackage,
@@ -4270,11 +4244,36 @@ class _NavigationPanel extends StatelessWidget {
   final VoidCallback onReload;
   final VoidCallback onOpen;
 
+  @override
+  State<_NavigationPanel> createState() => _NavigationPanelState();
+}
+
+class _NavigationPanelState extends State<_NavigationPanel> {
+  bool _barCollapsed = false;
+  int _restartSeed = 0;
+
   _NavigationApp? get _selectedApp {
-    for (final app in apps) {
-      if (app.packageName == selectedPackage) return app;
+    for (final app in widget.apps) {
+      if (app.packageName == widget.selectedPackage) return app;
     }
-    return apps.isEmpty ? null : apps.first;
+    return widget.apps.isEmpty ? null : widget.apps.first;
+  }
+
+  List<_NavigationApp> get _primaryApps {
+    final primary = widget.apps.where((app) {
+      final packageName = app.packageName.toLowerCase();
+      return packageName == 'com.google.android.apps.maps' ||
+          packageName == 'com.waze';
+    }).toList()
+      ..sort((a, b) => _navigationAppSortRank(a).compareTo(_navigationAppSortRank(b)));
+
+    if (primary.isNotEmpty) return primary;
+    return widget.apps.take(3).toList();
+  }
+
+  void _restartSelectedMap() {
+    widget.onReload();
+    setState(() => _restartSeed++);
   }
 
   @override
@@ -4285,6 +4284,7 @@ class _NavigationPanel extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(28),
       child: Stack(
+        fit: StackFit.expand,
         children: [
           Positioned.fill(
             child: DecoratedBox(
@@ -4309,45 +4309,59 @@ class _NavigationPanel extends StatelessWidget {
             ),
           ),
           Positioned.fill(
+            child: _EmbeddedNavigationSurface(
+              app: selectedApp,
+              restartSeed: _restartSeed,
+              onOpen: selectedApp == null ? null : widget.onOpen,
+            ),
+          ),
+          Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(0.18, -0.10),
-                    radius: 0.88,
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                     colors: [
-                      _accentSoftBlue.withValues(alpha: 0.18),
+                      Colors.black.withValues(alpha: light ? 0.08 : 0.24),
                       Colors.transparent,
+                      Colors.black.withValues(alpha: light ? 0.04 : 0.18),
                     ],
+                    stops: const [0.0, 0.42, 1.0],
                   ),
                 ),
               ),
             ),
           ),
           Positioned(
-            top: 16,
-            left: 18,
-            right: 188,
-            child: _NavigationAppPicker(
-              apps: apps,
-              selectedPackage: selectedApp?.packageName,
-              onAppSelected: onAppSelected,
-              onReload: onReload,
-            ),
-          ),
-          Positioned(
-            top: 22,
-            right: 22,
-            child: _MapStatusPill(icon: Icons.gps_fixed, label: 'GPS Ready'),
-          ),
-          Positioned.fill(
+            top: 14,
             left: 16,
-            top: 82,
             right: 16,
-            bottom: 16,
-            child: _EmbeddedNavigationSurface(
-              app: selectedApp,
-              onOpen: selectedApp == null ? null : onOpen,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeOutCubic,
+              child: _barCollapsed
+                  ? Align(
+                      key: const ValueKey('navigation-bar-collapsed'),
+                      alignment: Alignment.topCenter,
+                      child: _NavigationCollapsedButton(
+                        app: selectedApp,
+                        onTap: () => setState(() => _barCollapsed = false),
+                      ),
+                    )
+                  : Align(
+                      key: const ValueKey('navigation-bar-expanded'),
+                      alignment: Alignment.topCenter,
+                      child: _NavigationAppPicker(
+                        apps: widget.apps,
+                        primaryApps: _primaryApps,
+                        selectedPackage: selectedApp?.packageName,
+                        onAppSelected: widget.onAppSelected,
+                        onReload: _restartSelectedMap,
+                        onCollapse: () => setState(() => _barCollapsed = true),
+                      ),
+                    ),
             ),
           ),
         ],
@@ -4357,46 +4371,40 @@ class _NavigationPanel extends StatelessWidget {
 }
 
 class _EmbeddedNavigationSurface extends StatelessWidget {
-  const _EmbeddedNavigationSurface({required this.app, required this.onOpen});
+  const _EmbeddedNavigationSurface({
+    required this.app,
+    required this.restartSeed,
+    required this.onOpen,
+  });
 
   final _NavigationApp? app;
+  final int restartSeed;
   final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
     final app = this.app;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: _isLight(context)
-              ? Colors.white.withValues(alpha: 0.58)
-              : Colors.black.withValues(alpha: 0.18),
-          border: Border.all(
-            color: _isLight(context)
-                ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
-                : Colors.white.withValues(alpha: 0.055),
-          ),
-        ),
-        child: app == null
-            ? const _EmbeddedNavigationFallback(
-                icon: Icons.map_outlined,
-                title: 'No map app installed',
-                subtitle: 'Install a navigation app, then tap reload above.',
-              )
-            : defaultTargetPlatform == TargetPlatform.android
-            ? _NavigationVirtualDisplayView(
-                key: ValueKey('navigation-vd-${app.packageName}'),
-                app: app,
-              )
-            : _EmbeddedNavigationFallback(
-                icon: Icons.map_outlined,
-                title: app.label,
-                subtitle: 'Embedded navigation is available on Android.',
-                onTap: onOpen,
-              ),
-      ),
+    if (app == null) {
+      return const _EmbeddedNavigationFallback(
+        icon: Icons.map_outlined,
+        title: 'No map app installed',
+        subtitle: 'Install Google Map or Waze, then tap reload above.',
+      );
+    }
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return _NavigationVirtualDisplayView(
+        key: ValueKey('navigation-vd-${app.packageName}-$restartSeed'),
+        app: app,
+      );
+    }
+
+    return _EmbeddedNavigationFallback(
+      icon: Icons.map_outlined,
+      title: _navigationAppDisplayLabel(app),
+      subtitle: 'Embedded navigation is available on Android.',
+      onTap: onOpen,
     );
   }
 }
@@ -4456,7 +4464,7 @@ class _NavigationVirtualDisplayViewState
         if (textureId == null) {
           return _EmbeddedNavigationFallback(
             icon: Icons.map_outlined,
-            title: widget.app.label,
+            title: _navigationAppDisplayLabel(widget.app),
             subtitle: _error == null
                 ? 'Starting embedded navigation...'
                 : 'Virtual display could not start.',
@@ -4554,6 +4562,8 @@ class _NavigationVirtualDisplayViewState
   void _disposeSession() {
     final textureId = _textureId;
     if (textureId == null) return;
+    _textureId = null;
+    _textureSize = null;
     unawaited(
       _navigationVdChannel
           .invokeMethod<Object?>('dispose', {'textureId': textureId})
@@ -4619,15 +4629,19 @@ class _EmbeddedNavigationFallback extends StatelessWidget {
 class _NavigationAppPicker extends StatelessWidget {
   const _NavigationAppPicker({
     required this.apps,
+    required this.primaryApps,
     required this.selectedPackage,
     required this.onAppSelected,
     required this.onReload,
+    required this.onCollapse,
   });
 
   final List<_NavigationApp> apps;
+  final List<_NavigationApp> primaryApps;
   final String? selectedPackage;
   final ValueChanged<_NavigationApp> onAppSelected;
   final VoidCallback onReload;
+  final VoidCallback onCollapse;
 
   @override
   Widget build(BuildContext context) {
@@ -4640,84 +4654,200 @@ class _NavigationAppPicker extends StatelessWidget {
       }
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+    return GestureDetector(
+      onDoubleTap: onCollapse,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          constraints: const BoxConstraints(minHeight: 52, maxWidth: 620),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: light
-                ? Colors.white.withValues(alpha: 0.74)
-                : const Color(0xFF07101A).withValues(alpha: 0.70),
+                ? Colors.white.withValues(alpha: 0.54)
+                : const Color(0xFF06111D).withValues(alpha: 0.52),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
               color: light
-                  ? Colors.white.withValues(alpha: 0.86)
-                  : Colors.white.withValues(alpha: 0.08),
+                  ? Colors.white.withValues(alpha: 0.62)
+                  : Colors.white.withValues(alpha: 0.14),
             ),
-          ),
-          child: Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              const Icon(Icons.apps_outlined, color: _accentSoftBlue, size: 19),
-              Text(
-                'Navigation app',
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.labelLarge,
-                  color: _textPrimary,
-                  weight: FontWeight.w700,
-                  size: 13,
-                ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: light ? 0.09 : 0.26),
+                blurRadius: 34,
+                offset: const Offset(0, 16),
               ),
-              _NavigationTopIconButton(
-                icon: Icons.refresh_rounded,
-                tooltip: 'Reload navigation apps',
-                onTap: onReload,
-              ),
-              for (final app in apps.take(5))
-                _NavigationAppChip(
-                  label: app.label,
-                  selected: app.packageName == selectedPackage,
-                  onTap: () => onAppSelected(app),
-                ),
-              PopupMenuButton<_NavigationApp>(
-                tooltip: 'Choose navigation app',
-                enabled: apps.isNotEmpty,
-                onSelected: onAppSelected,
-                itemBuilder: (context) => [
-                  for (final app in apps)
-                    PopupMenuItem<_NavigationApp>(
-                      value: app,
-                      child: Text(app.label),
-                    ),
-                ],
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      selectedApp == null ? 'Choose' : 'Change',
-                      style: _sharp(
-                        context,
-                        Theme.of(context).textTheme.labelSmall,
-                        color: _textSecondary,
-                        weight: FontWeight.w700,
-                        size: 11.5,
-                      ),
-                    ),
-                    Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: _tone(context, _textSecondary),
-                      size: 20,
-                    ),
-                  ],
-                ),
+              BoxShadow(
+                color: _accentSoftBlue.withValues(alpha: light ? 0.10 : 0.16),
+                blurRadius: 24,
+                offset: const Offset(0, 0),
               ),
             ],
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _accentSoftBlue.withValues(alpha: light ? 0.16 : 0.20),
+                    border: Border.all(
+                      color: _accentSoftBlue.withValues(alpha: 0.26),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.navigation_rounded,
+                    color: _accentSoftBlue,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Navigation',
+                  style: _sharp(
+                    context,
+                    Theme.of(context).textTheme.labelLarge,
+                    color: _textPrimary,
+                    weight: FontWeight.w800,
+                    size: 13,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                for (final app in primaryApps) ...[
+                  _NavigationAppChip(
+                    app: app,
+                    selected: app.packageName == selectedPackage,
+                    onTap: () => onAppSelected(app),
+                  ),
+                  const SizedBox(width: 7),
+                ],
+                _NavigationTopIconButton(
+                  icon: Icons.refresh_rounded,
+                  tooltip: 'Restart selected map',
+                  onTap: onReload,
+                ),
+                const SizedBox(width: 4),
+                _NavigationTopIconButton(
+                  icon: Icons.fullscreen_rounded,
+                  tooltip: 'Hide navigation controls',
+                  onTap: onCollapse,
+                ),
+                const SizedBox(width: 4),
+                PopupMenuButton<_NavigationApp>(
+                  tooltip: 'Choose navigation app',
+                  enabled: apps.isNotEmpty,
+                  onSelected: onAppSelected,
+                  itemBuilder: (context) => [
+                    for (final app in apps)
+                      PopupMenuItem<_NavigationApp>(
+                        value: app,
+                        child: Text(_navigationAppDisplayLabel(app)),
+                      ),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 4, right: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          selectedApp == null
+                              ? 'Choose'
+                              : _navigationAppDisplayLabel(selectedApp),
+                          style: _sharp(
+                            context,
+                            Theme.of(context).textTheme.labelSmall,
+                            color: _textSecondary,
+                            weight: FontWeight.w700,
+                            size: 11.5,
+                          ),
+                        ),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: _tone(context, _textSecondary),
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavigationCollapsedButton extends StatelessWidget {
+  const _NavigationCollapsedButton({required this.app, required this.onTap});
+
+  final _NavigationApp? app;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final selectedApp = app;
+    return Tooltip(
+      message: 'Show navigation controls',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              height: 42,
+              padding: const EdgeInsets.symmetric(horizontal: 13),
+              decoration: BoxDecoration(
+                color: light
+                    ? Colors.white.withValues(alpha: 0.66)
+                    : const Color(0xFF06111D).withValues(alpha: 0.62),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: light
+                      ? Colors.white.withValues(alpha: 0.84)
+                      : Colors.white.withValues(alpha: 0.10),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: light ? 0.10 : 0.28),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.fullscreen_exit_rounded,
+                    color: _accentSoftBlue,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    selectedApp == null ? 'Navigation' : _navigationAppDisplayLabel(selectedApp),
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.labelSmall,
+                      color: _textPrimary,
+                      weight: FontWeight.w800,
+                      size: 11.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -4766,52 +4896,75 @@ class _NavigationTopIconButton extends StatelessWidget {
 
 class _NavigationAppChip extends StatelessWidget {
   const _NavigationAppChip({
-    required this.label,
+    required this.app,
     required this.selected,
     required this.onTap,
   });
 
-  final String label;
+  final _NavigationApp app;
   final bool selected;
   final VoidCallback onTap;
+
+  IconData get _icon {
+    final packageName = app.packageName.toLowerCase();
+    if (packageName == 'com.waze') return Icons.near_me_rounded;
+    if (packageName == 'com.google.android.apps.maps') return Icons.map_rounded;
+    return Icons.navigation_rounded;
+  }
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final label = _navigationAppDisplayLabel(app);
 
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         decoration: BoxDecoration(
           color: selected
-              ? _accentSoftBlue.withValues(alpha: 0.18)
+              ? _accentSoftBlue.withValues(alpha: light ? 0.20 : 0.24)
               : light
-              ? Colors.white.withValues(alpha: 0.66)
-              : Colors.white.withValues(alpha: 0.06),
+              ? Colors.white.withValues(alpha: 0.56)
+              : Colors.white.withValues(alpha: 0.07),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: selected
-                ? _accentSoftBlue.withValues(alpha: 0.30)
+                ? _accentSoftBlue.withValues(alpha: 0.36)
                 : light
-                ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
-                : Colors.white.withValues(alpha: 0.055),
+                ? const Color(0xFFD4DEE9).withValues(alpha: 0.76)
+                : Colors.white.withValues(alpha: 0.07),
           ),
         ),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: _sharp(
-            context,
-            Theme.of(context).textTheme.labelSmall,
-            color: selected
-                ? (_isLight(context) ? _premiumLightText : _textPrimary)
-                : (_isLight(context) ? _premiumLightMuted : _textMuted),
-            weight: selected ? FontWeight.w700 : FontWeight.w500,
-            size: 11.5,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _icon,
+              color: selected
+                  ? _accentSoftBlue
+                  : (_isLight(context) ? _premiumLightMuted : _textMuted),
+              size: 15,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelSmall,
+                color: selected
+                    ? (_isLight(context) ? _premiumLightText : _textPrimary)
+                    : (_isLight(context) ? _premiumLightMuted : _textMuted),
+                weight: selected ? FontWeight.w800 : FontWeight.w600,
+                size: 11.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -5454,10 +5607,8 @@ class _SettingsPanel extends StatelessWidget {
     required this.wallpaperButtonEnabled,
     required this.onWallpaperButtonEnabledChanged,
     required this.lightEffectEnabled,
-    required this.radarEffectEnabled,
     required this.debugModeEnabled,
     required this.onLightEffectEnabledChanged,
-    required this.onRadarEffectEnabledChanged,
     required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -5490,10 +5641,8 @@ class _SettingsPanel extends StatelessWidget {
   final bool wallpaperButtonEnabled;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final bool lightEffectEnabled;
-  final bool radarEffectEnabled;
   final bool debugModeEnabled;
   final ValueChanged<bool> onLightEffectEnabledChanged;
-  final ValueChanged<bool> onRadarEffectEnabledChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -5527,10 +5676,8 @@ class _SettingsPanel extends StatelessWidget {
       wallpaperButtonEnabled: wallpaperButtonEnabled,
       onWallpaperButtonEnabledChanged: onWallpaperButtonEnabledChanged,
       lightEffectEnabled: lightEffectEnabled,
-      radarEffectEnabled: radarEffectEnabled,
       debugModeEnabled: debugModeEnabled,
       onLightEffectEnabledChanged: onLightEffectEnabledChanged,
-      onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
       onDebugModeChanged: onDebugModeChanged,
       themeMode: themeMode,
       onThemeModeChanged: onThemeModeChanged,
@@ -5624,10 +5771,8 @@ class _SettingsPanel extends StatelessWidget {
                     onWallpaperButtonEnabledChanged:
                         onWallpaperButtonEnabledChanged,
                     lightEffectEnabled: lightEffectEnabled,
-                    radarEffectEnabled: radarEffectEnabled,
                     debugModeEnabled: debugModeEnabled,
                     onLightEffectEnabledChanged: onLightEffectEnabledChanged,
-                    onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
                     onDebugModeChanged: onDebugModeChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
@@ -5691,10 +5836,8 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.wallpaperButtonEnabled,
     required this.onWallpaperButtonEnabledChanged,
     required this.lightEffectEnabled,
-    required this.radarEffectEnabled,
     required this.debugModeEnabled,
     required this.onLightEffectEnabledChanged,
-    required this.onRadarEffectEnabledChanged,
     required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -5727,10 +5870,8 @@ class _SettingsMainColumn extends StatelessWidget {
   final bool wallpaperButtonEnabled;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final bool lightEffectEnabled;
-  final bool radarEffectEnabled;
   final bool debugModeEnabled;
   final ValueChanged<bool> onLightEffectEnabledChanged;
-  final ValueChanged<bool> onRadarEffectEnabledChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -5854,14 +5995,6 @@ class _SettingsMainColumn extends StatelessWidget {
                 subtitle: _t(context, 'lightEffectSubtitle'),
                 value: lightEffectEnabled,
                 onChanged: onLightEffectEnabledChanged,
-              ),
-              const SizedBox(height: 12),
-              _SettingsSwitchRow(
-                icon: Icons.sensors_rounded,
-                title: _t(context, 'radarEffect'),
-                subtitle: _t(context, 'radarEffectSubtitle'),
-                value: radarEffectEnabled,
-                onChanged: onRadarEffectEnabledChanged,
               ),
             ],
           ),
@@ -7198,22 +7331,14 @@ class _FloatingVehicleControls extends StatelessWidget {
     required this.onRear,
     required this.debugModeEnabled,
     required this.lightMode,
-    required this.radarLevel,
-    required this.radarZone,
     required this.onLightModeChanged,
-    required this.onRadarLevelChanged,
-    required this.onRadarZoneChanged,
   });
 
   final _VehicleView view;
   final VoidCallback onRear;
   final bool debugModeEnabled;
   final _DemoLightMode lightMode;
-  final _DemoRadarLevel radarLevel;
-  final _DemoRadarZone radarZone;
   final ValueChanged<_DemoLightMode> onLightModeChanged;
-  final ValueChanged<_DemoRadarLevel> onRadarLevelChanged;
-  final ValueChanged<_DemoRadarZone> onRadarZoneChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -7224,11 +7349,7 @@ class _FloatingVehicleControls extends StatelessWidget {
           onRear: onRear,
           debugModeEnabled: debugModeEnabled,
           lightMode: lightMode,
-          radarLevel: radarLevel,
-          radarZone: radarZone,
           onLightModeChanged: onLightModeChanged,
-          onRadarLevelChanged: onRadarLevelChanged,
-          onRadarZoneChanged: onRadarZoneChanged,
         ),
       ],
     );
@@ -7240,84 +7361,34 @@ class _QuickActionStrip extends StatefulWidget {
     required this.onRear,
     required this.debugModeEnabled,
     required this.lightMode,
-    required this.radarLevel,
-    required this.radarZone,
     required this.onLightModeChanged,
-    required this.onRadarLevelChanged,
-    required this.onRadarZoneChanged,
   });
 
   final VoidCallback onRear;
   final bool debugModeEnabled;
   final _DemoLightMode lightMode;
-  final _DemoRadarLevel radarLevel;
-  final _DemoRadarZone radarZone;
   final ValueChanged<_DemoLightMode> onLightModeChanged;
-  final ValueChanged<_DemoRadarLevel> onRadarLevelChanged;
-  final ValueChanged<_DemoRadarZone> onRadarZoneChanged;
 
   @override
   State<_QuickActionStrip> createState() => _QuickActionStripState();
 }
 
 class _QuickActionStripState extends State<_QuickActionStrip> {
-  bool _doorsLocked = false;
-  bool _busy = false;
-
   void _cycleLightMode() {
     final values = _DemoLightMode.values;
     final next = values[(widget.lightMode.index + 1) % values.length];
     widget.onLightModeChanged(next);
   }
 
-  void _cycleRadarLevel() {
-    final values = _DemoRadarLevel.values;
-    final next = values[(widget.radarLevel.index + 1) % values.length];
-    widget.onRadarLevelChanged(next);
-  }
-
-  void _cycleRadarZone() {
-    final values = _DemoRadarZone.values;
-    final next = values[(widget.radarZone.index + 1) % values.length];
-    widget.onRadarZoneChanged(next);
-  }
-
-  Future<bool> _setDoorLock(bool locked) async {
-    try {
-      final result = await _vehicleChannel.invokeMapMethod<String, dynamic>(
-        'controlDoorLock',
-        {'locked': locked},
-      );
-      return result?['ok'] == true;
-    } catch (error) {
-      debugPrint('DOORLOCK control failed locked=$locked error=$error');
-      return false;
-    }
-  }
-
-  Future<void> _toggleDoorLock() async {
-    if (_busy) return;
-    final nextLocked = !_doorsLocked;
-    setState(() => _busy = true);
-
-    final ok = await _setDoorLock(nextLocked);
-
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      if (ok) _doorsLocked = nextLocked;
-    });
-    debugPrint('DOORLOCK result ok=$ok locked=$nextLocked');
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (!widget.debugModeEnabled) return const SizedBox.shrink();
     final light = _isLight(context);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
@@ -7349,30 +7420,12 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _MiniAction(
-                icon: _doorsLocked
-                    ? Icons.lock_rounded
-                    : Icons.lock_open_rounded,
-                label: _doorsLocked ? 'Unlock' : 'Lock',
-                onTap: _busy ? null : _toggleDoorLock,
-              ),
-              if (widget.debugModeEnabled) ...[
+              if (widget.debugModeEnabled)
                 _MiniAction(
                   icon: Icons.light_mode_rounded,
                   label: _demoLightLabel(widget.lightMode),
                   onTap: _cycleLightMode,
                 ),
-                _MiniAction(
-                  icon: Icons.sensors_rounded,
-                  label: _demoRadarLabel(widget.radarLevel),
-                  onTap: _cycleRadarLevel,
-                ),
-                _MiniAction(
-                  icon: Icons.explore_rounded,
-                  label: _demoRadarZoneLabel(widget.radarZone),
-                  onTap: _cycleRadarZone,
-                ),
-              ],
             ],
           ),
         ),
@@ -7393,37 +7446,6 @@ String _demoLightLabel(_DemoLightMode mode) {
   };
 }
 
-String _demoRadarLabel(_DemoRadarLevel level) {
-  return switch (level) {
-    _DemoRadarLevel.off => 'Radar Off',
-    _DemoRadarLevel.safe => 'Safe',
-    _DemoRadarLevel.far => 'Far',
-    _DemoRadarLevel.medium => 'Medium',
-    _DemoRadarLevel.close => 'Close',
-    _DemoRadarLevel.veryClose => 'Very Close',
-  };
-}
-
-String _demoRadarZoneLabel(_DemoRadarZone zone) {
-  return switch (zone) {
-    _DemoRadarZone.rear => 'Rear',
-    _DemoRadarZone.front => 'Front',
-    _DemoRadarZone.left => 'Left',
-    _DemoRadarZone.right => 'Right',
-    _DemoRadarZone.all => 'All',
-  };
-}
-
-Color _demoRadarColor(_DemoRadarLevel level) {
-  return switch (level) {
-    _DemoRadarLevel.off => Colors.transparent,
-    _DemoRadarLevel.safe => const Color(0xFF18D987),
-    _DemoRadarLevel.far => const Color(0xFF5BE878),
-    _DemoRadarLevel.medium => const Color(0xFFFFD43B),
-    _DemoRadarLevel.close => const Color(0xFFFF8A00),
-    _DemoRadarLevel.veryClose => const Color(0xFFFF2D2D),
-  };
-}
 
 class _LightStatusOverlay extends StatefulWidget {
   const _LightStatusOverlay({required this.mode});
@@ -7844,446 +7866,6 @@ class _LightStatusPainter extends CustomPainter {
   }
 }
 
-class _ParkingRadarOverlay extends StatefulWidget {
-  const _ParkingRadarOverlay({required this.level, required this.zone});
-
-  final _DemoRadarLevel level;
-  final _DemoRadarZone zone;
-
-  @override
-  State<_ParkingRadarOverlay> createState() => _ParkingRadarOverlayState();
-}
-
-class _ParkingRadarOverlayState extends State<_ParkingRadarOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 980),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.level == _DemoRadarLevel.off) return const SizedBox.expand();
-    return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) => CustomPaint(
-          painter: _ParkingRadarPainter(
-            level: widget.level,
-            zone: widget.zone,
-            light: _isLight(context),
-            progress: _controller.value,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ParkingRadarPainter extends CustomPainter {
-  const _ParkingRadarPainter({
-    required this.level,
-    required this.zone,
-    required this.light,
-    required this.progress,
-  });
-
-  final _DemoRadarLevel level;
-  final _DemoRadarZone zone;
-  final bool light;
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (level == _DemoRadarLevel.off) return;
-
-    final color = _demoRadarColor(level);
-    final severity = (level.index / (_DemoRadarLevel.values.length - 1))
-        .clamp(0.18, 1.0)
-        .toDouble();
-    final themeAlphaScale = light ? 0.78 : 1.0;
-
-    // OEM parking radar tuning for the current D/R camera: the anchor is
-    // intentionally a little below the visual center of the 3D vehicle so the
-    // arcs feel attached to the bumper/side sensors instead of floating.
-    final center = Offset(size.width * 0.500, size.height * 0.626);
-    final carWidth = size.width * 0.224;
-    final carHeight = size.height * 0.405;
-    final sideGap = size.width * 0.015;
-    final rearGap = size.height * 0.000;
-    final frontGap = size.height * 0.006;
-
-    final pulse = level == _DemoRadarLevel.veryClose
-        ? math.sin(progress * math.pi * 2).abs()
-        : math.sin(progress * math.pi * 2).abs() * 0.22;
-    final pulseAlpha = level == _DemoRadarLevel.veryClose
-        ? 0.80 + pulse * 0.20
-        : 0.92 + pulse * 0.08;
-    final pulseOffset = level == _DemoRadarLevel.veryClose ? pulse * 2.2 : 0.0;
-
-    final glowRadius = size.shortestSide * (0.145 + severity * 0.048);
-    final glowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withValues(alpha: (light ? 0.030 : 0.050) * severity),
-          color.withValues(alpha: (light ? 0.012 : 0.026) * severity),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.52, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: glowRadius));
-    canvas.drawCircle(center, glowRadius, glowPaint);
-
-    final layerCount = switch (level) {
-      _DemoRadarLevel.safe => 2,
-      _DemoRadarLevel.far => 3,
-      _DemoRadarLevel.medium ||
-      _DemoRadarLevel.close ||
-      _DemoRadarLevel.veryClose => 4,
-      _DemoRadarLevel.off => 0,
-    };
-    final baseStroke = lerpDouble(1.8, 4.6, severity)!;
-
-    Paint segmentPaint(int layer, double alphaScale) {
-      final layerFade = (1.0 - layer * 0.18).clamp(0.34, 1.0).toDouble();
-      final alpha =
-          (0.42 *
-                  severity *
-                  layerFade *
-                  alphaScale *
-                  pulseAlpha *
-                  themeAlphaScale)
-              .clamp(0.035, light ? 0.54 : 0.66)
-              .toDouble();
-      return Paint()
-        ..color = color.withValues(alpha: alpha)
-        ..strokeWidth = (baseStroke - layer * 0.34).clamp(1.45, 4.9).toDouble()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = MaskFilter.blur(
-          BlurStyle.normal,
-          level == _DemoRadarLevel.veryClose ? 1.05 : 0.62,
-        );
-    }
-
-    void drawSegments({
-      required Rect rect,
-      required double startAngle,
-      required double sweepAngle,
-      required int segments,
-      required Paint paint,
-    }) {
-      final gap = math.pi * 0.036;
-      final segmentSweep = (sweepAngle - gap * (segments - 1)) / segments;
-      for (var i = 0; i < segments; i++) {
-        canvas.drawArc(
-          rect,
-          startAngle + i * (segmentSweep + gap),
-          segmentSweep,
-          false,
-          paint,
-        );
-      }
-    }
-
-    // A subtle perspective helper: front arcs are tighter and flatter, rear
-    // arcs are wider and lower. Side arcs lean slightly with the road plane.
-    void withPerspective({
-      required Offset pivot,
-      required double tilt,
-      required VoidCallback draw,
-    }) {
-      canvas.save();
-      canvas.translate(pivot.dx, pivot.dy);
-      canvas.rotate(tilt);
-      canvas.translate(-pivot.dx, -pivot.dy);
-      draw();
-      canvas.restore();
-    }
-
-    void drawRear([double alphaScale = 1.0]) {
-      final pivot = Offset(center.dx, center.dy + carHeight * 0.52);
-      withPerspective(
-        pivot: pivot,
-        tilt: 0.0,
-        draw: () {
-          for (var layer = 0; layer < layerCount; layer++) {
-            final t = layer.toDouble();
-            final offset = t * size.height * 0.020 + pulseOffset;
-            final rect = Rect.fromCenter(
-              center: Offset(
-                center.dx,
-                center.dy + carHeight * 0.430 + rearGap + offset,
-              ),
-              width: carWidth * 0.98 + t * size.width * 0.030,
-              height: size.height * 0.090 + t * size.height * 0.018,
-            );
-            drawSegments(
-              rect: rect,
-              startAngle: math.pi * 0.09,
-              sweepAngle: math.pi * 0.82,
-              segments: 3,
-              paint: segmentPaint(layer, alphaScale * (1.26 - t * 0.070)),
-            );
-          }
-        },
-      );
-    }
-
-    void drawFront([double alphaScale = 1.0]) {
-      final pivot = Offset(center.dx, center.dy - carHeight * 0.54);
-      withPerspective(
-        pivot: pivot,
-        tilt: 0.0,
-        draw: () {
-          for (var layer = 0; layer < layerCount; layer++) {
-            final t = layer.toDouble();
-            final offset = t * size.height * 0.017 + pulseOffset;
-            final rect = Rect.fromCenter(
-              center: Offset(
-                center.dx,
-                center.dy - carHeight * 0.455 - frontGap - offset,
-              ),
-              width: carWidth * 0.86 + t * size.width * 0.024,
-              height: size.height * 0.074 + t * size.height * 0.016,
-            );
-            drawSegments(
-              rect: rect,
-              startAngle: math.pi * 1.10,
-              sweepAngle: math.pi * 0.80,
-              segments: 3,
-              paint: segmentPaint(layer, alphaScale * (1.02 - t * 0.060)),
-            );
-          }
-        },
-      );
-    }
-
-    void drawLeft([double alphaScale = 1.0]) {
-      final pivot = Offset(center.dx - carWidth * 0.53, center.dy);
-      withPerspective(
-        pivot: pivot,
-        tilt: -0.045,
-        draw: () {
-          for (var layer = 0; layer < layerCount; layer++) {
-            final t = layer.toDouble();
-            final offset = t * size.width * 0.014 + pulseOffset;
-            final rect = Rect.fromCenter(
-              center: Offset(
-                center.dx - carWidth * 0.50 - sideGap - offset,
-                center.dy + size.height * 0.006,
-              ),
-              width: size.width * 0.086 + t * size.width * 0.021,
-              height: carHeight * 0.700 + t * size.height * 0.015,
-            );
-            drawSegments(
-              rect: rect,
-              startAngle: math.pi * 0.625,
-              sweepAngle: math.pi * 0.750,
-              segments: 3,
-              paint: segmentPaint(layer, alphaScale * (0.72 - t * 0.028)),
-            );
-          }
-        },
-      );
-    }
-
-    void drawRight([double alphaScale = 1.0]) {
-      final pivot = Offset(center.dx + carWidth * 0.53, center.dy);
-      withPerspective(
-        pivot: pivot,
-        tilt: 0.045,
-        draw: () {
-          for (var layer = 0; layer < layerCount; layer++) {
-            final t = layer.toDouble();
-            final offset = t * size.width * 0.014 + pulseOffset;
-            final rect = Rect.fromCenter(
-              center: Offset(
-                center.dx + carWidth * 0.50 + sideGap + offset,
-                center.dy + size.height * 0.006,
-              ),
-              width: size.width * 0.086 + t * size.width * 0.021,
-              height: carHeight * 0.700 + t * size.height * 0.015,
-            );
-            drawSegments(
-              rect: rect,
-              startAngle: math.pi * -0.375,
-              sweepAngle: math.pi * 0.750,
-              segments: 3,
-              paint: segmentPaint(layer, alphaScale * (0.72 - t * 0.028)),
-            );
-          }
-        },
-      );
-    }
-
-    switch (zone) {
-      case _DemoRadarZone.rear:
-        drawRear();
-      case _DemoRadarZone.front:
-        drawFront();
-      case _DemoRadarZone.left:
-        drawLeft();
-      case _DemoRadarZone.right:
-        drawRight();
-      case _DemoRadarZone.all:
-        // All mode should feel like four sensor groups, not one big speaker
-        // waveform. Rear is kept strongest for reverse/parking context; front
-        // and side groups are intentionally quieter to keep the vehicle clean.
-        drawRear(level == _DemoRadarLevel.veryClose ? 1.15 : 1.02);
-        drawFront(level == _DemoRadarLevel.veryClose ? 0.68 : 0.58);
-        drawLeft(0.66);
-        drawRight(0.66);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ParkingRadarPainter oldDelegate) {
-    return oldDelegate.level != level ||
-        oldDelegate.zone != zone ||
-        oldDelegate.light != light ||
-        oldDelegate.progress != progress;
-  }
-}
-
-class _MiniAction extends StatelessWidget {
-  const _MiniAction({required this.icon, required this.label, this.onTap});
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final light = _isLight(context);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: light ? const Color(0xFF475569) : const Color(0xFFEAF1F8),
-              size: 17,
-            ),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: _sharp(
-                context,
-                Theme.of(context).textTheme.labelSmall,
-                color: light
-                    ? const Color(0xFF475569)
-                    : const Color(0xFFD8E2ED),
-                weight: FontWeight.w600,
-                size: 11.5,
-                letterSpacing: 0.12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _VehicleReveal extends StatelessWidget {
-  const _VehicleReveal({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.15, 0.06),
-                  radius: 0.68,
-                  colors: [
-                    const Color(0xFF78B7FF).withValues(alpha: 0.14),
-                    const Color(0xFF78B7FF).withValues(alpha: 0.045),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(child: child),
-      ],
-    );
-  }
-}
-
-class _VehicleEntrance extends StatefulWidget {
-  const _VehicleEntrance({required this.child});
-
-  final Widget child;
-
-  @override
-  State<_VehicleEntrance> createState() => _VehicleEntranceState();
-}
-
-class _VehicleEntranceState extends State<_VehicleEntrance>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 980),
-    );
-
-    final fadeCurve = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.02, 0.55, curve: Curves.easeOutCubic),
-    );
-
-    _opacity = Tween<double>(begin: 0.0, end: 1).animate(fadeCurve);
-
-    _controller.forward(from: 0);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      child: widget.child,
-      builder: (context, child) {
-        return Opacity(opacity: _opacity.value, child: child);
-      },
-    );
-  }
-}
-
 class _VehicleHero extends StatefulWidget {
   const _VehicleHero({
     required this.enable3dModel,
@@ -8296,8 +7878,6 @@ class _VehicleHero extends StatefulWidget {
     required this.vehicleSpeedKmh,
     required this.windowLevels,
     required this.demoLightMode,
-    required this.demoRadarLevel,
-    required this.demoRadarZone,
   });
 
   final bool enable3dModel;
@@ -8310,8 +7890,6 @@ class _VehicleHero extends StatefulWidget {
   final double vehicleSpeedKmh;
   final Map<int, double> windowLevels;
   final _DemoLightMode demoLightMode;
-  final _DemoRadarLevel demoRadarLevel;
-  final _DemoRadarZone demoRadarZone;
 
   @override
   State<_VehicleHero> createState() => _VehicleHeroState();
@@ -8359,8 +7937,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && _selectedHotspot == _VehicleHotspot.trunk) {
       _selectedHotspot = null;
     }
-    if (widget.demoRadarLevel != _DemoRadarLevel.off ||
-        widget.demoLightMode != _DemoLightMode.off) {
+    if (widget.demoLightMode != _DemoLightMode.off) {
       _hotspotsVisible = false;
       _selectedHotspot = null;
       _hotspotAutoHideTimer?.cancel();
@@ -8399,7 +7976,6 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final focusOffset = _focusOffset;
     final focusScale = _focusScale;
     final effectModeActive =
-        widget.demoRadarLevel != _DemoRadarLevel.off ||
         widget.demoLightMode != _DemoLightMode.off;
 
     return GestureDetector(
@@ -8414,10 +7990,6 @@ class _VehicleHeroState extends State<_VehicleHero> {
             speedKmh: widget.vehicleSpeedKmh,
           ),
           _LightStatusOverlay(mode: widget.demoLightMode),
-          _ParkingRadarOverlay(
-            level: widget.demoRadarLevel,
-            zone: widget.demoRadarZone,
-          ),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
             duration: const Duration(milliseconds: 520),
@@ -8556,7 +8128,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   void _showHotspots() {
-    if (!mounted || widget.demoRadarLevel != _DemoRadarLevel.off) return;
+    if (!mounted) return;
     setState(() => _hotspotsVisible = true);
     _restartHotspotAutoHideTimer();
   }
@@ -10534,6 +10106,134 @@ class _BottomTab extends StatelessWidget {
     );
   }
 }
+
+class _MiniAction extends StatelessWidget {
+  const _MiniAction({required this.icon, required this.label, this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: light ? const Color(0xFF475569) : const Color(0xFFEAF1F8),
+              size: 17,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelSmall,
+                color: light
+                    ? const Color(0xFF475569)
+                    : const Color(0xFFD8E2ED),
+                weight: FontWeight.w600,
+                size: 11.5,
+                letterSpacing: 0.12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VehicleReveal extends StatelessWidget {
+  const _VehicleReveal({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.15, 0.06),
+                  radius: 0.68,
+                  colors: [
+                    const Color(0xFF78B7FF).withValues(alpha: 0.14),
+                    const Color(0xFF78B7FF).withValues(alpha: 0.045),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(child: child),
+      ],
+    );
+  }
+}
+
+class _VehicleEntrance extends StatefulWidget {
+  const _VehicleEntrance({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_VehicleEntrance> createState() => _VehicleEntranceState();
+}
+
+class _VehicleEntranceState extends State<_VehicleEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 980),
+    );
+
+    final fadeCurve = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.02, 0.55, curve: Curves.easeOutCubic),
+    );
+
+    _opacity = Tween<double>(begin: 0.0, end: 1).animate(fadeCurve);
+
+    _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      child: widget.child,
+      builder: (context, child) {
+        return Opacity(opacity: _opacity.value, child: child);
+      },
+    );
+  }
+}
+
 
 class _GlassCard extends StatelessWidget {
   const _GlassCard({
