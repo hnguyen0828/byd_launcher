@@ -2,6 +2,7 @@ package byd
 
 import android.app.Activity
 import android.app.ActivityOptions
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.hardware.display.DisplayManager
@@ -200,7 +201,7 @@ private class NavigationVirtualDisplaySession(
         }
         val intent = navigationIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
-        return try {
+        val normalLaunchOk = try {
             activity?.startActivity(intent, options.toBundle())
                 ?: context.startActivity(intent, options.toBundle())
             FileLogger.log(context, "NavigationVD launch ok package=$packageName displayId=$displayId intent=$intent")
@@ -212,6 +213,9 @@ private class NavigationVirtualDisplaySession(
             )
             false
         }
+        if (normalLaunchOk) return true
+
+        return launchNavigationViaShell(displayId, intent)
     }
 
     private fun navigationIntent(): Intent {
@@ -219,6 +223,32 @@ private class NavigationVirtualDisplaySession(
         return launchIntent ?: Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")).apply {
             setPackage(packageName)
         }
+    }
+
+    private fun launchNavigationViaShell(displayId: Int, intent: Intent): Boolean {
+        val component = intent.component ?: resolveLaunchComponent()
+        val command = if (component != null) {
+            "am start --display $displayId -n ${component.flattenToShortString().shellQuote()}"
+        } else {
+            "am start --display $displayId -a android.intent.action.VIEW -d ${"geo:0,0?q=".shellQuote()} ${packageName.shellQuote()}"
+        }
+        val result = LocalAdbClient.runShellCommandWithCandidates(context, command)
+        val ok = result.started && result.exitCode == 0 &&
+            !result.output.contains("Error:", ignoreCase = true) &&
+            !result.output.contains("Exception", ignoreCase = true)
+        FileLogger.log(
+            context,
+            "NavigationVD shell launch ok=$ok displayId=$displayId package=$packageName exit=${result.exitCode} output=${result.output}"
+        )
+        return ok
+    }
+
+    private fun resolveLaunchComponent(): ComponentName? {
+        return context.packageManager.getLaunchIntentForPackage(packageName)?.component
+    }
+
+    private fun String.shellQuote(): String {
+        return "'${replace("'", "'\\''")}'"
     }
 
     private fun injectInputEvent(event: InputEvent): Boolean {

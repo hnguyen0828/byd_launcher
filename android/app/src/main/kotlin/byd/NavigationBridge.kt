@@ -18,6 +18,7 @@ object NavigationBridge {
 
     fun register(binaryMessenger: BinaryMessenger, context: Context) {
         appContext = context.applicationContext
+        FileLogger.log(appContext, "NavigationBridge registered; package=${appContext.packageName}")
         MethodChannel(binaryMessenger, CHANNEL).setMethodCallHandler(::handleMethodCall)
     }
 
@@ -53,12 +54,19 @@ object NavigationBridge {
             .mapNotNull { info ->
                 val activityInfo = info.activityInfo ?: return@mapNotNull null
                 val packageName = activityInfo.packageName ?: return@mapNotNull null
+                if (packageName == appContext.packageName) return@mapNotNull null
                 val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
                 if (label.isBlank()) return@mapNotNull null
                 mapOf("label" to label, "packageName" to packageName)
             }
             .distinctBy { it["packageName"] }
             .sortedBy { it["label"]?.lowercase() }
+            .also { apps ->
+                FileLogger.log(
+                    appContext,
+                    "Navigation apps: ${apps.joinToString { "${it["label"]}=${it["packageName"]}" }}"
+                )
+            }
     }
 
     private fun getLaunchableApps(): List<Map<String, String>> {
@@ -85,7 +93,9 @@ object NavigationBridge {
     }
 
     private fun launchNavigationApp(packageName: String): Boolean {
-        return launchApp(packageName) || launchGeoApp(packageName)
+        val ok = launchApp(packageName) || launchGeoApp(packageName)
+        FileLogger.log(appContext, "Navigation launch package=$packageName ok=$ok")
+        return ok
     }
 
     private fun launchApp(packageName: String): Boolean {

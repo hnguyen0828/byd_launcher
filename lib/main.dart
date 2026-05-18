@@ -84,10 +84,13 @@ class _VehicleSnapshot {
     this.batteryPercent,
     this.outsideTemperatureC,
     this.tpms = const {},
+    this.windowLevels = const {},
   });
 
   factory _VehicleSnapshot.fromMap(Map<dynamic, dynamic> map) {
     final tpmsMap = map['tpms'];
+    final bodyworkMap = map['bodywork'];
+    final windowsMap = bodyworkMap is Map ? bodyworkMap['windows'] : null;
     return _VehicleSnapshot(
       available: map['available'] == true,
       speedKmh: _doubleFromMap(map, 'speedKmh'),
@@ -104,6 +107,7 @@ class _VehicleSnapshot {
               'rearRight': _TyreSnapshot.fromMap(tpmsMap['rearRight']),
             }
           : const {},
+      windowLevels: _windowLevelsFromMap(windowsMap),
     );
   }
 
@@ -115,8 +119,33 @@ class _VehicleSnapshot {
   final double? batteryPercent;
   final int? outsideTemperatureC;
   final Map<String, _TyreSnapshot> tpms;
+  final Map<int, double> windowLevels;
 
   _TyreSnapshot tyre(String key) => tpms[key] ?? const _TyreSnapshot();
+}
+
+Map<int, double> _windowLevelsFromMap(Object? windowsMap) {
+  if (windowsMap is! Map) return const {};
+  final result = <int, double>{};
+  for (final entry in windowsMap.entries) {
+    final area = int.tryParse(entry.key.toString());
+    final value = entry.value;
+    if (area == null || value is! Map) continue;
+
+    final percent = _intFromMapOrNull(value, 'percent');
+    final state = _intFromMapOrNull(value, 'state');
+    final level = percent != null
+        ? (percent / 100.0).clamp(0.0, 1.0)
+        : state == 1
+        ? 1.0
+        : state == 0
+        ? 0.0
+        : null;
+    if (level != null) {
+      result[area] = level;
+    }
+  }
+  return result;
 }
 
 class _TyreSnapshot {
@@ -209,6 +238,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _preloadVehicleModelAssets();
   final prefs = await SharedPreferences.getInstance();
+  final themeMode = _parseThemeMode(prefs.getString(_themeModePreferenceKey));
+  _applySystemBarsForTheme(themeMode);
   final layoutMode = _parseLayoutMode(
     prefs.getString(_layoutModePreferenceKey),
   );
@@ -230,6 +261,33 @@ Future<void> _applyLayoutModeOrientation(_LauncherLayoutMode mode) {
   });
 }
 
+Brightness _effectiveBrightnessForTheme(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.dark => Brightness.dark,
+    ThemeMode.light => Brightness.light,
+    ThemeMode.system => PlatformDispatcher.instance.platformBrightness,
+  };
+}
+
+void _applySystemBarsForTheme(ThemeMode mode) {
+  final dark = _effectiveBrightnessForTheme(mode) == Brightness.dark;
+  final barColor = dark ? const Color(0xFF070B12) : const Color(0xFFF1F5FA);
+
+  SystemChrome.setSystemUIOverlayStyle(
+    SystemUiOverlayStyle(
+      statusBarColor: barColor,
+      statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+      statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+      systemNavigationBarColor: barColor,
+      systemNavigationBarIconBrightness: dark
+          ? Brightness.light
+          : Brightness.dark,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+    ),
+  );
+}
+
 void _preloadVehicleModelAssets() {
   unawaited(rootBundle.load(_defaultVehicleModelAsset));
   unawaited(
@@ -247,15 +305,38 @@ class BydLauncherApp extends StatefulWidget {
   State<BydLauncherApp> createState() => _BydLauncherAppState();
 }
 
-class _BydLauncherAppState extends State<BydLauncherApp> {
-  ThemeMode _themeMode = ThemeMode.dark;
+class _BydLauncherAppState extends State<BydLauncherApp>
+    with WidgetsBindingObserver {
+  ThemeMode _themeMode = ThemeMode.light;
   _AppLanguage _language = _AppLanguage.en;
   bool _themePreferenceLoaded = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _applySystemBarsForTheme(_themeMode);
     _loadThemePreference();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _applySystemBarsForTheme(_themeMode);
+    }
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (_themeMode == ThemeMode.system) {
+      _applySystemBarsForTheme(_themeMode);
+    }
   }
 
   @override
@@ -286,6 +367,7 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
     final themeMode = _parseThemeMode(stored);
     final language = _parseAppLanguage(storedLanguage);
     if (!mounted) return;
+    _applySystemBarsForTheme(themeMode);
     setState(() {
       _themeMode = themeMode;
       _language = language;
@@ -294,6 +376,7 @@ class _BydLauncherAppState extends State<BydLauncherApp> {
   }
 
   Future<void> _setThemeMode(ThemeMode mode) async {
+    _applySystemBarsForTheme(mode);
     setState(() => _themeMode = mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_themeModePreferenceKey, mode.name);
@@ -693,7 +776,7 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
 ThemeMode _parseThemeMode(String? value) {
   return ThemeMode.values.firstWhere(
     (mode) => mode.name == value,
-    orElse: () => ThemeMode.dark,
+    orElse: () => ThemeMode.light,
   );
 }
 
@@ -866,6 +949,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _applySystemBarsForTheme(widget.themeMode);
       _refreshDefaultLauncherStatus();
     }
   }
@@ -3895,6 +3979,7 @@ class _VehicleCanvas extends StatelessWidget {
                   roadMotionActive: roadMotionActive,
                   reverseRoadMotion: reverseRoadMotion,
                   vehicleSpeedKmh: vehicleSpeedKmh,
+                  windowLevels: vehicleSnapshot.windowLevels,
                   demoLightMode: visibleDemoLightMode,
                   demoRadarLevel: visibleDemoRadarLevel,
                   demoRadarZone: demoRadarZone,
@@ -4042,6 +4127,7 @@ class _VehicleStage extends StatelessWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.windowLevels,
     required this.demoLightMode,
     required this.demoRadarLevel,
     required this.demoRadarZone,
@@ -4055,6 +4141,7 @@ class _VehicleStage extends StatelessWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final Map<int, double> windowLevels;
   final _DemoLightMode demoLightMode;
   final _DemoRadarLevel demoRadarLevel;
   final _DemoRadarZone demoRadarZone;
@@ -4072,6 +4159,7 @@ class _VehicleStage extends StatelessWidget {
           roadMotionActive: roadMotionActive,
           reverseRoadMotion: reverseRoadMotion,
           vehicleSpeedKmh: vehicleSpeedKmh,
+          windowLevels: windowLevels,
           demoLightMode: demoLightMode,
           demoRadarLevel: demoRadarLevel,
           demoRadarZone: demoRadarZone,
@@ -8121,6 +8209,7 @@ class _VehicleHero extends StatefulWidget {
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
+    required this.windowLevels,
     required this.demoLightMode,
     required this.demoRadarLevel,
     required this.demoRadarZone,
@@ -8134,6 +8223,7 @@ class _VehicleHero extends StatefulWidget {
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
+  final Map<int, double> windowLevels;
   final _DemoLightMode demoLightMode;
   final _DemoRadarLevel demoRadarLevel;
   final _DemoRadarZone demoRadarZone;
@@ -8146,9 +8236,12 @@ class _VehicleHeroState extends State<_VehicleHero> {
   WebViewController? _webViewController;
   final List<Timer> _colorRetryTimers = [];
   Timer? _hotspotAutoHideTimer;
+  Timer? _windowCommandSettleTimer;
   bool _hotspotsVisible = false;
   int _hotspotAnimationSeed = 0;
   _VehicleHotspot? _selectedHotspot;
+  _VehicleHotspot? _pendingWindowHotspot;
+  double? _pendingWindowTarget;
   final Map<_VehicleHotspot, double> _hotspotLevels = {
     _VehicleHotspot.frontLeftWindow: 0,
     _VehicleHotspot.frontRightWindow: 0,
@@ -8169,6 +8262,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
   @override
   void didUpdateWidget(covariant _VehicleHero oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.windowLevels != widget.windowLevels) {
+      _syncWindowLevelsFromVehicle();
+    }
     if (!widget.enable3dModel) {
       _cancelColorTimers();
       return;
@@ -8198,6 +8294,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   void dispose() {
     _cancelColorTimers();
     _hotspotAutoHideTimer?.cancel();
+    _windowCommandSettleTimer?.cancel();
     super.dispose();
   }
 
@@ -8377,6 +8474,36 @@ class _VehicleHeroState extends State<_VehicleHero> {
     _restartHotspotAutoHideTimer();
   }
 
+  void _syncWindowLevelsFromVehicle() {
+    final updates = <_VehicleHotspot, double>{};
+    for (final entry in widget.windowLevels.entries) {
+      final hotspot = _windowHotspotForArea(entry.key);
+      if (hotspot != null) {
+        updates[hotspot] = entry.value;
+      }
+    }
+    if (updates.isEmpty || !mounted) return;
+
+    final pending = _pendingWindowHotspot;
+    final pendingTarget = _pendingWindowTarget;
+    setState(() {
+      for (final entry in updates.entries) {
+        if (entry.key == pending &&
+            pendingTarget != null &&
+            (entry.value - pendingTarget).abs() > 0.08) {
+          continue;
+        }
+        _hotspotLevels[entry.key] = entry.value;
+        if (entry.key == pending) {
+          _pendingWindowHotspot = null;
+          _pendingWindowTarget = null;
+          _windowCommandSettleTimer?.cancel();
+          _windowCommandSettleTimer = null;
+        }
+      }
+    });
+  }
+
   void _hideHotspots() {
     _hotspotAutoHideTimer?.cancel();
     if (!mounted) return;
@@ -8388,6 +8515,20 @@ class _VehicleHeroState extends State<_VehicleHero> {
 
   void _selectHotspot(_VehicleHotspot hotspot) {
     if (widget.roadMotionActive && hotspot == _VehicleHotspot.trunk) {
+      return;
+    }
+    final isControllableHotspot = switch (hotspot) {
+      _VehicleHotspot.frontLeftWindow ||
+      _VehicleHotspot.frontRightWindow ||
+      _VehicleHotspot.rearLeftWindow ||
+      _VehicleHotspot.rearRightWindow ||
+      _VehicleHotspot.sunroof ||
+      _VehicleHotspot.trunk => true,
+    };
+    if (isControllableHotspot) {
+      final currentLevel = _hotspotLevels[hotspot] ?? 0;
+      final nextLevel = currentLevel >= 0.5 ? 0.0 : 1.0;
+      _setHotspotLevel(hotspot, nextLevel);
       return;
     }
     setState(() {
@@ -8403,13 +8544,31 @@ class _VehicleHeroState extends State<_VehicleHero> {
       return;
     }
     final clampedLevel = level.clamp(0.0, 1.0);
+    final windowHotspot = _windowAreaForHotspot(hotspot) != null;
     setState(() {
-      _hotspotLevels[hotspot] = clampedLevel;
+      if (!windowHotspot) {
+        _hotspotLevels[hotspot] = clampedLevel;
+      } else {
+        _hotspotLevels[hotspot] = clampedLevel;
+        _pendingWindowHotspot = hotspot;
+        _pendingWindowTarget = clampedLevel;
+      }
       _selectedHotspot = hotspot;
       _hotspotsVisible = true;
     });
     if (clampedLevel <= 0.02 || clampedLevel >= 0.98) {
       unawaited(_sendBodyworkHotspotCommand(hotspot, clampedLevel));
+      if (windowHotspot) {
+        _windowCommandSettleTimer?.cancel();
+        _windowCommandSettleTimer = Timer(const Duration(seconds: 5), () {
+          if (!mounted || _pendingWindowHotspot != hotspot) return;
+          setState(() {
+            _pendingWindowHotspot = null;
+            _pendingWindowTarget = null;
+          });
+          _syncWindowLevelsFromVehicle();
+        });
+      }
     }
     _restartHotspotAutoHideTimer();
   }
@@ -8425,16 +8584,16 @@ class _VehicleHeroState extends State<_VehicleHero> {
     switch (hotspot) {
       case _VehicleHotspot.frontLeftWindow:
         method = 'controlWindow';
-        arguments = {'area': 1, 'action': action};
+        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
       case _VehicleHotspot.frontRightWindow:
         method = 'controlWindow';
-        arguments = {'area': 2, 'action': action};
+        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
       case _VehicleHotspot.rearLeftWindow:
         method = 'controlWindow';
-        arguments = {'area': 3, 'action': action};
+        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
       case _VehicleHotspot.rearRightWindow:
         method = 'controlWindow';
-        arguments = {'area': 4, 'action': action};
+        arguments = {'area': _windowAreaForHotspot(hotspot), 'action': action};
       case _VehicleHotspot.sunroof:
         method = 'controlSunroof';
         arguments = {'action': action};
@@ -8458,6 +8617,26 @@ class _VehicleHeroState extends State<_VehicleHero> {
     } on Object catch (error) {
       debugPrint('BODYWORK $method action=$action failed: $error');
     }
+  }
+
+  int? _windowAreaForHotspot(_VehicleHotspot hotspot) {
+    return switch (hotspot) {
+      _VehicleHotspot.frontLeftWindow => 1,
+      _VehicleHotspot.frontRightWindow => 2,
+      _VehicleHotspot.rearLeftWindow => 3,
+      _VehicleHotspot.rearRightWindow => 4,
+      _ => null,
+    };
+  }
+
+  _VehicleHotspot? _windowHotspotForArea(int area) {
+    return switch (area) {
+      1 => _VehicleHotspot.frontLeftWindow,
+      2 => _VehicleHotspot.frontRightWindow,
+      3 => _VehicleHotspot.rearLeftWindow,
+      4 => _VehicleHotspot.rearRightWindow,
+      _ => null,
+    };
   }
 
   void _restartHotspotAutoHideTimer() {

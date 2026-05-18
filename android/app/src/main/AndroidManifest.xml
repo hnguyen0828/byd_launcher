@@ -5,8 +5,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_COMMON"/>
+    <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_SET"/>
     <uses-permission android:name="android.permission.BYDAUTO_DOORLOCK_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_DOORLOCK_COMMON"/>
+    <uses-permission android:name="android.permission.BYDAUTO_DOORLOCK_SET"/>
     <uses-permission android:name="android.permission.BYDAUTO_STATISTIC_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_SPEED_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_GEARBOX_GET"/>

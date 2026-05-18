@@ -22,6 +22,25 @@ import java.util.Locale
 class MainActivity : FlutterActivity() {
     private var pendingWallpaperImportResult: MethodChannel.Result? = null
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        applyDefaultLightSystemBars()
+    }
+
+    private fun applyDefaultLightSystemBars() {
+        window.statusBarColor = android.graphics.Color.parseColor("#F1F5FA")
+        window.navigationBarColor = android.graphics.Color.parseColor("#F1F5FA")
+
+        var flags = 0
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        }
+        window.decorView.systemUiVisibility = flags
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         NativeVehicleScenePlugin.preload(
             applicationContext,

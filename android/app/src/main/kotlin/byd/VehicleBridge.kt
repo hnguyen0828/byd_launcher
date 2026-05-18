@@ -240,40 +240,216 @@ class VehicleBridge {
 
         private fun postBodyworkEvent(command: Int, state: Int): Boolean {
             val device = bodyworkDevice ?: return false
-            val postOk = safe("bodywork postEvent command=$command state=$state arg=0") {
-                device.postEvent(command, state, 0, null)
-            } == true
-            if (postOk) {
-                FileLogger.log(appContext, "BODYWORK CONTROL postEvent ok command=$command state=$state arg=0")
+            val targetPercent = if (state == BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN) {
+                BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX
+            } else {
+                BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN
+            }
+            val intArgs = listOf(0, state, targetPercent).distinct()
+            val doubleArgs = intArgs.map { it.toDouble() }
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL begin command=$command state=$state targetPercent=$targetPercent " +
+                    "deviceType=${safe("bodywork getType before control") { device.getType() }}"
+            )
+
+            val targetFeatureId = bodyworkWindowTargetFeatureId(command)
+            var success = false
+            if (targetFeatureId != null) {
+                val targetCode = invokeBodyworkSetInt(device, DEVICE_BODYWORK, targetFeatureId, targetPercent)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL kinex-target set device=$DEVICE_BODYWORK feature=0x${targetFeatureId.toString(16)} " +
+                        "area=$command percent=$targetPercent -> ${bodyworkCodeLabel(targetCode)}"
+                )
+                success = targetCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS
+
+                val managerTargetCode = safe("bodywork manager.setInt target feature=$targetFeatureId percent=$targetPercent") {
+                    deviceManager?.setInt(DEVICE_BODYWORK, targetFeatureId, targetPercent)
+                }
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL kinex-target manager.setInt device=$DEVICE_BODYWORK feature=0x${targetFeatureId.toString(16)} " +
+                        "area=$command percent=$targetPercent -> ${bodyworkCodeLabel(managerTargetCode)}"
+                )
+                success = managerTargetCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            } else {
+                FileLogger.log(appContext, "BODYWORK CONTROL kinex-target no feature id for area=$command")
+            }
+
+            val ctrlCode = invokeBodyworkPublicIntMethod(device, "setBodyWindowCtrlState", command, state)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL kinex-ctrl setBodyWindowCtrlState area=$command state=$state -> ${bodyworkCodeLabel(ctrlCode)}"
+            )
+            success = ctrlCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+            val publicCtrlCode = invokeBodyworkSetInt(device, DEVICE_BODYWORK, command, state)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL public-ctrl set device=$DEVICE_BODYWORK command=$command state=$state -> ${bodyworkCodeLabel(publicCtrlCode)}"
+            )
+            success = publicCtrlCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+            if (success) {
+                logWindowStatusAfterControl(command)
                 return true
             }
 
-            val postStateArgOk = safe("bodywork postEvent command=$command state=$state arg=$state") {
-                device.postEvent(command, state, state, null)
-            } == true
-            if (postStateArgOk) {
-                FileLogger.log(appContext, "BODYWORK CONTROL postEvent ok command=$command state=$state arg=$state")
-                return true
+            for (arg in intArgs) {
+                val postOk = safe("bodywork postEvent command=$command state=$state arg=$arg") {
+                    device.postEvent(command, state, arg, null)
+                }
+                FileLogger.log(appContext, "BODYWORK CONTROL postEvent(int) command=$command state=$state arg=$arg -> $postOk")
+                if (postOk == true) return true
             }
 
-            val setOk = safe("bodywork device.set command=$command state=$state arg=0") {
-                device.set(command, state, 0)
-            } == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS
-            if (setOk) {
-                FileLogger.log(appContext, "BODYWORK CONTROL device.set ok command=$command state=$state arg=0")
-                return true
+            for (arg in doubleArgs) {
+                val postOk = safe("bodywork postEvent command=$command state=$state arg=$arg") {
+                    device.postEvent(command, state, arg, null)
+                }
+                FileLogger.log(appContext, "BODYWORK CONTROL postEvent(double) command=$command state=$state arg=$arg -> $postOk")
+                if (postOk == true) return true
             }
 
-            val managerSetOk = safe("bodywork manager.setInt device=$DEVICE_BODYWORK command=$command state=$state") {
-                deviceManager?.setInt(DEVICE_BODYWORK, command, state)
-            } == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS
-            if (managerSetOk) {
-                FileLogger.log(appContext, "BODYWORK CONTROL manager.setInt ok command=$command state=$state")
-                return true
+            for (arg in intArgs) {
+                val code = invokeBodyworkSetInt(device, command, state, arg)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL device.set(int) command=$command state=$state arg=$arg -> ${bodyworkCodeLabel(code)}"
+                )
+                if (code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS) return true
+            }
+
+            for (arg in doubleArgs) {
+                val code = invokeBodyworkSetDouble(device, command, state, arg)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL device.set(double) command=$command state=$state arg=$arg -> ${bodyworkCodeLabel(code)}"
+                )
+                if (code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS) return true
+            }
+
+            for (value in listOf(state, targetPercent).distinct()) {
+                val code = safe("bodywork manager.setInt device=$DEVICE_BODYWORK command=$command value=$value") {
+                    deviceManager?.setInt(DEVICE_BODYWORK, command, value)
+                }
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL manager.setInt device=$DEVICE_BODYWORK command=$command value=$value -> ${bodyworkCodeLabel(code)}"
+                )
+                if (code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS) return true
+            }
+
+            for (value in listOf(state.toDouble(), targetPercent.toDouble()).distinct()) {
+                val code = safe("bodywork manager.setDouble device=$DEVICE_BODYWORK command=$command value=$value") {
+                    deviceManager?.setDouble(DEVICE_BODYWORK, command, value)
+                }
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL manager.setDouble device=$DEVICE_BODYWORK command=$command value=$value -> ${bodyworkCodeLabel(code)}"
+                )
+                if (code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS) return true
             }
 
             FileLogger.log(appContext, "BODYWORK CONTROL all control paths failed command=$command state=$state")
+            logWindowStatusAfterControl(command)
             return false
+        }
+
+        private fun logWindowStatusAfterControl(area: Int) {
+            pollWindowStatus("immediate", area)
+            mainHandler.postDelayed({ pollWindowStatus("after1200ms", area) }, 1200L)
+            mainHandler.postDelayed({ pollWindowStatus("after3000ms", area) }, 3000L)
+        }
+
+        private fun pollWindowStatus(label: String, requestedArea: Int) {
+            val device = bodyworkDevice ?: return
+            val areas = listOf(
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_LEFT_FRONT,
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_RIGHT_FRONT,
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_LEFT_REAR,
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_RIGHT_REAR,
+            )
+            val status = areas.joinToString { area ->
+                val state = safe("bodywork poll window state area=$area") { device.getWindowState(area) }
+                val percent = safe("bodywork poll window percent area=$area") { device.getWindowOpenPercent(area) }
+                if (state != null) window(area).state = state
+                if (percent != null && percent in BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN..BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX) {
+                    window(area).percent = percent
+                }
+                "$area:s=$state,p=$percent"
+            }
+            FileLogger.log(appContext, "BODYWORK CONTROL window poll $label requested=$requestedArea [$status]")
+        }
+
+        private fun invokeBodyworkSetInt(device: BYDAutoBodyworkDevice, command: Int, state: Int, arg: Int): Int? {
+            return safe("bodywork reflected set(int) command=$command state=$state arg=$arg") {
+                val method = device.javaClass.superclass?.getDeclaredMethod(
+                    "set",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                )
+                method?.isAccessible = true
+                method?.invoke(device, command, state, arg) as? Int
+            }
+        }
+
+        private fun invokeBodyworkSetDouble(device: BYDAutoBodyworkDevice, command: Int, state: Int, arg: Double): Int? {
+            return safe("bodywork reflected set(double) command=$command state=$state arg=$arg") {
+                val method = device.javaClass.superclass?.getDeclaredMethod(
+                    "set",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Double::class.javaPrimitiveType,
+                )
+                method?.isAccessible = true
+                method?.invoke(device, command, state, arg) as? Int
+            }
+        }
+
+        private fun invokeBodyworkPublicIntMethod(
+            device: BYDAutoBodyworkDevice,
+            methodName: String,
+            first: Int,
+            second: Int,
+        ): Int? {
+            return safe("bodywork reflected $methodName first=$first second=$second") {
+                val method = device.javaClass.getMethod(
+                    methodName,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                )
+                method.isAccessible = true
+                method.invoke(device, first, second) as? Int
+            }
+        }
+
+        private fun bodyworkWindowTargetFeatureId(area: Int): Int? {
+            val fieldName = when (area) {
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_LEFT_FRONT -> "BODYWORK_LF_WINDOW_TARGET_POSITION_SET"
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_RIGHT_FRONT -> "BODYWORK_RF_WINDOW_TARGET_POSITION_SET"
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_LEFT_REAR -> "BODYWORK_LR_WINDOW_TARGET_POSITION_SET"
+                BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_RIGHT_REAR -> "BODYWORK_RR_WINDOW_TARGET_POSITION_SET"
+                else -> return null
+            }
+            return safe("bodywork feature id $fieldName") {
+                val featureIds = Class.forName("android.hardware.bydauto.BYDAutoFeatureIds")
+                featureIds.getField(fieldName).getInt(null)
+            }
+        }
+
+        private fun bodyworkCodeLabel(code: Int?): String {
+            return when (code) {
+                null -> "null"
+                BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS -> "$code/SUCCESS"
+                BYDAutoBodyworkDevice.BODYWORK_COMMAND_FAILED -> "$code/FAILED"
+                BYDAutoBodyworkDevice.BODYWORK_COMMAND_BUSY -> "$code/BUSY"
+                BYDAutoBodyworkDevice.BODYWORK_COMMAND_TIMEOUT -> "$code/TIMEOUT"
+                BYDAutoBodyworkDevice.BODYWORK_COMMAND_INVALID_VALUE -> "$code/INVALID_VALUE"
+                else -> code.toString()
+            }
         }
 
         private fun postDoorLockEvent(area: Int, state: Int): Boolean {
@@ -1270,6 +1446,10 @@ private class BydPermissionBypassContext(base: Context) : ContextWrapper(base) {
     private val allowedPermissions = setOf(
         "android.permission.BYDAUTO_BODYWORK_GET",
         "android.permission.BYDAUTO_BODYWORK_COMMON",
+        "android.permission.BYDAUTO_BODYWORK_SET",
+        "android.permission.BYDAUTO_DOORLOCK_GET",
+        "android.permission.BYDAUTO_DOORLOCK_COMMON",
+        "android.permission.BYDAUTO_DOORLOCK_SET",
         "android.permission.BYDAUTO_STATISTIC_GET",
         "android.permission.BYDAUTO_SPEED_GET",
         "android.permission.BYDAUTO_GEARBOX_GET",
