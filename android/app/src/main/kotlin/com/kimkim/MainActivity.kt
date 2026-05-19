@@ -24,14 +24,31 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        applyDefaultLightSystemBars()
+        applyLauncherSystemUi()
     }
 
-    private fun applyDefaultLightSystemBars() {
+    override fun onResume() {
+        super.onResume()
+        applyLauncherSystemUi()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyLauncherSystemUi()
+        }
+    }
+
+    private fun applyLauncherSystemUi() {
         window.statusBarColor = android.graphics.Color.parseColor("#F1F5FA")
         window.navigationBarColor = android.graphics.Color.parseColor("#F1F5FA")
 
-        var flags = 0
+        var flags = android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
@@ -39,6 +56,14 @@ class MainActivity : FlutterActivity() {
             flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         }
         window.decorView.systemUiVisibility = flags
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.insetsController?.let { controller ->
+                controller.hide(android.view.WindowInsets.Type.systemBars())
+                controller.systemBarsBehavior =
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

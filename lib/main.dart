@@ -366,6 +366,7 @@ void _applySystemBarsForTheme(ThemeMode mode) {
   final dark = _effectiveBrightnessForTheme(mode) == Brightness.dark;
   final barColor = dark ? const Color(0xFF070B12) : const Color(0xFFF1F5FA);
 
+  unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(
       statusBarColor: barColor,
@@ -439,6 +440,7 @@ class _BydLauncherAppState extends State<BydLauncherApp>
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: _localizedStrings[_language]?['appTitle'] ?? 'Kim Launcher',
+        scrollBehavior: const _NoStretchScrollBehavior(),
         themeMode: _themeMode,
         theme: _launcherTheme(Brightness.light),
         darkTheme: _launcherTheme(Brightness.dark),
@@ -919,6 +921,24 @@ bool _isLight(BuildContext context) {
   return Theme.of(context).brightness == Brightness.light;
 }
 
+class _NoStretchScrollBehavior extends MaterialScrollBehavior {
+  const _NoStretchScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return child;
+  }
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const ClampingScrollPhysics();
+  }
+}
+
 Color _tone(BuildContext context, Color color) {
   if (!_isLight(context)) {
     return color;
@@ -1010,7 +1030,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
-  Timer? _settingsVehicleSnapshotTimer;
   _VehicleSnapshot? _pendingSettingsVehicleSnapshot;
 
   bool get _roadMotionActive =>
@@ -1066,7 +1085,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _wallpaperTimer?.cancel();
     _transitionLoadingTimer?.cancel();
     _vehicleSnapshotSubscription?.cancel();
-    _settingsVehicleSnapshotTimer?.cancel();
     super.dispose();
   }
 
@@ -1098,6 +1116,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Container(
           decoration: BoxDecoration(
@@ -1282,6 +1301,23 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         _keepLightCameraOrbitAfterOff = false;
       }
     });
+    unawaited(_sendVehicleLightCommand(mode));
+  }
+
+  Future<void> _sendVehicleLightCommand(_DemoLightMode mode) async {
+    try {
+      final result = await _vehicleChannel.invokeMapMethod<String, dynamic>(
+        'controlLight',
+        {'mode': _vehicleLightModeName(mode), 'on': mode != _DemoLightMode.off},
+      );
+      debugPrint('LIGHT control mode=$mode ok=${result?['ok']} result=$result');
+    } on PlatformException catch (error) {
+      debugPrint(
+        'LIGHT control mode=$mode failed ${error.code}: ${error.message}',
+      );
+    } on Object catch (error) {
+      debugPrint('LIGHT control mode=$mode failed: $error');
+    }
   }
 
   void _applyVehicleSnapshot(_VehicleSnapshot snapshot) {
@@ -1310,22 +1346,14 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
 
     if (deferWhileSettings && _activeTab == _LauncherTab.settings) {
       _pendingSettingsVehicleSnapshot = snapshot;
-      _settingsVehicleSnapshotTimer ??= Timer(
-        const Duration(milliseconds: 650),
-        _flushPendingVehicleSnapshot,
-      );
       return;
     }
 
     _pendingSettingsVehicleSnapshot = null;
-    _settingsVehicleSnapshotTimer?.cancel();
-    _settingsVehicleSnapshotTimer = null;
     setState(() => _applyVehicleSnapshot(snapshot));
   }
 
   void _flushPendingVehicleSnapshot() {
-    _settingsVehicleSnapshotTimer?.cancel();
-    _settingsVehicleSnapshotTimer = null;
     final snapshot = _pendingSettingsVehicleSnapshot;
     _pendingSettingsVehicleSnapshot = null;
     if (!mounted || snapshot == null || snapshot == _vehicleSnapshot) return;
@@ -4601,8 +4629,10 @@ class _NavigationVirtualDisplayViewState
     extends State<_NavigationVirtualDisplayView> {
   int? _textureId;
   Size? _textureSize;
+  Size? _pendingTextureSize;
   bool _launchOk = true;
   Object? _error;
+  bool _resizeScheduled = false;
 
   @override
   void didUpdateWidget(covariant _NavigationVirtualDisplayView oldWidget) {
@@ -4612,7 +4642,9 @@ class _NavigationVirtualDisplayViewState
       _disposeSession();
       _textureId = null;
       _textureSize = null;
+      _pendingTextureSize = null;
       _error = null;
+      _resizeScheduled = false;
     }
   }
 
@@ -4631,12 +4663,8 @@ class _NavigationVirtualDisplayViewState
           (constraints.maxWidth * ratio).clamp(1.0, 4096.0),
           (constraints.maxHeight * ratio).clamp(1.0, 4096.0),
         );
-        if (_textureSize != size && size.width > 1 && size.height > 1) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              _createOrResize(size);
-            }
-          });
+        if (_shouldScheduleTextureSize(size)) {
+          _scheduleCreateOrResize(size);
         }
 
         final textureId = _textureId;
@@ -4696,6 +4724,7 @@ class _NavigationVirtualDisplayViewState
           _textureId = (result?['textureId'] as num?)?.toInt();
           _launchOk = result?['launchOk'] != false;
           _textureSize = size;
+          _pendingTextureSize = null;
           _error = null;
         });
       } else {
@@ -4705,12 +4734,54 @@ class _NavigationVirtualDisplayViewState
           'height': height,
         });
         if (!mounted) return;
-        setState(() => _textureSize = size);
+        setState(() {
+          _textureSize = size;
+          _pendingTextureSize = null;
+        });
       }
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = error);
+      setState(() {
+        _pendingTextureSize = null;
+        _error = error;
+      });
     }
+  }
+
+  bool _shouldScheduleTextureSize(Size size) {
+    if (size.width <= 1 || size.height <= 1) return false;
+    if (_pendingTextureSize == size) return false;
+
+    final current = _textureSize;
+    if (current == null) return true;
+    if (current == size) return false;
+
+    final widthChanged = (current.width - size.width).abs() >= 2;
+    final heightChanged = (current.height - size.height).abs() >= 2;
+    if (!widthChanged && !heightChanged) return false;
+
+    // Keyboard/search UI inside the embedded map can shrink Flutter's layout for
+    // a frame. Resizing the VirtualDisplay for that transient height change is
+    // expensive on the headunit and makes the map crawl afterward.
+    if (!widthChanged && size.height < current.height) return false;
+
+    return true;
+  }
+
+  void _scheduleCreateOrResize(Size size) {
+    _pendingTextureSize = size;
+    if (_resizeScheduled) return;
+
+    _resizeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _resizeScheduled = false;
+      if (!mounted) return;
+
+      final pendingSize = _pendingTextureSize;
+      if (pendingSize != null) {
+        unawaited(_createOrResize(pendingSize));
+      }
+    });
   }
 
   void _sendPointerTouch(String action, PointerEvent event) {
@@ -4754,6 +4825,7 @@ class _NavigationVirtualDisplayViewState
     if (textureId == null) return;
     _textureId = null;
     _textureSize = null;
+    _pendingTextureSize = null;
     unawaited(
       _navigationVdChannel
           .invokeMethod<Object?>('dispose', {'textureId': textureId})
@@ -5975,7 +6047,7 @@ class _SettingsPanel extends StatelessWidget {
                     );
 
                     return SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
+                      physics: const ClampingScrollPhysics(),
                       padding: const EdgeInsets.only(bottom: 22),
                       child: Column(
                         children: [
@@ -6082,217 +6154,215 @@ class _SettingsMainColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = RepaintBoundary(
-      child: Column(
-        children: [
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: _SettingsInlineControl(
-              icon: Icons.directions_car_filled_outlined,
-              title: _t(context, 'vehicleModel'),
-              subtitle: _t(context, 'vehicleModelSubtitle'),
-              child: _VehicleModelPicker(
-                selectedAsset: vehicleModelAsset,
-                onChanged: onVehicleModelChanged,
+    final content = Column(
+      children: [
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: _SettingsInlineControl(
+            icon: Icons.directions_car_filled_outlined,
+            title: _t(context, 'vehicleModel'),
+            subtitle: _t(context, 'vehicleModelSubtitle'),
+            child: _VehicleModelPicker(
+              selectedAsset: vehicleModelAsset,
+              onChanged: onVehicleModelChanged,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.palette_outlined,
+                title: _t(context, 'vehicleColor'),
+                subtitle: _t(context, 'vehicleColorSubtitle'),
               ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsSectionTitle(
-                  icon: Icons.palette_outlined,
-                  title: _t(context, 'vehicleColor'),
-                  subtitle: _t(context, 'vehicleColorSubtitle'),
-                ),
-                const SizedBox(height: 16),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    const columns = 5;
-                    const spacing = 8.0;
-                    final swatchWidth =
-                        (constraints.maxWidth - spacing * (columns - 1)) /
-                        columns;
+              const SizedBox(height: 16),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const columns = 5;
+                  const spacing = 8.0;
+                  final swatchWidth =
+                      (constraints.maxWidth - spacing * (columns - 1)) /
+                      columns;
 
-                    return Wrap(
-                      spacing: spacing,
-                      runSpacing: spacing,
-                      children: [
-                        for (final option in _vehiclePaintOptions)
-                          SizedBox(
-                            width: swatchWidth,
-                            child: _VehicleColorSwatch(
-                              label: option.label,
-                              color: option.color,
-                              selected: vehicleColor == option.color,
-                              onTap: onVehicleColorChanged,
-                            ),
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: [
+                      for (final option in _vehiclePaintOptions)
+                        SizedBox(
+                          width: swatchWidth,
+                          child: _VehicleColorSwatch(
+                            label: option.label,
+                            color: option.color,
+                            selected: vehicleColor == option.color,
+                            onTap: onVehicleColorChanged,
                           ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsSectionTitle(
-                  icon: Icons.contrast_outlined,
-                  title: _t(context, 'appearance'),
-                  subtitle: _t(context, 'appearanceSubtitle'),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.contrast_outlined,
+                title: _t(context, 'appearance'),
+                subtitle: _t(context, 'appearanceSubtitle'),
+              ),
+              const SizedBox(height: 14),
+              _ThemeModePicker(
+                selectedMode: themeMode,
+                onChanged: onThemeModeChanged,
+              ),
+              const SizedBox(height: 14),
+              _SettingsInlineControl(
+                icon: Icons.translate_outlined,
+                title: _t(context, 'language'),
+                subtitle: _t(context, 'languageSubtitle'),
+                child: _LanguagePicker(
+                  selectedLanguage: language,
+                  onChanged: onLanguageChanged,
                 ),
-                const SizedBox(height: 14),
-                _ThemeModePicker(
-                  selectedMode: themeMode,
-                  onChanged: onThemeModeChanged,
-                ),
-                const SizedBox(height: 14),
-                _SettingsInlineControl(
-                  icon: Icons.translate_outlined,
-                  title: _t(context, 'language'),
-                  subtitle: _t(context, 'languageSubtitle'),
-                  child: _LanguagePicker(
-                    selectedLanguage: language,
-                    onChanged: onLanguageChanged,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsSectionTitle(
-                  icon: Icons.speed_outlined,
-                  title: _t(context, 'renderQuality'),
-                  subtitle:
-                      'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
-                ),
-                const SizedBox(height: 14),
-                _RenderQualityPicker(
-                  selectedQuality: renderQuality,
-                  onChanged: onRenderQualityChanged,
-                ),
-              ],
-            ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.speed_outlined,
+                title: _t(context, 'renderQuality'),
+                subtitle:
+                    'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
+              ),
+              const SizedBox(height: 14),
+              _RenderQualityPicker(
+                selectedQuality: renderQuality,
+                onChanged: onRenderQualityChanged,
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              children: [
-                _SettingsSwitchRow(
-                  icon: Icons.light_mode_outlined,
-                  title: _t(context, 'lightEffect'),
-                  subtitle: _t(context, 'lightEffectSubtitle'),
-                  value: lightEffectEnabled,
-                  onChanged: onLightEffectEnabledChanged,
-                ),
-              ],
-            ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            children: [
+              _SettingsSwitchRow(
+                icon: Icons.light_mode_outlined,
+                title: _t(context, 'lightEffect'),
+                subtitle: _t(context, 'lightEffectSubtitle'),
+                value: lightEffectEnabled,
+                onChanged: onLightEffectEnabledChanged,
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: _WallpaperSettingsCard(
-              folderPath: wallpaperFolderPath,
-              intervalSeconds: wallpaperIntervalSeconds,
-              imageCount: wallpaperImageCount,
-              onReload: onWallpaperReloadRequested,
-              onIntervalChanged: onWallpaperIntervalChanged,
-              buttonEnabled: wallpaperButtonEnabled,
-              onButtonEnabledChanged: onWallpaperButtonEnabledChanged,
-            ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: _WallpaperSettingsCard(
+            folderPath: wallpaperFolderPath,
+            intervalSeconds: wallpaperIntervalSeconds,
+            imageCount: wallpaperImageCount,
+            onReload: onWallpaperReloadRequested,
+            onIntervalChanged: onWallpaperIntervalChanged,
+            buttonEnabled: wallpaperButtonEnabled,
+            onButtonEnabledChanged: onWallpaperButtonEnabledChanged,
           ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Column(
-              children: [
-                _SettingsSwitchRow(
-                  icon: Icons.home_outlined,
-                  title: _t(context, 'defaultLauncher'),
-                  subtitle: defaultLauncherEnabled
-                      ? _t(context, 'defaultLauncherReady')
-                      : _t(context, 'defaultLauncherChoose'),
-                  value: defaultLauncherEnabled,
-                  onChanged: onDefaultLauncherChanged,
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            children: [
+              _SettingsSwitchRow(
+                icon: Icons.home_outlined,
+                title: _t(context, 'defaultLauncher'),
+                subtitle: defaultLauncherEnabled
+                    ? _t(context, 'defaultLauncherReady')
+                    : _t(context, 'defaultLauncherChoose'),
+                value: defaultLauncherEnabled,
+                onChanged: onDefaultLauncherChanged,
+              ),
+              const SizedBox(height: 12),
+              _SettingsInlineControl(
+                icon: Icons.screen_rotation_alt_outlined,
+                title: _t(context, 'layout'),
+                subtitle: _t(context, 'layoutSubtitle'),
+                child: _LayoutModePicker(
+                  selectedMode: layoutMode,
+                  onChanged: onLayoutModeChanged,
                 ),
-                const SizedBox(height: 12),
-                _SettingsInlineControl(
-                  icon: Icons.screen_rotation_alt_outlined,
-                  title: _t(context, 'layout'),
-                  subtitle: _t(context, 'layoutSubtitle'),
-                  child: _LayoutModePicker(
-                    selectedMode: layoutMode,
-                    onChanged: onLayoutModeChanged,
-                  ),
+              ),
+              const SizedBox(height: 12),
+              _SettingsInlineControl(
+                icon: Icons.view_sidebar_outlined,
+                title: _t(context, 'sidebarPosition'),
+                subtitle: _t(context, 'sidebarPositionSubtitle'),
+                child: _LandscapeSidebarPositionPicker(
+                  selectedPosition: landscapeSidebarPosition,
+                  onChanged: onLandscapeSidebarPositionChanged,
                 ),
-                const SizedBox(height: 12),
-                _SettingsInlineControl(
-                  icon: Icons.view_sidebar_outlined,
-                  title: _t(context, 'sidebarPosition'),
-                  subtitle: _t(context, 'sidebarPositionSubtitle'),
-                  child: _LandscapeSidebarPositionPicker(
-                    selectedPosition: landscapeSidebarPosition,
-                    onChanged: onLandscapeSidebarPositionChanged,
-                  ),
+              ),
+              const SizedBox(height: 12),
+              _SettingsInlineControl(
+                icon: Icons.zoom_out_map_rounded,
+                title: _t(context, 'mapScale'),
+                subtitle: _t(context, 'mapScaleSubtitle'),
+                child: _EmbeddedMapScalePicker(
+                  selectedScale: embeddedMapScale,
+                  onChanged: onEmbeddedMapScaleChanged,
                 ),
-                const SizedBox(height: 12),
-                _SettingsInlineControl(
-                  icon: Icons.zoom_out_map_rounded,
-                  title: _t(context, 'mapScale'),
-                  subtitle: _t(context, 'mapScaleSubtitle'),
-                  child: _EmbeddedMapScalePicker(
-                    selectedScale: embeddedMapScale,
-                    onChanged: onEmbeddedMapScaleChanged,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _SettingsSwitchRow(
-                  icon: Icons.map_outlined,
-                  title: _t(context, 'launchNavigation'),
-                  subtitle: hasNavigationApps
-                      ? _t(context, 'launchNavigationReady')
-                      : _t(context, 'launchNavigationMissing'),
-                  value: launchNavigationWithLauncher,
-                  onChanged: hasNavigationApps
-                      ? onLaunchNavigationWithLauncherChanged
-                      : null,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 12),
+              _SettingsSwitchRow(
+                icon: Icons.map_outlined,
+                title: _t(context, 'launchNavigation'),
+                subtitle: hasNavigationApps
+                    ? _t(context, 'launchNavigationReady')
+                    : _t(context, 'launchNavigationMissing'),
+                value: launchNavigationWithLauncher,
+                onChanged: hasNavigationApps
+                    ? onLaunchNavigationWithLauncherChanged
+                    : null,
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          _GlassCard(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: _SettingsSwitchRow(
-              icon: Icons.bug_report_outlined,
-              title: _t(context, 'debugMode'),
-              subtitle: _t(context, 'debugModeSubtitle'),
-              value: debugModeEnabled,
-              onChanged: onDebugModeChanged,
-            ),
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: _SettingsSwitchRow(
+            icon: Icons.bug_report_outlined,
+            title: _t(context, 'debugMode'),
+            subtitle: _t(context, 'debugModeSubtitle'),
+            value: debugModeEnabled,
+            onChanged: onDebugModeChanged,
           ),
-        ],
-      ),
+        ),
+      ],
     );
 
     if (!scrollable) return content;
 
     return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
+      physics: const ClampingScrollPhysics(),
       child: content,
     );
   }
@@ -7779,6 +7849,18 @@ String _demoLightLabel(_DemoLightMode mode) {
     _DemoLightMode.fog => 'Fog',
     _DemoLightMode.turnLeft => 'Signal L',
     _DemoLightMode.turnRight => 'Signal R',
+  };
+}
+
+String _vehicleLightModeName(_DemoLightMode mode) {
+  return switch (mode) {
+    _DemoLightMode.off => 'off',
+    _DemoLightMode.auto => 'auto',
+    _DemoLightMode.lowBeam => 'low_beam',
+    _DemoLightMode.highBeam => 'high_beam',
+    _DemoLightMode.fog => 'fog',
+    _DemoLightMode.turnLeft => 'turn_left',
+    _DemoLightMode.turnRight => 'turn_right',
   };
 }
 
@@ -10699,23 +10781,21 @@ class _GlassCard extends StatelessWidget {
               width: light ? 1.1 : 1,
             )
           : null,
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(
-            alpha: settingsPerformanceMode
-                ? (light ? 0.035 : 0.08)
-                : (light ? 0.055 : 0.13),
-          ),
-          blurRadius: settingsPerformanceMode ? 10 : (light ? 20 : 18),
-          offset: Offset(0, settingsPerformanceMode ? 4 : 8),
-        ),
-        if (light && !settingsPerformanceMode)
-          BoxShadow(
-            color: _accentSoftBlue.withValues(alpha: 0.055),
-            blurRadius: 18,
-            spreadRadius: -4,
-          ),
-      ],
+      boxShadow: settingsPerformanceMode
+          ? const []
+          : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: light ? 0.055 : 0.13),
+                blurRadius: light ? 20 : 18,
+                offset: const Offset(0, 8),
+              ),
+              if (light)
+                BoxShadow(
+                  color: _accentSoftBlue.withValues(alpha: 0.055),
+                  blurRadius: 18,
+                  spreadRadius: -4,
+                ),
+            ],
     );
 
     final card = Container(
@@ -10726,9 +10806,7 @@ class _GlassCard extends StatelessWidget {
     );
 
     if (settingsPerformanceMode) {
-      return RepaintBoundary(
-        child: ClipRRect(borderRadius: BorderRadius.circular(22), child: card),
-      );
+      return RepaintBoundary(child: card);
     }
 
     return ClipRRect(

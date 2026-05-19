@@ -141,8 +141,12 @@ private class NavigationVirtualDisplaySession(
     }
 
     fun resize(width: Int, height: Int) {
-        this.width = width.coerceAtLeast(1)
-        this.height = height.coerceAtLeast(1)
+        val nextWidth = width.coerceAtLeast(1)
+        val nextHeight = height.coerceAtLeast(1)
+        if (nextWidth == this.width && nextHeight == this.height) return
+
+        this.width = nextWidth
+        this.height = nextHeight
         textureEntry.setSize(this.width, this.height)
         virtualDisplay?.resize(this.width, this.height, densityDpi)
         FileLogger.log(context, "NavigationVD resize texture=${textureEntry.id()} size=${this.width}x${this.height}")

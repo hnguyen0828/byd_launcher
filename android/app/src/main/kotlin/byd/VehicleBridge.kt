@@ -171,6 +171,7 @@ class VehicleBridge {
                 "controlTrunk" -> result.success(controlTrunk(call))
                 "controlSunroof" -> result.success(controlSunroof(call))
                 "controlDoorLock" -> result.success(controlDoorLock(call))
+                "controlLight" -> result.success(controlLight(call))
                 else -> result.notImplemented()
             }
         }
@@ -220,7 +221,7 @@ class VehicleBridge {
             ensureListenersRegistered()
             val action = call.argument<String>("action")
             val state = stateFromAction(action, call.argument<Int>("state"))
-            val ok = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR, state)
+            val ok = postTrunkEvent(state)
             FileLogger.log(appContext, "BODYWORK CONTROL trunk state=$state ok=$ok")
             return mapOf("ok" to ok, "state" to state, "featureId" to BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR)
         }
@@ -242,6 +243,25 @@ class VehicleBridge {
             }
             FileLogger.log(appContext, "DOORLOCK CONTROL locked=$locked state=$state ok=$success areas=${areas.joinToString()}")
             return mapOf("ok" to success, "state" to state, "locked" to locked)
+        }
+
+        private fun controlLight(call: MethodCall): Map<String, Any?> {
+            ensureListenersRegistered()
+            val mode = call.argument<String>("mode")?.lowercase()
+            val explicitArea = (call.argument<Any>("area") as? Number)?.toInt()
+            val requestedOn = call.argument<Boolean>("on")
+            val state = call.argument<Int>("state")
+                ?: if (requestedOn == false || mode == "off") BYDAutoLightDevice.LIGHT_OFF else BYDAutoLightDevice.LIGHT_ON
+
+            val commands = lightCommandsForMode(mode, explicitArea, state)
+            var success = false
+            for ((area, targetState) in commands) {
+                success = postLightEvent(area, targetState) || success
+            }
+            pollLightSnapshot()
+            emitSnapshot()
+            FileLogger.log(appContext, "LIGHT CONTROL mode=$mode area=$explicitArea state=$state commands=$commands ok=$success")
+            return mapOf("ok" to success, "mode" to mode, "state" to state, "commands" to commands.map { "${it.first}:${it.second}" })
         }
 
         private fun stateFromAction(action: String?, explicitState: Int?, percent: Int? = null): Int {
@@ -298,6 +318,20 @@ class VehicleBridge {
             } else {
                 FileLogger.log(appContext, "BODYWORK CONTROL kinex-target no feature id for area=$command")
             }
+
+            val targetPercentCode = invokeBodyworkPublicIntMethod(device, "setWindowTargetPercent", command, targetPercent)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL kinex-method setWindowTargetPercent area=$command percent=$targetPercent -> ${bodyworkCodeLabel(targetPercentCode)}"
+            )
+            success = targetPercentCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+            val ctrlStateCode = invokeBodyworkPublicIntMethod(device, "setWindowCtrlState", command, state)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL kinex-method setWindowCtrlState area=$command state=$state -> ${bodyworkCodeLabel(ctrlStateCode)}"
+            )
+            success = ctrlStateCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
 
             val ctrlCode = invokeBodyworkPublicIntMethod(device, "setBodyWindowCtrlState", command, state)
             FileLogger.log(
@@ -379,6 +413,38 @@ class VehicleBridge {
             return false
         }
 
+        private fun postTrunkEvent(state: Int): Boolean {
+            val device = bodyworkDevice ?: return false
+            val featureId = bodyworkFeatureId("SET_VOICE_CTRL_BACK_DOOR_SET")
+            if (featureId == null) {
+                FileLogger.log(appContext, "BODYWORK CONTROL trunk SET_VOICE_CTRL_BACK_DOOR_SET not found")
+                return false
+            }
+            val values = if (state == BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN) {
+                listOf(1, state, BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX)
+            } else {
+                listOf(0, state, 2, BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN)
+            }.distinct()
+            var success = false
+            for (value in values) {
+                val deviceCode = invokeBodyworkSetInt(device, DEVICE_BODYWORK, featureId, value)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL trunk feature set device=$DEVICE_BODYWORK feature=0x${featureId.toString(16)} value=$value -> ${bodyworkCodeLabel(deviceCode)}"
+                )
+                success = deviceCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+                val managerCode = safe("bodywork manager.setInt trunk feature=$featureId value=$value") {
+                    deviceManager?.setInt(DEVICE_BODYWORK, featureId, value)
+                }
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL trunk manager.setInt device=$DEVICE_BODYWORK feature=0x${featureId.toString(16)} value=$value -> ${bodyworkCodeLabel(managerCode)}"
+                )
+                success = managerCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            }
+            return success
+        }
+
         private fun logWindowStatusAfterControl(area: Int) {
             pollWindowStatus("immediate", area)
             mainHandler.postDelayed({ pollWindowStatus("after1200ms", area) }, 1200L)
@@ -456,9 +522,105 @@ class VehicleBridge {
                 BYDAutoBodyworkDevice.BODYWORK_CMD_WINDOW_RIGHT_REAR -> "BODYWORK_RR_WINDOW_TARGET_POSITION_SET"
                 else -> return null
             }
+            return bodyworkFeatureId(fieldName)
+        }
+
+        private fun bodyworkFeatureId(fieldName: String): Int? {
             return safe("bodywork feature id $fieldName") {
                 val featureIds = Class.forName("android.hardware.bydauto.BYDAutoFeatureIds")
                 featureIds.getField(fieldName).getInt(null)
+            }
+        }
+
+        private fun lightCommandsForMode(mode: String?, explicitArea: Int?, state: Int): List<Pair<Int, Int>> {
+            explicitArea?.let { return listOf(it to state) }
+            return when (mode) {
+                "off" -> listOf(
+                    BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_HIGH_BEAM to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_LOW_BEAM to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_FRONT_FOG to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_REAR_FOG to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_SIDE to BYDAutoLightDevice.LIGHT_OFF,
+                )
+                "auto" -> listOf(BYDAutoLightDevice.LIGHT_SIDE to state)
+                "lowbeam", "low_beam" -> listOf(BYDAutoLightDevice.LIGHT_LOW_BEAM to state)
+                "highbeam", "high_beam" -> listOf(BYDAutoLightDevice.LIGHT_HIGH_BEAM to state)
+                "fog" -> listOf(BYDAutoLightDevice.LIGHT_FRONT_FOG to state)
+                "turnleft", "turn_left", "left", "signal_left" -> listOf(
+                    BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL to state,
+                )
+                "turnright", "turn_right", "right", "signal_right" -> listOf(
+                    BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL to BYDAutoLightDevice.LIGHT_OFF,
+                    BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL to state,
+                )
+                else -> emptyList()
+            }
+        }
+
+        private fun postLightEvent(area: Int, state: Int): Boolean {
+            val device = lightDevice ?: return false
+            val deviceType = safe("light getType before control") { device.getType() }
+            var success = false
+
+            val postOk = safe("light postEvent area=$area state=$state") {
+                device.postEvent(area, state, 0, null)
+            }
+            FileLogger.log(appContext, "LIGHT CONTROL postEvent area=$area state=$state -> $postOk")
+            success = postOk == true || success
+
+            val directCode = invokeLightSetInt(device, area, state, 0)
+            FileLogger.log(appContext, "LIGHT CONTROL device.set area=$area state=$state arg=0 -> ${lightCodeLabel(directCode)}")
+            success = directCode == BYDAutoLightDevice.LIGHT_COMMAND_SUCCESS || success
+
+            if (deviceType != null) {
+                val featureCode = invokeLightSetInt(device, deviceType, area, state)
+                FileLogger.log(
+                    appContext,
+                    "LIGHT CONTROL device.set device=$deviceType area=$area state=$state -> ${lightCodeLabel(featureCode)}"
+                )
+                success = featureCode == BYDAutoLightDevice.LIGHT_COMMAND_SUCCESS || success
+
+                val managerCode = safe("light manager.setInt device=$deviceType area=$area state=$state") {
+                    deviceManager?.setInt(deviceType, area, state)
+                }
+                FileLogger.log(
+                    appContext,
+                    "LIGHT CONTROL manager.setInt device=$deviceType area=$area state=$state -> ${lightCodeLabel(managerCode)}"
+                )
+                success = managerCode == BYDAutoLightDevice.LIGHT_COMMAND_SUCCESS || success
+            }
+
+            if (success) {
+                cachedLights[area] = state
+            }
+            return success
+        }
+
+        private fun invokeLightSetInt(device: BYDAutoLightDevice, command: Int, state: Int, arg: Int): Int? {
+            return safe("light reflected set command=$command state=$state arg=$arg") {
+                val method = device.javaClass.superclass?.getDeclaredMethod(
+                    "set",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                )
+                method?.isAccessible = true
+                method?.invoke(device, command, state, arg) as? Int
+            }
+        }
+
+        private fun lightCodeLabel(code: Int?): String {
+            return when (code) {
+                null -> "null"
+                BYDAutoLightDevice.LIGHT_COMMAND_SUCCESS -> "$code/SUCCESS"
+                BYDAutoLightDevice.LIGHT_COMMAND_FAILED -> "$code/FAILED"
+                BYDAutoLightDevice.LIGHT_COMMAND_BUSY -> "$code/BUSY"
+                BYDAutoLightDevice.LIGHT_COMMAND_TIMEOUT -> "$code/TIMEOUT"
+                BYDAutoLightDevice.LIGHT_COMMAND_INVALID -> "$code/INVALID"
+                else -> code.toString()
             }
         }
 
