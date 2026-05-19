@@ -1134,12 +1134,14 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     if (_roadMotionActive ||
         _lightEffectCameraActive ||
         _keepLightCameraOrbitAfterOff) {
-      return '180deg 78deg 99%';
+      // Pull the camera back slightly so the vehicle does not feel oversized
+      // against the light/signal overlay on BYD head-unit screens.
+      return '180deg 78deg 114%';
     }
 
     return switch (_view) {
-      _VehicleView.rear => '148deg 70deg 92%',
-      _VehicleView.status => '318deg 70deg 86%',
+      _VehicleView.rear => '148deg 70deg 100%',
+      _VehicleView.status => '318deg 70deg 94%',
     };
   }
 
@@ -8905,6 +8907,8 @@ class _LightStatusPainter extends CustomPainter {
   }
 }
 
+const double _vehicleModelGlobalScale = 0.92;
+
 class _VehicleHero extends StatefulWidget {
   const _VehicleHero({
     required this.enable3dModel,
@@ -9053,45 +9057,49 @@ class _VehicleHeroState extends State<_VehicleHero> {
                 ),
               );
             },
-            child: useNativeRenderer
-                ? _NativeVehicleScene(
-                    asset: widget.vehicleModelAsset,
-                    cameraOrbit: focusedOrbit,
-                    vehicleColor: widget.vehicleColor,
-                    renderQuality: widget.renderQuality,
-                    drivingMode: widget.roadMotionActive || effectModeActive,
-                    backgroundColor: sceneBackground,
-                  )
-                : ModelViewer(
-                    src: widget.vehicleModelAsset,
-                    alt:
-                        '${_vehicleModelLabel(widget.vehicleModelAsset)} 3D model',
-                    loading: Loading.eager,
-                    reveal: Reveal.auto,
-                    backgroundColor: Colors.transparent,
-                    cameraControls: !effectModeActive,
-                    autoRotate: false,
-                    disablePan: true,
-                    disableTap: true,
-                    disableZoom: true,
-                    interactionPrompt: InteractionPrompt.none,
-                    cameraOrbit: focusedOrbit,
-                    minCameraOrbit: 'auto 42deg 64%',
-                    maxCameraOrbit: 'auto 86deg 120%',
-                    fieldOfView: '19deg',
-                    minFieldOfView: '19deg',
-                    maxFieldOfView: '19deg',
-                    exposure: 0.78,
-                    shadowIntensity: 0.30,
-                    relatedCss:
-                        'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
-                        'model-viewer { background: transparent !important; background-color: transparent !important; '
-                        '--poster-color: transparent; }',
-                    onWebViewCreated: (controller) {
-                      _webViewController = controller;
-                      _scheduleColorApply();
-                    },
-                  ),
+            child: Transform.scale(
+              scale: _vehicleModelGlobalScale,
+              alignment: Alignment.center,
+              child: useNativeRenderer
+                  ? _NativeVehicleScene(
+                      asset: widget.vehicleModelAsset,
+                      cameraOrbit: focusedOrbit,
+                      vehicleColor: widget.vehicleColor,
+                      renderQuality: widget.renderQuality,
+                      drivingMode: widget.roadMotionActive || effectModeActive,
+                      backgroundColor: sceneBackground,
+                    )
+                  : ModelViewer(
+                      src: widget.vehicleModelAsset,
+                      alt:
+                          '${_vehicleModelLabel(widget.vehicleModelAsset)} 3D model',
+                      loading: Loading.eager,
+                      reveal: Reveal.auto,
+                      backgroundColor: Colors.transparent,
+                      cameraControls: !effectModeActive,
+                      autoRotate: false,
+                      disablePan: true,
+                      disableTap: true,
+                      disableZoom: true,
+                      interactionPrompt: InteractionPrompt.none,
+                      cameraOrbit: focusedOrbit,
+                      minCameraOrbit: 'auto 42deg 64%',
+                      maxCameraOrbit: 'auto 86deg 126%',
+                      fieldOfView: '19deg',
+                      minFieldOfView: '19deg',
+                      maxFieldOfView: '19deg',
+                      exposure: 0.78,
+                      shadowIntensity: 0.30,
+                      relatedCss:
+                          'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                          'model-viewer { background: transparent !important; background-color: transparent !important; '
+                          '--poster-color: transparent; }',
+                      onWebViewCreated: (controller) {
+                        _webViewController = controller;
+                        _scheduleColorApply();
+                      },
+                    ),
+            ),
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
