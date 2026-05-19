@@ -6934,16 +6934,6 @@ class _SettingsMainColumn extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _SettingsInlineControl(
-                icon: Icons.screen_rotation_alt_outlined,
-                title: _t(context, 'layout'),
-                subtitle: _t(context, 'layoutSubtitle'),
-                child: _LayoutModePicker(
-                  selectedMode: layoutMode,
-                  onChanged: onLayoutModeChanged,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _SettingsInlineControl(
                 icon: Icons.view_sidebar_outlined,
                 title: _t(context, 'sidebarPosition'),
                 subtitle: _t(context, 'sidebarPositionSubtitle'),
