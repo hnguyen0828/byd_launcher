@@ -1075,6 +1075,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     if (state == AppLifecycleState.resumed) {
       _applySystemBarsForTheme(widget.themeMode);
       _refreshDefaultLauncherStatus();
+      _refreshVehicleSnapshot();
     }
   }
 

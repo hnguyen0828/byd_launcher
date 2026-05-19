@@ -77,6 +77,7 @@ class VehicleBridge {
 
         private const val SNAPSHOT_EMIT_INTERVAL_MS = 3000L
         private const val REALTIME_LOG_INTERVAL_MS = 10000L
+        private const val DRIVE_POLL_INTERVAL_MS = 1000L
         private const val TYRE_POLL_INTERVAL_MS = 8000L
         private const val STATISTIC_POLL_INTERVAL_MS = 8000L
 
@@ -97,6 +98,7 @@ class VehicleBridge {
         private var pendingSnapshotEmit = false
         private var lastRealtimeLogMs = 0L
         private var lastSnapshotLogMs = 0L
+        private var lastDrivePollMs = 0L
         private var lastTyrePollMs = 0L
         private var lastStatisticPollMs = 0L
         private val discoveryLastLogMs = mutableMapOf<String, Long>()
@@ -551,6 +553,8 @@ class VehicleBridge {
         private const val BODYWORK_LUGGAGE_DOOR = 692060186
 
         private fun getVehicleSnapshot(): Map<String, Any?> {
+            ensureDeviceInstances()
+            pollDriveSnapshotThrottled()
             pollStatisticSnapshotThrottled()
             pollTyreSnapshotThrottled()
             pollLightSnapshot()
@@ -941,6 +945,36 @@ class VehicleBridge {
                 FileLogger.log(appContext, "TPMS GLOBAL candidate event=$eventType value=$rawValue data=${shortData(data)}")
             }
             tryParseTyreDataObject(data)
+        }
+
+        private fun pollDriveSnapshotThrottled() {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastDrivePollMs < DRIVE_POLL_INTERVAL_MS) return
+            lastDrivePollMs = now
+
+            val speed = speedDevice?.let { device ->
+                safe("poll speed current") { device.getCurrentSpeed() }
+            }?.takeIf { it in 0.0..300.0 }
+
+            val gearRaw = gearboxDevice?.let { device ->
+                safe("poll gearbox auto mode") { device.getGearboxAutoModeType() }
+            }
+            val gear = gearRaw?.let { gearLabel(it) }
+
+            var changed = false
+            if (speed != null && cachedSpeedKmh != speed) {
+                cachedSpeedKmh = speed
+                changed = true
+            }
+            if (gear != null && cachedGear != gear) {
+                cachedGear = gear
+                changed = true
+            }
+
+            if (changed) {
+                logRealtime("POLL DRIVE speed=$cachedSpeedKmh gearRaw=$gearRaw gear=$cachedGear")
+                emitSnapshot()
+            }
         }
 
         private fun pollStatisticSnapshotThrottled() {
