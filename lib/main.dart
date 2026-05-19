@@ -126,6 +126,39 @@ class _VehicleSnapshot {
   final _DemoLightMode lightMode;
 
   _TyreSnapshot tyre(String key) => tpms[key] ?? const _TyreSnapshot();
+
+  @override
+  bool operator ==(Object other) {
+    return other is _VehicleSnapshot &&
+        other.available == available &&
+        other.speedKmh == speedKmh &&
+        other.gear == gear &&
+        other.rangeKm == rangeKm &&
+        other.fuelPercent == fuelPercent &&
+        other.batteryPercent == batteryPercent &&
+        other.outsideTemperatureC == outsideTemperatureC &&
+        mapEquals(other.tpms, tpms) &&
+        mapEquals(other.windowLevels, windowLevels) &&
+        other.lightMode == lightMode;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    available,
+    speedKmh,
+    gear,
+    rangeKm,
+    fuelPercent,
+    batteryPercent,
+    outsideTemperatureC,
+    Object.hashAllUnordered(
+      tpms.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
+    Object.hashAllUnordered(
+      windowLevels.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
+    lightMode,
+  );
 }
 
 _DemoLightMode _lightModeFromMap(Object? lightMap) {
@@ -194,6 +227,19 @@ class _TyreSnapshot {
   final int? airLeakState;
   final int? signalState;
 
+  @override
+  bool operator ==(Object other) {
+    return other is _TyreSnapshot &&
+        other.pressureBar == pressureBar &&
+        other.pressureState == pressureState &&
+        other.airLeakState == airLeakState &&
+        other.signalState == signalState;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(pressureBar, pressureState, airLeakState, signalState);
+
   String get pressureLabel {
     final value = pressureBar;
     if (value == null || value <= 0) return '--';
@@ -253,7 +299,10 @@ class _LauncherApp {
 
 const List<_NavigationApp> _previewNavigationApps = [
   _NavigationApp(label: 'BYD', packageName: 'com.byd.navigation'),
-  _NavigationApp(label: 'Google Map', packageName: 'com.google.android.apps.maps'),
+  _NavigationApp(
+    label: 'Google Map',
+    packageName: 'com.google.android.apps.maps',
+  ),
   _NavigationApp(label: 'Waze', packageName: 'com.waze'),
 ];
 
@@ -538,8 +587,6 @@ enum _VehicleGear { p, r, n, d }
 
 enum _DemoLightMode { off, auto, lowBeam, highBeam, fog, turnLeft, turnRight }
 
-
-
 enum _VehicleRenderQuality { low, medium, high }
 
 enum _EmbeddedMapScale { compact, balanced, oem, comfortable }
@@ -655,7 +702,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'system': 'System',
     'renderQuality': '3D render quality',
     'lightEffect': 'Light effect',
-    'lightEffectSubtitle': 'Show the animated beam overlay on the vehicle.',    'debugMode': 'Debug mode',
+    'lightEffectSubtitle': 'Show the animated beam overlay on the vehicle.',
+    'debugMode': 'Debug mode',
     'debugModeSubtitle': 'Enable demo gear and light controls.',
     'ambientSubtitle': 'Use images from the app Ambient folder.',
     'showAmbientButton': 'Show Ambient button',
@@ -726,7 +774,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'system': 'Hệ thống',
     'renderQuality': 'Chất lượng 3D',
     'lightEffect': 'Hiệu ứng đèn',
-    'lightEffectSubtitle': 'Hiển thị animation luồng sáng trên xe.',    'debugMode': 'Debug mode',
+    'lightEffectSubtitle': 'Hiển thị animation luồng sáng trên xe.',
+    'debugMode': 'Debug mode',
     'debugModeSubtitle': 'Bật điều khiển demo số và đèn.',
     'ambientSubtitle': 'Dùng ảnh từ thư mục Ambient của app.',
     'showAmbientButton': 'Hiện nút Ambient',
@@ -961,6 +1010,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
+  Timer? _settingsVehicleSnapshotTimer;
+  _VehicleSnapshot? _pendingSettingsVehicleSnapshot;
 
   bool get _roadMotionActive =>
       _effectiveGear == _VehicleGear.d || _effectiveGear == _VehicleGear.r;
@@ -1015,6 +1066,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _wallpaperTimer?.cancel();
     _transitionLoadingTimer?.cancel();
     _vehicleSnapshotSubscription?.cancel();
+    _settingsVehicleSnapshotTimer?.cancel();
     super.dispose();
   }
 
@@ -1027,7 +1079,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   String get _cameraOrbit {
-    if (_roadMotionActive || _lightEffectCameraActive || _keepLightCameraOrbitAfterOff) {
+    if (_roadMotionActive ||
+        _lightEffectCameraActive ||
+        _keepLightCameraOrbitAfterOff) {
       return '180deg 78deg 99%';
     }
 
@@ -1100,8 +1154,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       vehicleSpeedKmh: _effectiveSpeedKmh,
                       demoLightMode: _demoLightMode,
                       debugModeEnabled: _debugModeEnabled,
-                      onDemoLightModeChanged: (mode) =>
-                          _setDemoLightMode(mode),
+                      onDemoLightModeChanged: (mode) => _setDemoLightMode(mode),
                       effectiveGear: _effectiveGear,
                       vehicleSnapshot: _vehicleSnapshot,
                       onGearChanged: _setGear,
@@ -1205,6 +1258,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     if (tab == _activeTab) return;
     _showTransitionLoading();
     setState(() => _activeTab = tab);
+    if (tab != _LauncherTab.settings) {
+      _flushPendingVehicleSnapshot();
+    }
     _scheduleWallpaperTimer();
   }
 
@@ -1228,9 +1284,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   void _applyVehicleSnapshot(_VehicleSnapshot snapshot) {
-    final wasLightActive = _vehicleSnapshot.lightMode != _DemoLightMode.off ||
+    final wasLightActive =
+        _vehicleSnapshot.lightMode != _DemoLightMode.off ||
         (_debugModeEnabled && _demoLightMode != _DemoLightMode.off);
-    final isLightActive = snapshot.lightMode != _DemoLightMode.off ||
+    final isLightActive =
+        snapshot.lightMode != _DemoLightMode.off ||
         (_debugModeEnabled && _demoLightMode != _DemoLightMode.off);
     final gear = snapshot.gear ?? _selectedGear;
     final parkOrNeutral = gear == _VehicleGear.p || gear == _VehicleGear.n;
@@ -1241,6 +1299,36 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     } else if (wasLightActive && !isLightActive) {
       _keepLightCameraOrbitAfterOff = true;
     }
+  }
+
+  void _setVehicleSnapshotFromPlatform(
+    _VehicleSnapshot snapshot, {
+    bool deferWhileSettings = false,
+  }) {
+    if (!mounted || snapshot == _vehicleSnapshot) return;
+
+    if (deferWhileSettings && _activeTab == _LauncherTab.settings) {
+      _pendingSettingsVehicleSnapshot = snapshot;
+      _settingsVehicleSnapshotTimer ??= Timer(
+        const Duration(milliseconds: 650),
+        _flushPendingVehicleSnapshot,
+      );
+      return;
+    }
+
+    _pendingSettingsVehicleSnapshot = null;
+    _settingsVehicleSnapshotTimer?.cancel();
+    _settingsVehicleSnapshotTimer = null;
+    setState(() => _applyVehicleSnapshot(snapshot));
+  }
+
+  void _flushPendingVehicleSnapshot() {
+    _settingsVehicleSnapshotTimer?.cancel();
+    _settingsVehicleSnapshotTimer = null;
+    final snapshot = _pendingSettingsVehicleSnapshot;
+    _pendingSettingsVehicleSnapshot = null;
+    if (!mounted || snapshot == null || snapshot == _vehicleSnapshot) return;
+    setState(() => _applyVehicleSnapshot(snapshot));
   }
 
   void _showTransitionLoading({
@@ -1353,7 +1441,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     await prefs.setBool(_lightEffectEnabledPreferenceKey, value);
   }
 
-
   Future<void> _setLayoutMode(_LauncherLayoutMode value) async {
     if (value == _layoutMode) return;
     _showTransitionLoading(duration: const Duration(milliseconds: 900));
@@ -1406,20 +1493,23 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       final rawApps = await _navigationChannel.invokeListMethod<dynamic>(
         'getNavigationApps',
       );
-      final apps = (rawApps ?? [])
-          .whereType<Map<dynamic, dynamic>>()
-          .map(_NavigationApp.fromMap)
-          .where((app) => app.label.isNotEmpty && app.packageName.isNotEmpty)
-          .toList()
-        ..sort((a, b) {
-          final rank = _navigationAppSortRank(a).compareTo(
-            _navigationAppSortRank(b),
-          );
-          if (rank != 0) return rank;
-          return _navigationAppDisplayLabel(
-            a,
-          ).toLowerCase().compareTo(_navigationAppDisplayLabel(b).toLowerCase());
-        });
+      final apps =
+          (rawApps ?? [])
+              .whereType<Map<dynamic, dynamic>>()
+              .map(_NavigationApp.fromMap)
+              .where(
+                (app) => app.label.isNotEmpty && app.packageName.isNotEmpty,
+              )
+              .toList()
+            ..sort((a, b) {
+              final rank = _navigationAppSortRank(
+                a,
+              ).compareTo(_navigationAppSortRank(b));
+              if (rank != 0) return rank;
+              return _navigationAppDisplayLabel(a).toLowerCase().compareTo(
+                _navigationAppDisplayLabel(b).toLowerCase(),
+              );
+            });
       return apps;
     } catch (_) {
       return defaultTargetPlatform == TargetPlatform.android
@@ -1714,13 +1804,19 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         'getVehicleSnapshot',
       );
       if (!mounted || data == null) return;
-      setState(() => _applyVehicleSnapshot(_VehicleSnapshot.fromMap(data)));
+      _setVehicleSnapshotFromPlatform(
+        _VehicleSnapshot.fromMap(data),
+        deferWhileSettings: true,
+      );
     } catch (_) {}
   }
 
   void _handleVehicleSnapshotEvent(dynamic value) {
     if (!mounted || value is! Map) return;
-    setState(() => _applyVehicleSnapshot(_VehicleSnapshot.fromMap(value)));
+    _setVehicleSnapshotFromPlatform(
+      _VehicleSnapshot.fromMap(value),
+      deferWhileSettings: true,
+    );
   }
 }
 
@@ -4121,7 +4217,11 @@ class _VehicleCanvas extends StatelessWidget {
               ),
             ),
           ),
-          if (activeTab != _LauncherTab.status)
+          // Keep Settings/Ambient overlay out of the Navigation tab so the
+          // embedded map can receive pointer events directly. Even an empty
+          // AnimatedSwitcher layer above the Texture can block taps on some
+          // Android/Flutter builds.
+          if (activeTab != _LauncherTab.status && activeTab != _LauncherTab.map)
             Positioned.fill(
               left: 0,
               top: 0,
@@ -4312,7 +4412,7 @@ class _NavigationPanel extends StatefulWidget {
 }
 
 class _NavigationPanelState extends State<_NavigationPanel> {
-  bool _barCollapsed = false;
+  bool _barCollapsed = true;
   int _restartSeed = 0;
 
   _NavigationApp? get _selectedApp {
@@ -4323,12 +4423,15 @@ class _NavigationPanelState extends State<_NavigationPanel> {
   }
 
   List<_NavigationApp> get _primaryApps {
-    final primary = widget.apps.where((app) {
-      final packageName = app.packageName.toLowerCase();
-      return packageName == 'com.google.android.apps.maps' ||
-          packageName == 'com.waze';
-    }).toList()
-      ..sort((a, b) => _navigationAppSortRank(a).compareTo(_navigationAppSortRank(b)));
+    final primary =
+        widget.apps.where((app) {
+          final packageName = app.packageName.toLowerCase();
+          return packageName == 'com.google.android.apps.maps' ||
+              packageName == 'com.waze';
+        }).toList()..sort(
+          (a, b) =>
+              _navigationAppSortRank(a).compareTo(_navigationAppSortRank(b)),
+        );
 
     if (primary.isNotEmpty) return primary;
     return widget.apps.take(3).toList();
@@ -4398,9 +4501,9 @@ class _NavigationPanelState extends State<_NavigationPanel> {
             ),
           ),
           Positioned(
-            top: 14,
-            left: 16,
-            right: 16,
+            top: 8,
+            left: 0,
+            right: 0,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 220),
               switchInCurve: Curves.easeOutCubic,
@@ -4410,7 +4513,6 @@ class _NavigationPanelState extends State<_NavigationPanel> {
                       key: const ValueKey('navigation-bar-collapsed'),
                       alignment: Alignment.topCenter,
                       child: _NavigationCollapsedButton(
-                        app: selectedApp,
                         onTap: () => setState(() => _barCollapsed = false),
                       ),
                     )
@@ -4462,7 +4564,9 @@ class _EmbeddedNavigationSurface extends StatelessWidget {
 
     if (defaultTargetPlatform == TargetPlatform.android) {
       return _NavigationVirtualDisplayView(
-        key: ValueKey('navigation-vd-${app.packageName}-${mapScale.name}-$restartSeed'),
+        key: ValueKey(
+          'navigation-vd-${app.packageName}-${mapScale.name}-$restartSeed',
+        ),
         app: app,
         mapScale: mapScale,
       );
@@ -4622,10 +4726,14 @@ class _NavigationVirtualDisplayViewState
       return;
     }
 
-    final x = (local.dx * textureSize.width / viewSize.width)
-        .clamp(0.0, textureSize.width);
-    final y = (local.dy * textureSize.height / viewSize.height)
-        .clamp(0.0, textureSize.height);
+    final x = (local.dx * textureSize.width / viewSize.width).clamp(
+      0.0,
+      textureSize.width,
+    );
+    final y = (local.dy * textureSize.height / viewSize.height).clamp(
+      0.0,
+      textureSize.height,
+    );
 
     unawaited(
       _navigationVdChannel
@@ -4742,126 +4850,128 @@ class _NavigationAppPicker extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(999),
         child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 52, maxWidth: 620),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: light
-                ? Colors.white.withValues(alpha: 0.54)
-                : const Color(0xFF06111D).withValues(alpha: 0.52),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52, maxWidth: 620),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
               color: light
-                  ? Colors.white.withValues(alpha: 0.62)
-                  : Colors.white.withValues(alpha: 0.14),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.09 : 0.26),
-                blurRadius: 34,
-                offset: const Offset(0, 16),
+                  ? Colors.white.withValues(alpha: 0.54)
+                  : const Color(0xFF06111D).withValues(alpha: 0.52),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: light
+                    ? Colors.white.withValues(alpha: 0.62)
+                    : Colors.white.withValues(alpha: 0.14),
               ),
-              BoxShadow(
-                color: _accentSoftBlue.withValues(alpha: light ? 0.10 : 0.16),
-                blurRadius: 24,
-                offset: const Offset(0, 0),
-              ),
-            ],
-          ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _accentSoftBlue.withValues(alpha: light ? 0.16 : 0.20),
-                    border: Border.all(
-                      color: _accentSoftBlue.withValues(alpha: 0.26),
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.navigation_rounded,
-                    color: _accentSoftBlue,
-                    size: 18,
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: light ? 0.09 : 0.26),
+                  blurRadius: 34,
+                  offset: const Offset(0, 16),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'Navigation',
-                  style: _sharp(
-                    context,
-                    Theme.of(context).textTheme.labelLarge,
-                    color: _textPrimary,
-                    weight: FontWeight.w800,
-                    size: 13,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                for (final app in primaryApps) ...[
-                  _NavigationAppChip(
-                    app: app,
-                    selected: app.packageName == selectedPackage,
-                    onTap: () => onAppSelected(app),
-                  ),
-                  const SizedBox(width: 7),
-                ],
-                _NavigationTopIconButton(
-                  icon: Icons.refresh_rounded,
-                  tooltip: 'Restart selected map',
-                  onTap: onReload,
-                ),
-                const SizedBox(width: 4),
-                _NavigationTopIconButton(
-                  icon: Icons.fullscreen_rounded,
-                  tooltip: 'Hide navigation controls',
-                  onTap: onCollapse,
-                ),
-                const SizedBox(width: 4),
-                PopupMenuButton<_NavigationApp>(
-                  tooltip: 'Choose navigation app',
-                  enabled: apps.isNotEmpty,
-                  onSelected: onAppSelected,
-                  itemBuilder: (context) => [
-                    for (final app in apps)
-                      PopupMenuItem<_NavigationApp>(
-                        value: app,
-                        child: Text(_navigationAppDisplayLabel(app)),
-                      ),
-                  ],
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 4, right: 2),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          selectedApp == null
-                              ? 'Choose'
-                              : _navigationAppDisplayLabel(selectedApp),
-                          style: _sharp(
-                            context,
-                            Theme.of(context).textTheme.labelSmall,
-                            color: _textSecondary,
-                            weight: FontWeight.w700,
-                            size: 11.5,
-                          ),
-                        ),
-                        Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          color: _tone(context, _textSecondary),
-                          size: 20,
-                        ),
-                      ],
-                    ),
-                  ),
+                BoxShadow(
+                  color: _accentSoftBlue.withValues(alpha: light ? 0.10 : 0.16),
+                  blurRadius: 24,
+                  offset: const Offset(0, 0),
                 ),
               ],
             ),
-          ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _accentSoftBlue.withValues(
+                        alpha: light ? 0.16 : 0.20,
+                      ),
+                      border: Border.all(
+                        color: _accentSoftBlue.withValues(alpha: 0.26),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.navigation_rounded,
+                      color: _accentSoftBlue,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Navigation',
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.labelLarge,
+                      color: _textPrimary,
+                      weight: FontWeight.w800,
+                      size: 13,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  for (final app in primaryApps) ...[
+                    _NavigationAppChip(
+                      app: app,
+                      selected: app.packageName == selectedPackage,
+                      onTap: () => onAppSelected(app),
+                    ),
+                    const SizedBox(width: 7),
+                  ],
+                  _NavigationTopIconButton(
+                    icon: Icons.refresh_rounded,
+                    tooltip: 'Restart selected map',
+                    onTap: onReload,
+                  ),
+                  const SizedBox(width: 4),
+                  _NavigationTopIconButton(
+                    icon: Icons.fullscreen_rounded,
+                    tooltip: 'Hide navigation controls',
+                    onTap: onCollapse,
+                  ),
+                  const SizedBox(width: 4),
+                  PopupMenuButton<_NavigationApp>(
+                    tooltip: 'Choose navigation app',
+                    enabled: apps.isNotEmpty,
+                    onSelected: onAppSelected,
+                    itemBuilder: (context) => [
+                      for (final app in apps)
+                        PopupMenuItem<_NavigationApp>(
+                          value: app,
+                          child: Text(_navigationAppDisplayLabel(app)),
+                        ),
+                    ],
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4, right: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            selectedApp == null
+                                ? 'Choose'
+                                : _navigationAppDisplayLabel(selectedApp),
+                            style: _sharp(
+                              context,
+                              Theme.of(context).textTheme.labelSmall,
+                              color: _textSecondary,
+                              weight: FontWeight.w700,
+                              size: 11.5,
+                            ),
+                          ),
+                          Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: _tone(context, _textSecondary),
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -4870,15 +4980,13 @@ class _NavigationAppPicker extends StatelessWidget {
 }
 
 class _NavigationCollapsedButton extends StatelessWidget {
-  const _NavigationCollapsedButton({required this.app, required this.onTap});
+  const _NavigationCollapsedButton({required this.onTap});
 
-  final _NavigationApp? app;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
-    final selectedApp = app;
     return Tooltip(
       message: 'Show navigation controls',
       child: InkWell(
@@ -4889,12 +4997,13 @@ class _NavigationCollapsedButton extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              height: 42,
-              padding: const EdgeInsets.symmetric(horizontal: 13),
+              width: 38,
+              height: 28,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: light
-                    ? Colors.white.withValues(alpha: 0.66)
-                    : const Color(0xFF06111D).withValues(alpha: 0.62),
+                    ? Colors.white.withValues(alpha: 0.58)
+                    : const Color(0xFF06111D).withValues(alpha: 0.54),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
                   color: light
@@ -4909,26 +5018,16 @@ class _NavigationCollapsedButton extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.fullscreen_exit_rounded,
-                    color: _accentSoftBlue,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    selectedApp == null ? 'Navigation' : _navigationAppDisplayLabel(selectedApp),
-                    style: _sharp(
-                      context,
-                      Theme.of(context).textTheme.labelSmall,
-                      color: _textPrimary,
-                      weight: FontWeight.w800,
-                      size: 11.5,
-                    ),
-                  ),
-                ],
+              child: Text(
+                '...',
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelSmall,
+                  color: _textPrimary,
+                  weight: FontWeight.w900,
+                  size: 15,
+                  height: 0.8,
+                ),
               ),
             ),
           ),
@@ -5779,127 +5878,132 @@ class _SettingsPanel extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 0, 0, 8),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: _accentSoftBlue.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.07),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: _accentSoftBlue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.07),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.settings_outlined,
+                    color: _accentSoftBlue,
+                    size: 24,
                   ),
                 ),
-                child: const Icon(
-                  Icons.settings_outlined,
-                  color: _accentSoftBlue,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _t(context, 'settings'),
-                    style: _sharp(
-                      context,
-                      Theme.of(context).textTheme.headlineSmall,
-                      color: _textPrimary,
-                      weight: FontWeight.w700,
-                      size: 28,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _t(context, 'settingsSubtitle'),
-                    style: _sharp(
-                      context,
-                      Theme.of(context).textTheme.bodyMedium,
-                      color: _textMuted,
-                      weight: FontWeight.w500,
-                      size: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth < 760) {
-                  final portraitMainColumn = _SettingsMainColumn(
-                    scrollable: false,
-                    vehicleModelAsset: vehicleModelAsset,
-                    onVehicleModelChanged: onVehicleModelChanged,
-                    vehicleColor: vehicleColor,
-                    onVehicleColorChanged: onVehicleColorChanged,
-                    renderQuality: renderQuality,
-                    onRenderQualityChanged: onRenderQualityChanged,
-                    layoutMode: layoutMode,
-                    onLayoutModeChanged: onLayoutModeChanged,
-                    landscapeSidebarPosition: landscapeSidebarPosition,
-                    onLandscapeSidebarPositionChanged:
-                        onLandscapeSidebarPositionChanged,
-                    launchNavigationWithLauncher: launchNavigationWithLauncher,
-                    defaultLauncherEnabled: defaultLauncherEnabled,
-                    embeddedMapScale: embeddedMapScale,
-                    hasNavigationApps: hasNavigationApps,
-                    onLaunchNavigationWithLauncherChanged:
-                        onLaunchNavigationWithLauncherChanged,
-                    onEmbeddedMapScaleChanged: onEmbeddedMapScaleChanged,
-                    onDefaultLauncherChanged: onDefaultLauncherChanged,
-                    wallpaperFolderPath: wallpaperFolderPath,
-                    wallpaperIntervalSeconds: wallpaperIntervalSeconds,
-                    wallpaperImageCount: wallpaperImageCount,
-                    onWallpaperReloadRequested: onWallpaperReloadRequested,
-                    onWallpaperIntervalChanged: onWallpaperIntervalChanged,
-                    wallpaperButtonEnabled: wallpaperButtonEnabled,
-                    onWallpaperButtonEnabledChanged:
-                        onWallpaperButtonEnabledChanged,
-                    lightEffectEnabled: lightEffectEnabled,
-                    debugModeEnabled: debugModeEnabled,
-                    onLightEffectEnabledChanged: onLightEffectEnabledChanged,
-                    onDebugModeChanged: onDebugModeChanged,
-                    themeMode: themeMode,
-                    onThemeModeChanged: onThemeModeChanged,
-                    language: language,
-                    onLanguageChanged: onLanguageChanged,
-                  );
-
-                  return SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.only(bottom: 22),
-                    child: Column(
-                      children: [
-                        portraitMainColumn,
-                        const SizedBox(height: 14),
-                        const _SettingsPermissionColumn(),
-                      ],
-                    ),
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                const SizedBox(width: 14),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(flex: 11, child: mainColumn),
-                    const SizedBox(width: 14),
-                    const Expanded(flex: 9, child: _SettingsPermissionColumn()),
+                    Text(
+                      _t(context, 'settings'),
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.headlineSmall,
+                        color: _textPrimary,
+                        weight: FontWeight.w700,
+                        size: 28,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _t(context, 'settingsSubtitle'),
+                      style: _sharp(
+                        context,
+                        Theme.of(context).textTheme.bodyMedium,
+                        color: _textMuted,
+                        weight: FontWeight.w500,
+                        size: 13,
+                      ),
+                    ),
                   ],
-                );
-              },
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 18),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 760) {
+                    final portraitMainColumn = _SettingsMainColumn(
+                      scrollable: false,
+                      vehicleModelAsset: vehicleModelAsset,
+                      onVehicleModelChanged: onVehicleModelChanged,
+                      vehicleColor: vehicleColor,
+                      onVehicleColorChanged: onVehicleColorChanged,
+                      renderQuality: renderQuality,
+                      onRenderQualityChanged: onRenderQualityChanged,
+                      layoutMode: layoutMode,
+                      onLayoutModeChanged: onLayoutModeChanged,
+                      landscapeSidebarPosition: landscapeSidebarPosition,
+                      onLandscapeSidebarPositionChanged:
+                          onLandscapeSidebarPositionChanged,
+                      launchNavigationWithLauncher:
+                          launchNavigationWithLauncher,
+                      defaultLauncherEnabled: defaultLauncherEnabled,
+                      embeddedMapScale: embeddedMapScale,
+                      hasNavigationApps: hasNavigationApps,
+                      onLaunchNavigationWithLauncherChanged:
+                          onLaunchNavigationWithLauncherChanged,
+                      onEmbeddedMapScaleChanged: onEmbeddedMapScaleChanged,
+                      onDefaultLauncherChanged: onDefaultLauncherChanged,
+                      wallpaperFolderPath: wallpaperFolderPath,
+                      wallpaperIntervalSeconds: wallpaperIntervalSeconds,
+                      wallpaperImageCount: wallpaperImageCount,
+                      onWallpaperReloadRequested: onWallpaperReloadRequested,
+                      onWallpaperIntervalChanged: onWallpaperIntervalChanged,
+                      wallpaperButtonEnabled: wallpaperButtonEnabled,
+                      onWallpaperButtonEnabledChanged:
+                          onWallpaperButtonEnabledChanged,
+                      lightEffectEnabled: lightEffectEnabled,
+                      debugModeEnabled: debugModeEnabled,
+                      onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+                      onDebugModeChanged: onDebugModeChanged,
+                      themeMode: themeMode,
+                      onThemeModeChanged: onThemeModeChanged,
+                      language: language,
+                      onLanguageChanged: onLanguageChanged,
+                    );
+
+                    return SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.only(bottom: 22),
+                      child: Column(
+                        children: [
+                          portraitMainColumn,
+                          const SizedBox(height: 14),
+                          const _SettingsPermissionColumn(),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(flex: 11, child: mainColumn),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        flex: 9,
+                        child: _SettingsPermissionColumn(),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
-    ));
+    );
   }
 }
 
@@ -5980,206 +6084,206 @@ class _SettingsMainColumn extends StatelessWidget {
     final content = RepaintBoundary(
       child: Column(
         children: [
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: _SettingsInlineControl(
-            icon: Icons.directions_car_filled_outlined,
-            title: _t(context, 'vehicleModel'),
-            subtitle: _t(context, 'vehicleModelSubtitle'),
-            child: _VehicleModelPicker(
-              selectedAsset: vehicleModelAsset,
-              onChanged: onVehicleModelChanged,
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: _SettingsInlineControl(
+              icon: Icons.directions_car_filled_outlined,
+              title: _t(context, 'vehicleModel'),
+              subtitle: _t(context, 'vehicleModelSubtitle'),
+              child: _VehicleModelPicker(
+                selectedAsset: vehicleModelAsset,
+                onChanged: onVehicleModelChanged,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SettingsSectionTitle(
-                icon: Icons.palette_outlined,
-                title: _t(context, 'vehicleColor'),
-                subtitle: _t(context, 'vehicleColorSubtitle'),
-              ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const columns = 5;
-                  const spacing = 8.0;
-                  final swatchWidth =
-                      (constraints.maxWidth - spacing * (columns - 1)) /
-                      columns;
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SettingsSectionTitle(
+                  icon: Icons.palette_outlined,
+                  title: _t(context, 'vehicleColor'),
+                  subtitle: _t(context, 'vehicleColorSubtitle'),
+                ),
+                const SizedBox(height: 16),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    const columns = 5;
+                    const spacing = 8.0;
+                    final swatchWidth =
+                        (constraints.maxWidth - spacing * (columns - 1)) /
+                        columns;
 
-                  return Wrap(
-                    spacing: spacing,
-                    runSpacing: spacing,
-                    children: [
-                      for (final option in _vehiclePaintOptions)
-                        SizedBox(
-                          width: swatchWidth,
-                          child: _VehicleColorSwatch(
-                            label: option.label,
-                            color: option.color,
-                            selected: vehicleColor == option.color,
-                            onTap: onVehicleColorChanged,
+                    return Wrap(
+                      spacing: spacing,
+                      runSpacing: spacing,
+                      children: [
+                        for (final option in _vehiclePaintOptions)
+                          SizedBox(
+                            width: swatchWidth,
+                            child: _VehicleColorSwatch(
+                              label: option.label,
+                              color: option.color,
+                              selected: vehicleColor == option.color,
+                              onTap: onVehicleColorChanged,
+                            ),
                           ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SettingsSectionTitle(
-                icon: Icons.contrast_outlined,
-                title: _t(context, 'appearance'),
-                subtitle: _t(context, 'appearanceSubtitle'),
-              ),
-              const SizedBox(height: 14),
-              _ThemeModePicker(
-                selectedMode: themeMode,
-                onChanged: onThemeModeChanged,
-              ),
-              const SizedBox(height: 14),
-              _SettingsInlineControl(
-                icon: Icons.translate_outlined,
-                title: _t(context, 'language'),
-                subtitle: _t(context, 'languageSubtitle'),
-                child: _LanguagePicker(
-                  selectedLanguage: language,
-                  onChanged: onLanguageChanged,
+                      ],
+                    );
+                  },
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SettingsSectionTitle(
-                icon: Icons.speed_outlined,
-                title: _t(context, 'renderQuality'),
-                subtitle:
-                    'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
-              ),
-              const SizedBox(height: 14),
-              _RenderQualityPicker(
-                selectedQuality: renderQuality,
-                onChanged: onRenderQualityChanged,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Column(
-            children: [
-              _SettingsSwitchRow(
-                icon: Icons.light_mode_outlined,
-                title: _t(context, 'lightEffect'),
-                subtitle: _t(context, 'lightEffectSubtitle'),
-                value: lightEffectEnabled,
-                onChanged: onLightEffectEnabledChanged,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: _WallpaperSettingsCard(
-            folderPath: wallpaperFolderPath,
-            intervalSeconds: wallpaperIntervalSeconds,
-            imageCount: wallpaperImageCount,
-            onReload: onWallpaperReloadRequested,
-            onIntervalChanged: onWallpaperIntervalChanged,
-            buttonEnabled: wallpaperButtonEnabled,
-            onButtonEnabledChanged: onWallpaperButtonEnabledChanged,
-          ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Column(
-            children: [
-              _SettingsSwitchRow(
-                icon: Icons.home_outlined,
-                title: _t(context, 'defaultLauncher'),
-                subtitle: defaultLauncherEnabled
-                    ? _t(context, 'defaultLauncherReady')
-                    : _t(context, 'defaultLauncherChoose'),
-                value: defaultLauncherEnabled,
-                onChanged: onDefaultLauncherChanged,
-              ),
-              const SizedBox(height: 12),
-              _SettingsInlineControl(
-                icon: Icons.screen_rotation_alt_outlined,
-                title: _t(context, 'layout'),
-                subtitle: _t(context, 'layoutSubtitle'),
-                child: _LayoutModePicker(
-                  selectedMode: layoutMode,
-                  onChanged: onLayoutModeChanged,
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SettingsSectionTitle(
+                  icon: Icons.contrast_outlined,
+                  title: _t(context, 'appearance'),
+                  subtitle: _t(context, 'appearanceSubtitle'),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _SettingsInlineControl(
-                icon: Icons.view_sidebar_outlined,
-                title: _t(context, 'sidebarPosition'),
-                subtitle: _t(context, 'sidebarPositionSubtitle'),
-                child: _LandscapeSidebarPositionPicker(
-                  selectedPosition: landscapeSidebarPosition,
-                  onChanged: onLandscapeSidebarPositionChanged,
+                const SizedBox(height: 14),
+                _ThemeModePicker(
+                  selectedMode: themeMode,
+                  onChanged: onThemeModeChanged,
                 ),
-              ),
-              const SizedBox(height: 12),
-              _SettingsInlineControl(
-                icon: Icons.zoom_out_map_rounded,
-                title: _t(context, 'mapScale'),
-                subtitle: _t(context, 'mapScaleSubtitle'),
-                child: _EmbeddedMapScalePicker(
-                  selectedScale: embeddedMapScale,
-                  onChanged: onEmbeddedMapScaleChanged,
+                const SizedBox(height: 14),
+                _SettingsInlineControl(
+                  icon: Icons.translate_outlined,
+                  title: _t(context, 'language'),
+                  subtitle: _t(context, 'languageSubtitle'),
+                  child: _LanguagePicker(
+                    selectedLanguage: language,
+                    onChanged: onLanguageChanged,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _SettingsSwitchRow(
-                icon: Icons.map_outlined,
-                title: _t(context, 'launchNavigation'),
-                subtitle: hasNavigationApps
-                    ? _t(context, 'launchNavigationReady')
-                    : _t(context, 'launchNavigationMissing'),
-                value: launchNavigationWithLauncher,
-                onChanged: hasNavigationApps
-                    ? onLaunchNavigationWithLauncherChanged
-                    : null,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: _SettingsSwitchRow(
-            icon: Icons.bug_report_outlined,
-            title: _t(context, 'debugMode'),
-            subtitle: _t(context, 'debugModeSubtitle'),
-            value: debugModeEnabled,
-            onChanged: onDebugModeChanged,
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SettingsSectionTitle(
+                  icon: Icons.speed_outlined,
+                  title: _t(context, 'renderQuality'),
+                  subtitle:
+                      'Lower quality reduces texture resolution and anti-aliasing for smoother rotation.',
+                ),
+                const SizedBox(height: 14),
+                _RenderQualityPicker(
+                  selectedQuality: renderQuality,
+                  onChanged: onRenderQualityChanged,
+                ),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              children: [
+                _SettingsSwitchRow(
+                  icon: Icons.light_mode_outlined,
+                  title: _t(context, 'lightEffect'),
+                  subtitle: _t(context, 'lightEffectSubtitle'),
+                  value: lightEffectEnabled,
+                  onChanged: onLightEffectEnabledChanged,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: _WallpaperSettingsCard(
+              folderPath: wallpaperFolderPath,
+              intervalSeconds: wallpaperIntervalSeconds,
+              imageCount: wallpaperImageCount,
+              onReload: onWallpaperReloadRequested,
+              onIntervalChanged: onWallpaperIntervalChanged,
+              buttonEnabled: wallpaperButtonEnabled,
+              onButtonEnabledChanged: onWallpaperButtonEnabledChanged,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              children: [
+                _SettingsSwitchRow(
+                  icon: Icons.home_outlined,
+                  title: _t(context, 'defaultLauncher'),
+                  subtitle: defaultLauncherEnabled
+                      ? _t(context, 'defaultLauncherReady')
+                      : _t(context, 'defaultLauncherChoose'),
+                  value: defaultLauncherEnabled,
+                  onChanged: onDefaultLauncherChanged,
+                ),
+                const SizedBox(height: 12),
+                _SettingsInlineControl(
+                  icon: Icons.screen_rotation_alt_outlined,
+                  title: _t(context, 'layout'),
+                  subtitle: _t(context, 'layoutSubtitle'),
+                  child: _LayoutModePicker(
+                    selectedMode: layoutMode,
+                    onChanged: onLayoutModeChanged,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _SettingsInlineControl(
+                  icon: Icons.view_sidebar_outlined,
+                  title: _t(context, 'sidebarPosition'),
+                  subtitle: _t(context, 'sidebarPositionSubtitle'),
+                  child: _LandscapeSidebarPositionPicker(
+                    selectedPosition: landscapeSidebarPosition,
+                    onChanged: onLandscapeSidebarPositionChanged,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _SettingsInlineControl(
+                  icon: Icons.zoom_out_map_rounded,
+                  title: _t(context, 'mapScale'),
+                  subtitle: _t(context, 'mapScaleSubtitle'),
+                  child: _EmbeddedMapScalePicker(
+                    selectedScale: embeddedMapScale,
+                    onChanged: onEmbeddedMapScaleChanged,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _SettingsSwitchRow(
+                  icon: Icons.map_outlined,
+                  title: _t(context, 'launchNavigation'),
+                  subtitle: hasNavigationApps
+                      ? _t(context, 'launchNavigationReady')
+                      : _t(context, 'launchNavigationMissing'),
+                  value: launchNavigationWithLauncher,
+                  onChanged: hasNavigationApps
+                      ? onLaunchNavigationWithLauncherChanged
+                      : null,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _GlassCard(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: _SettingsSwitchRow(
+              icon: Icons.bug_report_outlined,
+              title: _t(context, 'debugMode'),
+              subtitle: _t(context, 'debugModeSubtitle'),
+              value: debugModeEnabled,
+              onChanged: onDebugModeChanged,
+            ),
+          ),
         ],
       ),
     );
@@ -6431,33 +6535,33 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
       child: _GlassCard(
         padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SettingsSectionTitle(
-            icon: Icons.admin_panel_settings_outlined,
-            title: _t(context, 'systemPermissions'),
-            subtitle: _t(context, 'systemPermissionsSubtitle'),
-          ),
-          const SizedBox(height: 16),
-          _PermissionSummaryPanel(
-            readyCount: readyCount,
-            totalCount: 5,
-            allReady: allReady,
-            statuses: _permissionStatuses,
-          ),
-          const SizedBox(height: 16),
-          _SettingsActionButton(
-            icon: allReady
-                ? Icons.verified_user_outlined
-                : Icons.admin_panel_settings_outlined,
-            label: _grantInProgress
-                ? _t(context, 'checkingPermissions')
-                : allReady
-                ? _t(context, 'permissionsReady')
-                : _t(context, 'grantAllPermissions'),
-            onPressed: _grantRecommendedPermissions,
-          ),
-          const SizedBox(height: 12),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SettingsSectionTitle(
+              icon: Icons.admin_panel_settings_outlined,
+              title: _t(context, 'systemPermissions'),
+              subtitle: _t(context, 'systemPermissionsSubtitle'),
+            ),
+            const SizedBox(height: 16),
+            _PermissionSummaryPanel(
+              readyCount: readyCount,
+              totalCount: 5,
+              allReady: allReady,
+              statuses: _permissionStatuses,
+            ),
+            const SizedBox(height: 16),
+            _SettingsActionButton(
+              icon: allReady
+                  ? Icons.verified_user_outlined
+                  : Icons.admin_panel_settings_outlined,
+              label: _grantInProgress
+                  ? _t(context, 'checkingPermissions')
+                  : allReady
+                  ? _t(context, 'permissionsReady')
+                  : _t(context, 'grantAllPermissions'),
+              onPressed: _grantRecommendedPermissions,
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       ),
@@ -6898,7 +7002,6 @@ class _ThemeModeOption extends StatelessWidget {
     );
   }
 }
-
 
 class _EmbeddedMapScalePicker extends StatelessWidget {
   const _EmbeddedMapScalePicker({
@@ -7678,7 +7781,6 @@ String _demoLightLabel(_DemoLightMode mode) {
   };
 }
 
-
 class _LightStatusOverlay extends StatefulWidget {
   const _LightStatusOverlay({required this.mode});
 
@@ -8223,7 +8325,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
         fit: StackFit.expand,
         children: [
           _DrivingRoadLayer(
-            active: widget.roadMotionActive,
+            active: widget.roadMotionActive || effectModeActive,
+            moving: widget.roadMotionActive && widget.vehicleSpeedKmh > 0.5,
             reverse: widget.reverseRoadMotion,
             speedKmh: widget.vehicleSpeedKmh,
           ),
@@ -8296,30 +8399,28 @@ class _VehicleHeroState extends State<_VehicleHero> {
               ),
             ),
           _VehicleHotspotLayer(
-              visible: _hotspotsVisible,
-              selectedHotspot: _selectedHotspot,
-              levels: _hotspotLevels,
-              onHotspotTap: _selectHotspot,
-              onSetLevel: _setHotspotLevel,
-              onDismiss: _hideHotspots,
-              animationSeed: _hotspotAnimationSeed,
-              allowTrunk: !widget.roadMotionActive,
-              cameraOrbit: focusedOrbit,
-              focusOffset: focusOffset,
-              focusScale: focusScale,
-              focusActive: _selectedHotspot != null &&
-                  !widget.roadMotionActive &&
-                  !effectModeActive,
-            ),
+            visible: _hotspotsVisible,
+            selectedHotspot: _selectedHotspot,
+            levels: _hotspotLevels,
+            onHotspotTap: _selectHotspot,
+            onSetLevel: _setHotspotLevel,
+            onDismiss: _hideHotspots,
+            animationSeed: _hotspotAnimationSeed,
+            allowTrunk: !widget.roadMotionActive,
+            cameraOrbit: focusedOrbit,
+            focusOffset: focusOffset,
+            focusScale: focusScale,
+            focusActive:
+                _selectedHotspot != null &&
+                !widget.roadMotionActive &&
+                !effectModeActive,
+          ),
         ],
       ),
     );
   }
 
-  void _syncLightEffectReveal(
-    _DemoLightMode oldMode,
-    _DemoLightMode newMode,
-  ) {
+  void _syncLightEffectReveal(_DemoLightMode oldMode, _DemoLightMode newMode) {
     _lightEffectRevealTimer?.cancel();
 
     if (newMode == _DemoLightMode.off) {
@@ -9686,11 +9787,13 @@ Color _vehicleSceneBackground(BuildContext context) {
 class _DrivingRoadLayer extends StatefulWidget {
   const _DrivingRoadLayer({
     required this.active,
+    required this.moving,
     required this.reverse,
     required this.speedKmh,
   });
 
   final bool active;
+  final bool moving;
   final bool reverse;
   final double speedKmh;
 
@@ -9717,7 +9820,9 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
 
     if (widget.active) {
       _revealController.value = 1;
-      _motionController.repeat();
+      if (widget.moving) {
+        _motionController.repeat();
+      }
     }
   }
 
@@ -9725,10 +9830,13 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
   void didUpdateWidget(covariant _DrivingRoadLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.speedKmh != oldWidget.speedKmh ||
-        widget.reverse != oldWidget.reverse) {
+        widget.reverse != oldWidget.reverse ||
+        widget.moving != oldWidget.moving) {
       _motionController.duration = _roadMotionDuration(widget.speedKmh);
-      if (widget.active && !_motionController.isAnimating) {
+      if (widget.active && widget.moving && !_motionController.isAnimating) {
         _motionController.repeat();
+      } else if (!widget.moving) {
+        _motionController.stop();
       }
     }
 
@@ -9742,7 +9850,9 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
           return;
         }
         _revealController.forward();
-        _motionController.repeat();
+        if (widget.moving) {
+          _motionController.repeat();
+        }
       });
     } else {
       _revealController.reverse();
@@ -9788,8 +9898,8 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
 }
 
 Duration _roadMotionDuration(double speedKmh) {
-  final speed = speedKmh.clamp(0, 120).toDouble();
-  final milliseconds = lerpDouble(1500, 460, speed / 120)!.round();
+  final speed = speedKmh.clamp(1, 140).toDouble();
+  final milliseconds = (36000 / speed).clamp(300, 4200).round();
   return Duration(milliseconds: milliseconds);
 }
 
@@ -10518,7 +10628,6 @@ class _VehicleEntranceState extends State<_VehicleEntrance>
   }
 }
 
-
 class _SettingsPerformanceScope extends InheritedWidget {
   const _SettingsPerformanceScope({
     required this.enabled,
@@ -10554,7 +10663,9 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
-    final settingsPerformanceMode = _SettingsPerformanceScope.enabledOf(context);
+    final settingsPerformanceMode = _SettingsPerformanceScope.enabledOf(
+      context,
+    );
 
     final decoration = BoxDecoration(
       gradient: LinearGradient(
@@ -10562,12 +10673,12 @@ class _GlassCard extends StatelessWidget {
         end: Alignment.bottomRight,
         colors: light
             ? [
-                const Color(0xFFFFFFFF).withValues(
-                  alpha: settingsPerformanceMode ? 0.96 : 0.88,
-                ),
-                const Color(0xFFEAF2FA).withValues(
-                  alpha: settingsPerformanceMode ? 0.90 : 0.74,
-                ),
+                const Color(
+                  0xFFFFFFFF,
+                ).withValues(alpha: settingsPerformanceMode ? 0.96 : 0.88),
+                const Color(
+                  0xFFEAF2FA,
+                ).withValues(alpha: settingsPerformanceMode ? 0.90 : 0.74),
               ]
             : [
                 Colors.white.withValues(
@@ -10615,10 +10726,7 @@ class _GlassCard extends StatelessWidget {
 
     if (settingsPerformanceMode) {
       return RepaintBoundary(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(22),
-          child: card,
-        ),
+        child: ClipRRect(borderRadius: BorderRadius.circular(22), child: card),
       );
     }
 

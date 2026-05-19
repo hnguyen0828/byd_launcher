@@ -116,6 +116,9 @@ private class NavigationVirtualDisplaySession(
     private val displayManager =
         context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private var downTime = 0L
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
+    private var inputManagerInjectionAvailable: Boolean? = null
     private var width = width.coerceAtLeast(1)
     private var height = height.coerceAtLeast(1)
     private var virtualDisplay: VirtualDisplay? = displayManager.createVirtualDisplay(
@@ -149,8 +152,10 @@ private class NavigationVirtualDisplaySession(
         val displayId = displayId ?: return false
         if (args == null) return false
         val actionName = args["action"] as? String ?: return false
-        val x = (args["x"] as? Number)?.toFloat() ?: return false
-        val y = (args["y"] as? Number)?.toFloat() ?: return false
+        val rawX = (args["x"] as? Number)?.toFloat() ?: return false
+        val rawY = (args["y"] as? Number)?.toFloat() ?: return false
+        val x = rawX.coerceIn(0f, (width - 1).coerceAtLeast(1).toFloat())
+        val y = rawY.coerceIn(0f, (height - 1).coerceAtLeast(1).toFloat())
         val action = when (actionName) {
             "down" -> MotionEvent.ACTION_DOWN
             "move" -> MotionEvent.ACTION_MOVE
@@ -161,13 +166,21 @@ private class NavigationVirtualDisplaySession(
         val now = SystemClock.uptimeMillis()
         if (action == MotionEvent.ACTION_DOWN || downTime == 0L) {
             downTime = now
+            lastTouchX = x
+            lastTouchY = y
         }
         val event = MotionEvent.obtain(
             downTime,
             now,
             action,
-            x.coerceIn(0f, width.toFloat()),
-            y.coerceIn(0f, height.toFloat()),
+            x,
+            y,
+            1.0f,
+            1.0f,
+            0,
+            1.0f,
+            1.0f,
+            0,
             0,
         ).apply {
             source = InputDevice.SOURCE_TOUCHSCREEN
@@ -177,14 +190,27 @@ private class NavigationVirtualDisplaySession(
             } catch (_: Throwable) {
             }
         }
-        return try {
+
+        val injected = try {
             injectInputEvent(event)
         } finally {
             event.recycle()
-            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                downTime = 0L
-            }
         }
+
+        val fallbackInjected = if (!injected) {
+            injectTouchViaShell(displayId, action, x, y)
+        } else {
+            true
+        }
+
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            downTime = 0L
+        }
+        if (action != MotionEvent.ACTION_CANCEL) {
+            lastTouchX = x
+            lastTouchY = y
+        }
+        return fallbackInjected
     }
 
     fun dispose() {
@@ -199,7 +225,11 @@ private class NavigationVirtualDisplaySession(
             FileLogger.log(context, "NavigationVD launch skipped; no display for package=$packageName")
             return false
         }
-        val intent = navigationIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = navigationIntent().addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION,
+        )
         val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
         val normalLaunchOk = try {
             activity?.startActivity(intent, options.toBundle())
@@ -252,6 +282,7 @@ private class NavigationVirtualDisplaySession(
     }
 
     private fun injectInputEvent(event: InputEvent): Boolean {
+        if (inputManagerInjectionAvailable == false) return false
         return try {
             val inputManagerClass = Class.forName("android.hardware.input.InputManager")
             val getInstance = inputManagerClass.getDeclaredMethod("getInstance")
@@ -261,9 +292,43 @@ private class NavigationVirtualDisplaySession(
                 InputEvent::class.java,
                 Int::class.javaPrimitiveType,
             )
-            inject.invoke(inputManager, event, 0) == true
-        } catch (_: Throwable) {
+            // WAIT_FOR_FINISH is much more reliable than ASYNC for a secondary display.
+            val ok = inject.invoke(inputManager, event, 2) == true
+            inputManagerInjectionAvailable = ok
+            ok
+        } catch (error: Throwable) {
+            inputManagerInjectionAvailable = false
+            FileLogger.log(
+                context,
+                "NavigationVD InputManager inject disabled ${error.javaClass.simpleName}: ${error.message}"
+            )
             false
         }
+    }
+
+    private fun injectTouchViaShell(displayId: Int, action: Int, x: Float, y: Float): Boolean {
+        // Most non-system launcher builds cannot call InputManager.injectInputEvent.
+        // Fall back to the local ADB bridge so taps still reach Google Maps/Waze on the VirtualDisplay.
+        val command = when (action) {
+            MotionEvent.ACTION_UP -> "input -d $displayId tap ${x.toInt()} ${y.toInt()}"
+            MotionEvent.ACTION_MOVE -> {
+                val dx = kotlin.math.abs(x - lastTouchX)
+                val dy = kotlin.math.abs(y - lastTouchY)
+                if (dx < 2f && dy < 2f) return false
+                "input -d $displayId swipe ${lastTouchX.toInt()} ${lastTouchY.toInt()} ${x.toInt()} ${y.toInt()} 80"
+            }
+            MotionEvent.ACTION_CANCEL -> return true
+            else -> return false
+        }
+        val result = LocalAdbClient.runShellCommandWithCandidates(context, command)
+        val ok = result.started && result.exitCode == 0 &&
+            !result.output.contains("Error:", ignoreCase = true) &&
+            !result.output.contains("Exception", ignoreCase = true) &&
+            !result.output.contains("Unknown option", ignoreCase = true)
+        FileLogger.log(
+            context,
+            "NavigationVD shell input ok=$ok displayId=$displayId action=$action x=${x.toInt()} y=${y.toInt()} exit=${result.exitCode} output=${result.output}"
+        )
+        return ok
     }
 }
