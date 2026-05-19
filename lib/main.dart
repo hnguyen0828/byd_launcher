@@ -2006,10 +2006,7 @@ class _LeftDashboard extends StatelessWidget {
                 ),
               ),
               SizedBox(height: gapSmall),
-              SizedBox(
-                height: mediaHeight,
-                child: const _MediaWidget(),
-              ),
+              SizedBox(height: mediaHeight, child: const _MediaWidget()),
               SizedBox(height: gapSmall),
               SizedBox(
                 height: favoritesHeight,
@@ -3829,7 +3826,9 @@ class _EnergyStrip extends StatelessWidget {
           final tyreCompact = constraints.maxHeight < 455;
           final showTpmsTitle = constraints.maxHeight >= 382;
           final speedSize = tightHeight ? 136.0 : 150.0;
-          final contentWidth = constraints.maxWidth < 286 ? constraints.maxWidth : 292.0;
+          final contentWidth = constraints.maxWidth < 286
+              ? constraints.maxWidth
+              : 292.0;
 
           return FittedBox(
             fit: BoxFit.scaleDown,
@@ -3873,7 +3872,9 @@ class _EnergyStrip extends StatelessWidget {
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                             color: _isLight(context)
-                                ? const Color(0xFFD4DEE9).withValues(alpha: 0.62)
+                                ? const Color(
+                                    0xFFD4DEE9,
+                                  ).withValues(alpha: 0.62)
                                 : Colors.white.withValues(alpha: 0.055),
                           ),
                         ),
@@ -4006,7 +4007,9 @@ class _StatusSectionHeader extends StatelessWidget {
         Icon(
           icon,
           size: 14,
-          color: _accentSoftBlue.withValues(alpha: _isLight(context) ? 0.92 : 0.86),
+          color: _accentSoftBlue.withValues(
+            alpha: _isLight(context) ? 0.92 : 0.86,
+          ),
         ),
         const SizedBox(width: 6),
         Text(
@@ -4052,11 +4055,7 @@ class _StatusMetricRow extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(
-              icon,
-              size: 14,
-              color: _tone(context, _textMuted),
-            ),
+            Icon(icon, size: 14, color: _tone(context, _textMuted)),
             const SizedBox(width: 7),
             Expanded(
               child: Text(
@@ -4334,7 +4333,10 @@ class _RangeSpeedGearMini extends StatelessWidget {
               ),
               SizedBox(height: large ? 9 : 5),
               Container(
-                padding: EdgeInsets.symmetric(horizontal: gearHorizontalPadding, vertical: gearVerticalPadding),
+                padding: EdgeInsets.symmetric(
+                  horizontal: gearHorizontalPadding,
+                  vertical: gearVerticalPadding,
+                ),
                 decoration: BoxDecoration(
                   color: light
                       ? Colors.white.withValues(alpha: 0.58)
@@ -4490,7 +4492,9 @@ class _TyrePressurePill extends StatelessWidget {
             height: compact ? 7 : 8,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: warning ? accent.withValues(alpha: 0.88) : Colors.transparent,
+              color: warning
+                  ? accent.withValues(alpha: 0.88)
+                  : Colors.transparent,
               border: Border.all(
                 color: accent.withValues(alpha: warning ? 0.62 : 0.48),
                 width: 1.2,
@@ -10437,7 +10441,8 @@ double _nativeRenderScale(BuildContext context, _VehicleRenderQuality quality) {
   return switch (quality) {
     _VehicleRenderQuality.low => (deviceScale * 0.55).clamp(0.70, 1.00),
     _VehicleRenderQuality.medium => (deviceScale * 0.72).clamp(0.85, 1.25),
-    _VehicleRenderQuality.high => (deviceScale * 0.90).clamp(1.00, 1.55),
+    _VehicleRenderQuality.high =>
+      deviceScale <= 1.25 ? 1.75 : (deviceScale * 1.05).clamp(1.35, 2.20),
   }.toDouble();
 }
 

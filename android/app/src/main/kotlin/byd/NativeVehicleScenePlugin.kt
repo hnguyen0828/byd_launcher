@@ -24,9 +24,12 @@ object NativeVehicleScenePlugin {
     private const val VIEW_TYPE = "byd/native_vehicle_scene"
 
     fun preload(context: Context, asset: String) {
+        val appContext = context.applicationContext
         val flutterAssetPath = normalizeFlutterAsset(asset)
         Thread {
-            cachedModelBytes(context.applicationContext, flutterAssetPath)
+            runCatching {
+                cachedModelBytes(appContext, flutterAssetPath)
+            }
         }.start()
     }
 

@@ -29,6 +29,16 @@ object NativeVehicleTexturePlugin {
     private const val CHANNEL = "byd/native_vehicle_texture"
     private val renderers = mutableMapOf<Long, VehicleTextureRenderer>()
 
+    fun preload(context: Context, asset: String) {
+        val appContext = context.applicationContext
+        val flutterAssetPath = normalizeFlutterAsset(asset)
+        Thread {
+            runCatching {
+                cachedTextureModelBytes(appContext, flutterAssetPath)
+            }
+        }.start()
+    }
+
     fun register(flutterEngine: FlutterEngine, appContext: Context) {
         val context = flutterEngine.dartExecutor.binaryMessenger
         MethodChannel(context, CHANNEL).setMethodCallHandler { call, result ->
@@ -149,7 +159,7 @@ private class VehicleTextureRenderer(
             hdrColorBuffer = quality.hdrColorBuffer
         }
         view.setShadowingEnabled(false)
-        view.ambientOcclusion = View.AmbientOcclusion.NONE
+        view.ambientOcclusion = quality.ambientOcclusion
         renderer.clearOptions = Renderer.ClearOptions().apply {
             clear = true
             clearColor = floatArrayOf(0.0f, 0.0f, 0.0f, 0.0f)
@@ -421,28 +431,32 @@ private enum class TextureRenderQuality(
     val sampleCount: Int,
     val hdrColorBuffer: View.QualityLevel,
     val antiAliasing: View.AntiAliasing,
+    val ambientOcclusion: View.AmbientOcclusion,
 ) {
     LOW(
         sampleCount = 1,
         hdrColorBuffer = View.QualityLevel.LOW,
         antiAliasing = View.AntiAliasing.NONE,
+        ambientOcclusion = View.AmbientOcclusion.NONE,
     ),
     MEDIUM(
         sampleCount = 1,
         hdrColorBuffer = View.QualityLevel.MEDIUM,
-        antiAliasing = View.AntiAliasing.NONE,
+        antiAliasing = View.AntiAliasing.FXAA,
+        ambientOcclusion = View.AmbientOcclusion.NONE,
     ),
     HIGH(
-        sampleCount = 2,
-        hdrColorBuffer = View.QualityLevel.MEDIUM,
+        sampleCount = 4,
+        hdrColorBuffer = View.QualityLevel.HIGH,
         antiAliasing = View.AntiAliasing.NONE,
+        ambientOcclusion = View.AmbientOcclusion.SSAO,
     );
 
     companion object {
         fun from(value: String?): TextureRenderQuality {
             return when (value?.lowercase()) {
                 "low" -> LOW
-                "high" -> MEDIUM
+                "high" -> HIGH
                 else -> MEDIUM
             }
         }
