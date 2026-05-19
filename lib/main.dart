@@ -362,11 +362,30 @@ Brightness _effectiveBrightnessForTheme(ThemeMode mode) {
   };
 }
 
+void _showSystemBars() {
+  // Keep Android status/navigation bars visible. Some BYD/Android head units
+  // can keep the previous immersive flag for a short moment after the app
+  // resumes, so apply it now and once again after the first frame/delay.
+  unawaited(
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    ),
+  );
+}
+
+void _restoreSystemBars() {
+  _showSystemBars();
+  WidgetsBinding.instance.addPostFrameCallback((_) => _showSystemBars());
+  Future<void>.delayed(const Duration(milliseconds: 250), _showSystemBars);
+  Future<void>.delayed(const Duration(milliseconds: 900), _showSystemBars);
+}
+
 void _applySystemBarsForTheme(ThemeMode mode) {
+  _restoreSystemBars();
   final dark = _effectiveBrightnessForTheme(mode) == Brightness.dark;
   final barColor = dark ? const Color(0xFF070B12) : const Color(0xFFF1F5FA);
 
-  unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(
       statusBarColor: barColor,
@@ -431,6 +450,11 @@ class _BydLauncherAppState extends State<BydLauncherApp>
     if (_themeMode == ThemeMode.system) {
       _applySystemBarsForTheme(_themeMode);
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    _applySystemBarsForTheme(_themeMode);
   }
 
   @override
@@ -721,6 +745,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'add': 'Add',
     'cancel': 'Cancel',
     'saveCount': 'Save ({count}/10)',
+    'vehicleStatus': 'Status',
+    'tpms': 'TPMS',
     'range': 'Range',
     'fuel': 'Fuel',
     'battery': 'Battery',
@@ -792,6 +818,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'add': 'Thêm',
     'cancel': 'Huỷ',
     'saveCount': 'Lưu ({count}/10)',
+    'vehicleStatus': 'Trạng thái',
+    'tpms': 'Áp suất lốp',
     'range': 'Tầm hoạt động',
     'fuel': 'Xăng',
     'battery': 'Pin',
@@ -1095,6 +1123,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _refreshDefaultLauncherStatus();
       _refreshVehicleSnapshot();
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    _applySystemBarsForTheme(widget.themeMode);
   }
 
   String get _cameraOrbit {
@@ -1948,111 +1981,47 @@ class _LeftDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final light = _isLight(context);
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 8, 18),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: light
-                    ? [
-                        const Color(0xFFFFFFFF).withValues(alpha: 0.92),
-                        const Color(0xFFEAF2FA).withValues(alpha: 0.86),
-                      ]
-                    : [
-                        const Color(0xFF101824).withValues(alpha: 0.94),
-                        const Color(0xFF070D15).withValues(alpha: 0.90),
-                      ],
-              ),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: light
-                    ? const Color(0xFFE7EEF6).withValues(alpha: 0.98)
-                    : Colors.white.withValues(alpha: 0.065),
-                width: light ? 1.15 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: light ? 0.07 : 0.22),
-                  blurRadius: light ? 22 : 28,
-                  offset: Offset(0, light ? 10 : 18),
-                ),
-                BoxShadow(
-                  color: _accentSoftBlue.withValues(
-                    alpha: light ? 0.075 : 0.035,
-                  ),
-                  blurRadius: light ? 26 : 34,
-                  spreadRadius: light ? -1 : 1,
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final compactHeight = constraints.maxHeight < 610;
-                  // BYD head-unit screens have less vertical room than tablets.
-                  // Keep Music tall enough for its controls, and reclaim space
-                  // mostly from TPMS so neither widget overflows.
-                  final mediaHeight = compactHeight ? 166.0 : 168.0;
-                  final favoritesHeight = compactHeight ? 58.0 : 62.0;
-                  final gapSmall = compactHeight ? 6.0 : 10.0;
-                  final gapMedium = compactHeight ? 7.0 : 12.0;
-                  final tpmsHeight = compactHeight
-                      ? (constraints.maxHeight -
-                                mediaHeight -
-                                favoritesHeight -
-                                166.0)
-                            .clamp(156.0, 186.0)
-                            .toDouble()
-                      : 198.0;
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compactHeight = constraints.maxHeight < 610;
+          // BYD head-unit screens have less vertical room than tablets.
+          // Keep Music tall enough for its controls, and reclaim space mostly
+          // from the Range widget so neither section overflows.
+          final mediaHeight = compactHeight ? 170.0 : 180.0;
+          final favoritesHeight = compactHeight ? 58.0 : 62.0;
+          final gapSmall = compactHeight ? 6.0 : 10.0;
 
-                  return Column(
-                    children: [
-                      _StatusBar(
-                        outsideTemperatureC:
-                            vehicleSnapshot.outsideTemperatureC,
-                      ),
-                      SizedBox(height: gapSmall),
-                      SizedBox(
-                        height: tpmsHeight,
-                        child: _TpmsCluster(
-                          vehicleColor: vehicleColor,
-                          snapshot: vehicleSnapshot,
-                        ),
-                      ),
-                      SizedBox(height: gapMedium),
-                      SizedBox(
-                        height: mediaHeight,
-                        child: const _MediaWidget(),
-                      ),
-                      SizedBox(height: gapSmall),
-                      Flexible(child: _EnergyStrip(snapshot: vehicleSnapshot)),
-                      SizedBox(height: gapSmall),
-                      SizedBox(
-                        height: favoritesHeight,
-                        child: _FavoriteAppsStrip(
-                          apps: favoriteApps,
-                          onAppTap: onFavoriteAppTap,
-                          onEditTap: onFavoriteAppsEdit,
-                          onRemove: onFavoriteAppRemove,
-                          onReorder: onFavoriteAppsReorder,
-                        ),
-                      ),
-                    ],
-                  );
-                },
+          return Column(
+            children: [
+              Expanded(
+                child: _EnergyStrip(
+                  snapshot: vehicleSnapshot,
+                  gear: effectiveGear,
+                  vehicleSpeedKmh: vehicleSpeedKmh,
+                  onGearChanged: onGearChanged,
+                ),
               ),
-            ),
-          ),
-        ),
+              SizedBox(height: gapSmall),
+              SizedBox(
+                height: mediaHeight,
+                child: const _MediaWidget(),
+              ),
+              SizedBox(height: gapSmall),
+              SizedBox(
+                height: favoritesHeight,
+                child: _FavoriteAppsStrip(
+                  apps: favoriteApps,
+                  onAppTap: onFavoriteAppTap,
+                  onEditTap: onFavoriteAppsEdit,
+                  onRemove: onFavoriteAppRemove,
+                  onReorder: onFavoriteAppsReorder,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -3801,105 +3770,768 @@ String _formatMediaTime(int milliseconds) {
 }
 
 class _EnergyStrip extends StatelessWidget {
-  const _EnergyStrip({required this.snapshot});
+  const _EnergyStrip({
+    required this.snapshot,
+    this.gear,
+    this.vehicleSpeedKmh,
+    this.onGearChanged,
+  });
 
   final _VehicleSnapshot snapshot;
+  final _VehicleGear? gear;
+  final double? vehicleSpeedKmh;
+  final ValueChanged<_VehicleGear>? onGearChanged;
 
   @override
   Widget build(BuildContext context) {
     final fuel = snapshot.fuelPercent;
     final battery = snapshot.batteryPercent;
     final range = snapshot.rangeKm;
+    final hasSpeedGear = gear != null && vehicleSpeedKmh != null;
+
+    if (!hasSpeedGear) {
+      return _GlassCard(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: _EnergyLevel(
+                icon: Icons.local_gas_station,
+                label: _t(context, 'fuel'),
+                value: fuel == null ? '--' : '$fuel%',
+                color: const Color(0xFF25D366),
+                progress: (fuel ?? 0) / 100,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _EnergyLevel(
+                icon: Icons.battery_5_bar,
+                label: _t(context, 'battery'),
+                value: battery == null ? '--' : '${battery.round()}%',
+                color: _accentSoftBlue,
+                progress: (battery ?? 0) / 100,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return _GlassCard(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.topCenter,
-        child: SizedBox(
-          width: 260,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _t(context, 'range'),
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.labelMedium,
-                  color: _textMuted,
-                  weight: FontWeight.w500,
-                  size: 11.5,
-                  height: 1,
-                  letterSpacing: 0.2,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compactHeight = constraints.maxHeight < 430;
+          final tightHeight = constraints.maxHeight < 365;
+          final tyreCompact = constraints.maxHeight < 455;
+          final showTpmsTitle = constraints.maxHeight >= 382;
+          final speedSize = tightHeight ? 136.0 : 150.0;
+          final contentWidth = constraints.maxWidth < 286 ? constraints.maxWidth : 292.0;
+
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              width: contentWidth,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    range?.toString() ?? '--',
-                    style: _sharp(
-                      context,
-                      Theme.of(context).textTheme.headlineMedium,
-                      color: _textPrimary,
-                      weight: FontWeight.w500,
-                      size: 24,
-                      height: 0.92,
-                      letterSpacing: -0.7,
-                    ),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.directions_car_filled_outlined,
+                        size: 17,
+                        color: _accentSoftBlue,
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        _t(context, 'vehicleStatus'),
+                        style: _sharp(
+                          context,
+                          Theme.of(context).textTheme.labelLarge,
+                          color: _textMuted,
+                          weight: FontWeight.w700,
+                          size: 12.5,
+                          height: 1,
+                          letterSpacing: 0.25,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _isLight(context)
+                              ? Colors.white.withValues(alpha: 0.46)
+                              : Colors.white.withValues(alpha: 0.045),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: _isLight(context)
+                                ? const Color(0xFFD4DEE9).withValues(alpha: 0.62)
+                                : Colors.white.withValues(alpha: 0.055),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.wb_sunny_outlined,
+                              size: 13,
+                              color: _tone(context, _textSecondary),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              snapshot.outsideTemperatureC == null
+                                  ? '--°C'
+                                  : '${snapshot.outsideTemperatureC}°C',
+                              style: _sharp(
+                                context,
+                                Theme.of(context).textTheme.labelMedium,
+                                color: _textSecondary,
+                                weight: FontWeight.w600,
+                                size: 11.5,
+                                height: 1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 5),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(
-                      'km',
-                      style: _sharp(
-                        context,
-                        Theme.of(context).textTheme.labelLarge,
-                        color: _textSecondary,
-                        weight: FontWeight.w500,
-                        size: 12,
-                        height: 1,
+                  SizedBox(height: compactHeight ? 12 : 16),
+                  Center(
+                    child: SizedBox(
+                      width: speedSize,
+                      height: speedSize,
+                      child: _RangeSpeedGearMini(
+                        gear: gear!,
+                        vehicleSpeedKmh: vehicleSpeedKmh!,
+                        onGearChanged: onGearChanged,
+                        large: true,
                       ),
                     ),
                   ),
-                  const Spacer(),
-                  const Icon(
-                    Icons.route_outlined,
-                    color: _accentSoftBlue,
-                    size: 20,
+                  SizedBox(height: tightHeight ? 12 : 15),
+                  _StatusMetricRow(
+                    icon: Icons.route_outlined,
+                    label: _t(context, 'range'),
+                    value: range == null ? '-- km' : '$range km',
+                  ),
+                  SizedBox(height: tightHeight ? 8 : 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _StatusPercentBar(
+                          icon: Icons.battery_5_bar,
+                          label: _t(context, 'battery'),
+                          value: battery == null ? null : battery.round(),
+                          accent: _accentSoftBlue,
+                          compact: true,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatusPercentBar(
+                          icon: Icons.local_gas_station,
+                          label: _t(context, 'fuel'),
+                          value: fuel,
+                          accent: const Color(0xFF25D366),
+                          compact: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: compactHeight ? 12 : 15),
+                  const _StatusDivider(),
+                  SizedBox(height: compactHeight ? 9 : 11),
+                  if (showTpmsTitle) ...[
+                    _StatusSectionHeader(
+                      icon: Icons.tire_repair,
+                      label: _t(context, 'tpms'),
+                    ),
+                    SizedBox(height: compactHeight ? 7 : 9),
+                  ],
+                  _TyrePressureMiniGrid(
+                    snapshot: snapshot,
+                    compact: tyreCompact,
                   ),
                 ],
               ),
-              const SizedBox(height: 7),
-              Row(
-                children: [
-                  Expanded(
-                    child: _EnergyLevel(
-                      icon: Icons.local_gas_station,
-                      label: _t(context, 'fuel'),
-                      value: fuel == null ? '--' : '$fuel%',
-                      color: Color(0xFF25D366),
-                      progress: (fuel ?? 0) / 100,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatusDivider extends StatelessWidget {
+  const _StatusDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            _isLight(context)
+                ? const Color(0xFFBFD0DF).withValues(alpha: 0.42)
+                : Colors.white.withValues(alpha: 0.10),
+            Colors.transparent,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusSectionHeader extends StatelessWidget {
+  const _StatusSectionHeader({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color: _accentSoftBlue.withValues(alpha: _isLight(context) ? 0.92 : 0.86),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: _sharp(
+            context,
+            Theme.of(context).textTheme.labelSmall,
+            color: _textMuted,
+            weight: FontWeight.w700,
+            size: 10.8,
+            height: 1,
+            letterSpacing: 0.28,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusMetricRow extends StatelessWidget {
+  const _StatusMetricRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.progress,
+    this.accent = _accentSoftBlue,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final double? progress;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final clampedProgress = progress == null
+        ? null
+        : (progress!.clamp(0.0, 1.0) as num).toDouble();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Icon(
+              icon,
+              size: 14,
+              color: _tone(context, _textMuted),
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textSecondary,
+                  weight: FontWeight.w500,
+                  size: 11.6,
+                  height: 1,
+                ),
+              ),
+            ),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelMedium,
+                color: _textPrimary,
+                weight: FontWeight.w700,
+                size: 12.4,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
+        if (clampedProgress != null) ...[
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: clampedProgress,
+              minHeight: 2.2,
+              color: accent.withValues(alpha: _isLight(context) ? 0.82 : 0.88),
+              backgroundColor: _isLight(context)
+                  ? const Color(0xFFD4E0EB).withValues(alpha: 0.72)
+                  : Colors.white.withValues(alpha: 0.075),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _StatusPercentBar extends StatelessWidget {
+  const _StatusPercentBar({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.accent,
+    this.compact = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final int? value;
+  final Color accent;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = value == null
+        ? null
+        : ((value!.clamp(0, 100)) / 100.0).toDouble();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 14, color: _tone(context, _textMuted)),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelMedium,
+                  color: _textSecondary,
+                  weight: FontWeight.w500,
+                  size: compact ? 10.6 : 11.6,
+                  height: 1,
+                ),
+              ),
+            ),
+            Text(
+              value == null ? '--' : '$value%',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelMedium,
+                color: _textPrimary,
+                weight: FontWeight.w800,
+                size: compact ? 12.0 : 12.8,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: compact ? 5 : 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: percent ?? 0,
+            minHeight: compact ? 3.8 : 4.2,
+            color: accent.withValues(alpha: _isLight(context) ? 0.86 : 0.92),
+            backgroundColor: _isLight(context)
+                ? const Color(0xFFD4E0EB).withValues(alpha: 0.72)
+                : Colors.white.withValues(alpha: 0.075),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VehicleMetricTile extends StatelessWidget {
+  const _VehicleMetricTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.progress,
+    this.compact = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  final double progress;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(10, compact ? 8 : 10, 10, compact ? 8 : 9),
+      decoration: BoxDecoration(
+        color: _isLight(context)
+            ? Colors.white.withValues(alpha: 0.34)
+            : Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: _isLight(context)
+              ? const Color(0xFFD8E4F0).withValues(alpha: 0.66)
+              : Colors.white.withValues(alpha: 0.045),
+        ),
+      ),
+      child: _EnergyLevel(
+        icon: icon,
+        label: label,
+        value: value,
+        color: color,
+        progress: (progress.clamp(0.0, 1.0) as num).toDouble(),
+      ),
+    );
+  }
+}
+
+class _RangeSpeedGearMini extends StatelessWidget {
+  const _RangeSpeedGearMini({
+    required this.gear,
+    required this.vehicleSpeedKmh,
+    this.onGearChanged,
+    this.large = false,
+  });
+
+  final _VehicleGear gear;
+  final double vehicleSpeedKmh;
+  final ValueChanged<_VehicleGear>? onGearChanged;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final ringColor = light
+        ? const Color(0xFF2F80ED).withValues(alpha: 0.20)
+        : _accentSoftBlue.withValues(alpha: 0.22);
+
+    final outerSize = large ? 150.0 : 104.0;
+    final innerRingPadding = large ? 8.0 : 6.0;
+    final speedFontSize = large ? 48.0 : 30.0;
+    final unitFontSize = large ? 11.5 : 9.0;
+    final gearSize = large ? 23.0 : 17.0;
+    final gearFontSize = large ? 12.0 : 9.5;
+    final gearVerticalPadding = large ? 4.0 : 3.0;
+    final gearHorizontalPadding = large ? 6.0 : 4.0;
+
+    return SizedBox(
+      width: outerSize,
+      height: outerSize,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    _accentSoftBlue.withValues(alpha: light ? 0.12 : 0.10),
+                    Colors.transparent,
+                  ],
+                ),
+                border: Border.all(color: ringColor, width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: _accentSoftBlue.withValues(
+                      alpha: light ? 0.12 : 0.08,
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _EnergyLevel(
-                      icon: Icons.battery_5_bar,
-                      label: _t(context, 'battery'),
-                      value: battery == null ? '--' : '${battery.round()}%',
-                      color: _accentSoftBlue,
-                      progress: (battery ?? 0) / 100,
-                    ),
+                    blurRadius: 20,
+                    spreadRadius: 0.5,
                   ),
                 ],
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.all(innerRingPadding),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: light
+                        ? Colors.white.withValues(alpha: 0.72)
+                        : Colors.white.withValues(alpha: 0.075),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: vehicleSpeedKmh),
+                duration: const Duration(milliseconds: 520),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) {
+                  return Text(
+                    value.round().toString(),
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.displaySmall,
+                      color: _textPrimary,
+                      weight: FontWeight.w300,
+                      size: speedFontSize,
+                      height: 0.86,
+                      letterSpacing: -0.9,
+                    ),
+                  );
+                },
+              ),
+              Text(
+                'km/h',
+                style: _sharp(
+                  context,
+                  Theme.of(context).textTheme.labelSmall,
+                  color: _textSecondary,
+                  weight: FontWeight.w600,
+                  size: unitFontSize,
+                  height: 1,
+                  letterSpacing: 0.45,
+                ),
+              ),
+              SizedBox(height: large ? 9 : 5),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: gearHorizontalPadding, vertical: gearVerticalPadding),
+                decoration: BoxDecoration(
+                  color: light
+                      ? Colors.white.withValues(alpha: 0.58)
+                      : Colors.black.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: light
+                        ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                        : Colors.white.withValues(alpha: 0.055),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _GearText(
+                      'P',
+                      active: gear == _VehicleGear.p,
+                      onTap: onGearChanged == null
+                          ? null
+                          : () => onGearChanged!(_VehicleGear.p),
+                      size: gearSize,
+                      fontSize: gearFontSize,
+                    ),
+                    _GearText(
+                      'R',
+                      active: gear == _VehicleGear.r,
+                      onTap: onGearChanged == null
+                          ? null
+                          : () => onGearChanged!(_VehicleGear.r),
+                      size: gearSize,
+                      fontSize: gearFontSize,
+                    ),
+                    _GearText(
+                      'N',
+                      active: gear == _VehicleGear.n,
+                      onTap: onGearChanged == null
+                          ? null
+                          : () => onGearChanged!(_VehicleGear.n),
+                      size: gearSize,
+                      fontSize: gearFontSize,
+                    ),
+                    _GearText(
+                      'D',
+                      active: gear == _VehicleGear.d,
+                      onTap: onGearChanged == null
+                          ? null
+                          : () => onGearChanged!(_VehicleGear.d),
+                      size: gearSize,
+                      fontSize: gearFontSize,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TyrePressureMiniGrid extends StatelessWidget {
+  const _TyrePressureMiniGrid({required this.snapshot, this.compact = false});
+
+  final _VehicleSnapshot snapshot;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _TyrePressurePill(
+                label: 'FL',
+                tyre: snapshot.tyre('frontLeft'),
+                compact: compact,
+              ),
+            ),
+            SizedBox(width: compact ? 6 : 8),
+            Expanded(
+              child: _TyrePressurePill(
+                label: 'FR',
+                tyre: snapshot.tyre('frontRight'),
+                compact: compact,
+              ),
+            ),
+          ],
         ),
+        SizedBox(height: compact ? 5 : 7),
+        Row(
+          children: [
+            Expanded(
+              child: _TyrePressurePill(
+                label: 'RL',
+                tyre: snapshot.tyre('rearLeft'),
+                compact: compact,
+              ),
+            ),
+            SizedBox(width: compact ? 6 : 8),
+            Expanded(
+              child: _TyrePressurePill(
+                label: 'RR',
+                tyre: snapshot.tyre('rearRight'),
+                compact: compact,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TyrePressurePill extends StatelessWidget {
+  const _TyrePressurePill({
+    required this.label,
+    required this.tyre,
+    required this.compact,
+  });
+
+  final String label;
+  final _TyreSnapshot tyre;
+  final bool compact;
+
+  bool get _warning {
+    final state = tyre.stateLabel;
+    return state != 'OK' && state != '--';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final warning = _warning;
+    final accent = warning ? const Color(0xFFFFB020) : _accentSoftBlue;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 5 : 6,
+        vertical: compact ? 4 : 5,
+      ),
+      decoration: BoxDecoration(
+        color: warning
+            ? accent.withValues(alpha: _isLight(context) ? 0.11 : 0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: compact ? 7 : 8,
+            height: compact ? 7 : 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: warning ? accent.withValues(alpha: 0.88) : Colors.transparent,
+              border: Border.all(
+                color: accent.withValues(alpha: warning ? 0.62 : 0.48),
+                width: 1.2,
+              ),
+              boxShadow: warning
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.24),
+                        blurRadius: 9,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+          SizedBox(width: compact ? 6 : 7),
+          Text(
+            label,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.labelSmall,
+              color: _textMuted,
+              weight: FontWeight.w700,
+              size: compact ? 9.5 : 10.5,
+              height: 1,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            tyre.pressureLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: _sharp(
+              context,
+              Theme.of(context).textTheme.labelMedium,
+              color: _textPrimary,
+              weight: FontWeight.w700,
+              size: compact ? 10.5 : 11.5,
+              height: 1,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4338,18 +4970,18 @@ class _VehicleCanvas extends StatelessWidget {
                 onLightModeChanged: onDemoLightModeChanged,
               ),
             ),
-          if (activeTab == _LauncherTab.status)
+          if (activeTab == _LauncherTab.status && portraitMode)
             Positioned(
-              top: portraitMode ? 16 : 12,
-              right: portraitMode ? 16 : 0,
-              width: portraitMode ? 108 : 212,
-              height: portraitMode ? 108 : 212,
+              top: 16,
+              right: 16,
+              width: 108,
+              height: 108,
               child: _PremiumSpeedGearCluster(
                 selectedGear: effectiveGear,
                 vehicleSpeedKmh: vehicleSpeedKmh,
                 onGearChanged: onGearChanged,
                 debugModeEnabled: debugModeEnabled,
-                compact: portraitMode,
+                compact: true,
               ),
             ),
           Positioned(
