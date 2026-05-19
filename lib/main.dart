@@ -4545,12 +4545,12 @@ class _NavigationVirtualDisplayViewState
           );
         }
 
-        return GestureDetector(
+        return Listener(
           behavior: HitTestBehavior.opaque,
-          onPanDown: (details) => _sendTouch('down', details.localPosition),
-          onPanUpdate: (details) => _sendTouch('move', details.localPosition),
-          onPanEnd: (_) => _sendTouch('up', null),
-          onPanCancel: () => _sendTouch('cancel', null),
+          onPointerDown: (event) => _sendPointerTouch('down', event),
+          onPointerMove: (event) => _sendPointerTouch('move', event),
+          onPointerUp: (event) => _sendPointerTouch('up', event),
+          onPointerCancel: (event) => _sendPointerTouch('cancel', event),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -4559,9 +4559,11 @@ class _NavigationVirtualDisplayViewState
                 Positioned(
                   right: 12,
                   bottom: 12,
-                  child: _MapStatusPill(
-                    icon: Icons.warning_amber_rounded,
-                    label: 'Virtual display blocked',
+                  child: IgnorePointer(
+                    child: _MapStatusPill(
+                      icon: Icons.warning_amber_rounded,
+                      label: 'Virtual display blocked',
+                    ),
                   ),
                 ),
             ],
@@ -4606,19 +4608,25 @@ class _NavigationVirtualDisplayViewState
     }
   }
 
-  void _sendTouch(String action, Offset? position) {
+  void _sendPointerTouch(String action, PointerEvent event) {
     final textureId = _textureId;
     if (textureId == null) return;
+
     final box = context.findRenderObject() as RenderBox?;
-    final size = box?.size ?? Size.zero;
+    if (box == null || !box.hasSize) return;
+
+    final viewSize = box.size;
     final textureSize = _textureSize;
-    final local = position ?? Offset(size.width / 2, size.height / 2);
-    final x = size.width <= 0 || textureSize == null
-        ? local.dx
-        : local.dx * textureSize.width / size.width;
-    final y = size.height <= 0 || textureSize == null
-        ? local.dy
-        : local.dy * textureSize.height / size.height;
+    final local = box.globalToLocal(event.position);
+    if (viewSize.width <= 0 || viewSize.height <= 0 || textureSize == null) {
+      return;
+    }
+
+    final x = (local.dx * textureSize.width / viewSize.width)
+        .clamp(0.0, textureSize.width);
+    final y = (local.dy * textureSize.height / viewSize.height)
+        .clamp(0.0, textureSize.height);
+
     unawaited(
       _navigationVdChannel
           .invokeMethod<Object?>('touch', {
@@ -4626,6 +4634,7 @@ class _NavigationVirtualDisplayViewState
             'action': action,
             'x': x,
             'y': y,
+            'pointerId': event.pointer,
           })
           .catchError((Object _) => null),
     );
