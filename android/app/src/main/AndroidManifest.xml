@@ -15,6 +15,10 @@
     <uses-permission android:name="android.permission.BYDAUTO_AC_COMMON"/>
     <uses-permission android:name="android.permission.BYDAUTO_LIGHT_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_LIGHT_COMMON"/>
+    <uses-permission android:name="android.permission.BYDAUTO_LIGHT_SET"/>
+    <uses-permission android:name="android.permission.BYDAUTO_SETTING_GET"/>
+    <uses-permission android:name="android.permission.BYDAUTO_SETTING_COMMON"/>
+    <uses-permission android:name="android.permission.BYDAUTO_SETTING_SET"/>
     <uses-permission android:name="android.permission.BYDAUTO_RADAR_GET"/>
     <uses-permission android:name="android.permission.BYDAUTO_RADAR_COMMON"/>
     <uses-permission android:name="android.permission.BLUETOOTH"/>
