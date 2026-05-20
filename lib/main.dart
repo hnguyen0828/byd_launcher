@@ -3387,6 +3387,7 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final ambientMode = _AmbientUiScope.enabledOf(context);
     final controlColor = light ? const Color(0xFF31516F) : _textSecondary;
     final progressTrack = light
         ? const Color(0xFFD4E0EB)
@@ -3410,13 +3411,23 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: light
-                          ? const [Color(0xFFFFF3D9), Color(0xFFE7F0FF)]
+                          ? (ambientMode
+                                ? const [
+                                    Color(0xF2FFFFFF),
+                                    Color(0xE6FFFFFF),
+                                  ]
+                                : const [
+                                    Color(0xFFFFF3D9),
+                                    Color(0xFFE7F0FF),
+                                  ])
                           : const [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: light
-                          ? const Color(0xFFE2EAF3)
+                          ? (ambientMode
+                                ? const Color(0xCCFFFFFF)
+                                : const Color(0xFFE2EAF3))
                           : Colors.white.withValues(alpha: 0.08),
                     ),
                   ),
@@ -3424,14 +3435,25 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                       ? Icon(
                           Icons.music_note_rounded,
                           color: light
-                              ? const Color(0xFF4D78A8)
+                              ? (ambientMode
+                                    ? const Color(0xFFD6E2ED)
+                                    : const Color(0xFF4D78A8))
                               : const Color(0xFFFFD36E),
                           size: 27,
                         )
-                      : Image.memory(
-                          _state.albumArt!,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.memory(
+                              _state.albumArt!,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            ),
+                            if (ambientMode && light)
+                              Container(
+                                color: Colors.white.withValues(alpha: 0.78),
+                              ),
+                          ],
                         ),
                 ),
               ),
@@ -3616,6 +3638,7 @@ class _MediaWidgetState extends State<_MediaWidget>
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final ambientMode = _AmbientUiScope.enabledOf(context);
     final controlColor = light ? const Color(0xFF31516F) : _textSecondary;
     final progressTrack = light
         ? const Color(0xFFD4E0EB)
@@ -3639,21 +3662,33 @@ class _MediaWidgetState extends State<_MediaWidget>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: light
-                          ? const [Color(0xFFFFF3D9), Color(0xFFE7F0FF)]
+                          ? (ambientMode
+                                ? const [
+                                    Color(0xF2FFFFFF),
+                                    Color(0xE6FFFFFF),
+                                  ]
+                                : const [
+                                    Color(0xFFFFF3D9),
+                                    Color(0xFFE7F0FF),
+                                  ])
                           : const [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: light
-                          ? const Color(0xFFE2EAF3)
+                          ? (ambientMode
+                                ? const Color(0xCCFFFFFF)
+                                : const Color(0xFFE2EAF3))
                           : Colors.white.withValues(alpha: 0.08),
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: light
-                            ? const Color(0xFF9EBEE3).withValues(alpha: 0.16)
+                            ? const Color(0xFF9EBEE3).withValues(
+                                alpha: ambientMode ? 0.0 : 0.16,
+                              )
                             : const Color(0xFFFFC857).withValues(alpha: 0.08),
-                        blurRadius: 18,
+                        blurRadius: ambientMode ? 0 : 18,
                       ),
                     ],
                   ),
@@ -3661,14 +3696,25 @@ class _MediaWidgetState extends State<_MediaWidget>
                       ? Icon(
                           Icons.music_note_rounded,
                           color: light
-                              ? const Color(0xFF4D78A8)
+                              ? (ambientMode
+                                    ? const Color(0xFFD6E2ED)
+                                    : const Color(0xFF4D78A8))
                               : const Color(0xFFFFD36E),
                           size: 32,
                         )
-                      : Image.memory(
-                          _state.albumArt!,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.memory(
+                              _state.albumArt!,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            ),
+                            if (ambientMode && light)
+                              Container(
+                                color: Colors.white.withValues(alpha: 0.78),
+                              ),
+                          ],
                         ),
                 ),
               ),
