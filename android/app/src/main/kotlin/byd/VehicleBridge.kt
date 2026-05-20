@@ -82,6 +82,7 @@ class VehicleBridge {
         private const val DRIVE_POLL_INTERVAL_MS = 1000L
         private const val TYRE_POLL_INTERVAL_MS = 8000L
         private const val STATISTIC_POLL_INTERVAL_MS = 8000L
+        private const val TURN_SIGNAL_HOLD_MS = 1800L
 
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
         // Only confirmed statistic event IDs are mapped; unrelated statistic
@@ -134,6 +135,8 @@ class VehicleBridge {
         private var cachedBatteryVoltageLevel: Int? = null
         private val cachedLights = mutableMapOf<Int, Int>()
         private var cachedLightAutoStatus: Int? = null
+        private var lastLeftTurnSignalOnMs = 0L
+        private var lastRightTurnSignalOnMs = 0L
 
         fun register(binaryMessenger: BinaryMessenger, context: Context) {
             appContext = context.applicationContext
@@ -743,8 +746,49 @@ class VehicleBridge {
 
             if (success) {
                 cachedLights[area] = state
+                updateTurnSignalLatch(area, state, clearOnOff = true)
             }
             return success
+        }
+
+        private fun updateTurnSignalLatch(area: Int, state: Int, clearOnOff: Boolean = false) {
+            val now = SystemClock.elapsedRealtime()
+            when (area) {
+                BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL -> {
+                    if (state == BYDAutoLightDevice.LIGHT_ON) {
+                        lastLeftTurnSignalOnMs = now
+                    } else if (clearOnOff) {
+                        lastLeftTurnSignalOnMs = 0L
+                    }
+                }
+                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> {
+                    if (state == BYDAutoLightDevice.LIGHT_ON) {
+                        lastRightTurnSignalOnMs = now
+                    } else if (clearOnOff) {
+                        lastRightTurnSignalOnMs = 0L
+                    }
+                }
+            }
+        }
+
+        private fun isTurnSignalLatched(area: Int): Boolean {
+            val lastOnMs = when (area) {
+                BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL -> lastLeftTurnSignalOnMs
+                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> lastRightTurnSignalOnMs
+                else -> 0L
+            }
+            return lastOnMs > 0L && SystemClock.elapsedRealtime() - lastOnMs <= TURN_SIGNAL_HOLD_MS
+        }
+
+        private fun effectiveLightStatuses(): Map<Int, Int> {
+            val statuses = cachedLights.toMutableMap()
+            if (isTurnSignalLatched(BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL)) {
+                statuses[BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL] = BYDAutoLightDevice.LIGHT_ON
+            }
+            if (isTurnSignalLatched(BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL)) {
+                statuses[BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL] = BYDAutoLightDevice.LIGHT_ON
+            }
+            return statuses
         }
 
         private fun lightFeatureIdForArea(area: Int): Int? {
@@ -868,7 +912,10 @@ class VehicleBridge {
                 )
                 areas.forEach { area ->
                     val state = safe("light get status area=$area") { device.getLightStatus(area) }
-                    if (state != null) cachedLights[area] = state
+                    if (state != null) {
+                        cachedLights[area] = state
+                        updateTurnSignalLatch(area, state)
+                    }
                 }
                 val autoState = safe("light get auto status") { device.getLightAutoStatus() }
                 if (autoState != null) cachedLightAutoStatus = autoState
@@ -911,6 +958,7 @@ class VehicleBridge {
 
             val safeFuelRange = sanitizeDisplayRangeKm(cachedFuelRangeKm)
             val safeElectricRange = sanitizeDisplayRangeKm(cachedElectricRangeKm)
+            val lightStatuses = effectiveLightStatuses()
             return mapOf(
                 "available" to cachedAvailable,
                 "speedKmh" to cachedSpeedKmh,
@@ -941,7 +989,16 @@ class VehicleBridge {
                 ),
                 "lights" to mapOf(
                     "auto" to cachedLightAutoStatus,
-                    "statuses" to cachedLights.mapKeys { it.key.toString() },
+                    "statuses" to lightStatuses.mapKeys { it.key.toString() },
+                    "roles" to mapOf(
+                        "side" to BYDAutoLightDevice.LIGHT_SIDE,
+                        "lowBeam" to BYDAutoLightDevice.LIGHT_LOW_BEAM,
+                        "highBeam" to BYDAutoLightDevice.LIGHT_HIGH_BEAM,
+                        "leftTurn" to BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
+                        "rightTurn" to BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL,
+                        "frontFog" to BYDAutoLightDevice.LIGHT_FRONT_FOG,
+                        "rearFog" to BYDAutoLightDevice.LIGHT_REAR_FOG,
+                    ),
                 ),
             )
         }
@@ -1437,11 +1494,11 @@ class VehicleBridge {
             }
         }
 
-        private fun emitSnapshot() {
+        private fun emitSnapshot(force: Boolean = false) {
             if (eventSink == null) return
             val now = SystemClock.elapsedRealtime()
             val elapsed = now - lastSnapshotEmitMs
-            if (elapsed >= SNAPSHOT_EMIT_INTERVAL_MS) {
+            if (force || elapsed >= SNAPSHOT_EMIT_INTERVAL_MS) {
                 lastSnapshotEmitMs = now
                 pendingSnapshotEmit = false
                 mainHandler.post {
@@ -1691,31 +1748,33 @@ class VehicleBridge {
             return object : AbsBYDAutoLightListener() {
                 override fun onLightOn(area: Int) {
                     cachedLights[area] = BYDAutoLightDevice.LIGHT_ON
+                    updateTurnSignalLatch(area, BYDAutoLightDevice.LIGHT_ON)
                     logRealtime("LIGHT CALLBACK on area=$area")
-                    emitSnapshot()
+                    emitSnapshot(force = true)
                 }
 
                 override fun onLightOff(area: Int) {
                     cachedLights[area] = BYDAutoLightDevice.LIGHT_OFF
+                    updateTurnSignalLatch(area, BYDAutoLightDevice.LIGHT_OFF)
                     logRealtime("LIGHT CALLBACK off area=$area")
-                    emitSnapshot()
+                    emitSnapshot(force = true)
                 }
 
                 override fun onLightAutoSwitchOn() {
                     cachedLightAutoStatus = BYDAutoLightDevice.LIGHT_ON
                     logRealtime("LIGHT CALLBACK auto=on")
-                    emitSnapshot()
+                    emitSnapshot(force = true)
                 }
 
                 override fun onLightAutoSwitchOff() {
                     cachedLightAutoStatus = BYDAutoLightDevice.LIGHT_OFF
                     logRealtime("LIGHT CALLBACK auto=off")
-                    emitSnapshot()
+                    emitSnapshot(force = true)
                 }
 
                 override fun onAFSSwitchStateChange(state: Int) {
                     logRealtime("LIGHT CALLBACK afs=$state")
-                    emitSnapshot()
+                    emitSnapshot(force = true)
                 }
             }
         }

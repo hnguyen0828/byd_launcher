@@ -206,19 +206,35 @@ _DemoLightMode _lightModeFromMap(Object? lightMap) {
   if (lightMap is! Map) return _DemoLightMode.off;
   final statuses = lightMap['statuses'];
   if (statuses is! Map) return _DemoLightMode.off;
+  final roles = lightMap['roles'];
   final on = <int>{};
   for (final entry in statuses.entries) {
     final area = int.tryParse(entry.key.toString());
     final state = entry.value is num ? (entry.value as num).toInt() : null;
     if (area != null && state == 1) on.add(area);
   }
-  if (on.contains(4)) return _DemoLightMode.turnLeft;
-  if (on.contains(5)) return _DemoLightMode.turnRight;
-  if (on.contains(3)) return _DemoLightMode.highBeam;
-  if (on.contains(6) || on.contains(7)) return _DemoLightMode.fog;
-  if (on.contains(2)) return _DemoLightMode.lowBeam;
-  if (on.contains(1) || lightMap['auto'] == 1) return _DemoLightMode.auto;
+  final leftTurn = _intFromDynamicMap(roles, 'leftTurn') ?? 4;
+  final rightTurn = _intFromDynamicMap(roles, 'rightTurn') ?? 5;
+  final highBeam = _intFromDynamicMap(roles, 'highBeam') ?? 3;
+  final frontFog = _intFromDynamicMap(roles, 'frontFog') ?? 6;
+  final rearFog = _intFromDynamicMap(roles, 'rearFog') ?? 7;
+  final lowBeam = _intFromDynamicMap(roles, 'lowBeam') ?? 2;
+  final side = _intFromDynamicMap(roles, 'side') ?? 1;
+  if (on.contains(leftTurn)) return _DemoLightMode.turnLeft;
+  if (on.contains(rightTurn)) return _DemoLightMode.turnRight;
+  if (on.contains(highBeam)) return _DemoLightMode.highBeam;
+  if (on.contains(frontFog) || on.contains(rearFog)) return _DemoLightMode.fog;
+  if (on.contains(lowBeam)) return _DemoLightMode.lowBeam;
+  if (on.contains(side) || lightMap['auto'] == 1) return _DemoLightMode.auto;
   return _DemoLightMode.off;
+}
+
+int? _intFromDynamicMap(Object? map, String key) {
+  if (map is! Map) return null;
+  final value = map[key];
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return null;
 }
 
 Map<int, double> _windowLevelsFromMap(Object? windowsMap) {
@@ -2036,9 +2052,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         'getVehicleSnapshot',
       );
       if (!mounted || data == null) return;
-      _setVehicleSnapshotFromPlatform(
-        _VehicleSnapshot.fromMap(data),
-      );
+      _setVehicleSnapshotFromPlatform(_VehicleSnapshot.fromMap(data));
     } catch (_) {
     } finally {
       _vehicleSnapshotRefreshInFlight = false;
@@ -2047,9 +2061,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
 
   void _handleVehicleSnapshotEvent(dynamic value) {
     if (!mounted || value is! Map) return;
-    _setVehicleSnapshotFromPlatform(
-      _VehicleSnapshot.fromMap(value),
-    );
+    _setVehicleSnapshotFromPlatform(_VehicleSnapshot.fromMap(value));
   }
 }
 
@@ -2506,24 +2518,24 @@ class _AddFavoriteAppButton extends StatelessWidget {
                 ),
               ),
               child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.add_rounded,
-                color: _tone(context, _textPrimary),
-                size: iconSize,
-              ),
-              SizedBox(height: labelGap),
-              Text(
-                _t(context, 'add'),
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.labelSmall,
-                  color: _textPrimary,
-                  weight: FontWeight.w600,
-                  size: labelSize,
-                ),
-              ),
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.add_rounded,
+                    color: _tone(context, _textPrimary),
+                    size: iconSize,
+                  ),
+                  SizedBox(height: labelGap),
+                  Text(
+                    _t(context, 'add'),
+                    style: _sharp(
+                      context,
+                      Theme.of(context).textTheme.labelSmall,
+                      color: _textPrimary,
+                      weight: FontWeight.w600,
+                      size: labelSize,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -3471,12 +3483,11 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                           ? (ambientMode
                                 ? [
                                     Colors.white.withValues(alpha: 0.58),
-                                    const Color(0xFFEAF3FA).withValues(alpha: 0.26),
+                                    const Color(
+                                      0xFFEAF3FA,
+                                    ).withValues(alpha: 0.26),
                                   ]
-                                : const [
-                                    Color(0xFFFFF3D9),
-                                    Color(0xFFE7F0FF),
-                                  ])
+                                : const [Color(0xFFFFF3D9), Color(0xFFE7F0FF)])
                           : const [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
                     borderRadius: BorderRadius.circular(14),
@@ -3722,12 +3733,11 @@ class _MediaWidgetState extends State<_MediaWidget>
                           ? (ambientMode
                                 ? [
                                     Colors.white.withValues(alpha: 0.58),
-                                    const Color(0xFFEAF3FA).withValues(alpha: 0.26),
+                                    const Color(
+                                      0xFFEAF3FA,
+                                    ).withValues(alpha: 0.26),
                                   ]
-                                : const [
-                                    Color(0xFFFFF3D9),
-                                    Color(0xFFE7F0FF),
-                                  ])
+                                : const [Color(0xFFFFF3D9), Color(0xFFE7F0FF)])
                           : const [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
                     borderRadius: BorderRadius.circular(16),
@@ -3741,9 +3751,9 @@ class _MediaWidgetState extends State<_MediaWidget>
                     boxShadow: [
                       BoxShadow(
                         color: light
-                            ? const Color(0xFF9EBEE3).withValues(
-                                alpha: ambientMode ? 0.006 : 0.16,
-                              )
+                            ? const Color(
+                                0xFF9EBEE3,
+                              ).withValues(alpha: ambientMode ? 0.006 : 0.16)
                             : const Color(0xFFFFC857).withValues(alpha: 0.08),
                         blurRadius: ambientMode ? 1 : 18,
                       ),
@@ -11480,68 +11490,71 @@ class _AmbientBottomDock extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: compactMode ? 12 : 22),
         child: LayoutBuilder(
-        builder: (context, constraints) {
-          final narrow = constraints.maxWidth < 760;
-          final tabs = _BottomTabs(
-            activeTab: activeTab,
-            showWallpaperTab: showWallpaperTab,
-            ambientMode: true,
-            compactMode: compactMode,
-            onTabChanged: onTabChanged,
-          );
-          final favorites = ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: Container(
-                height: 66,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  color: light
-                      ? Colors.white.withValues(alpha: 0.22)
-                      : Colors.black.withValues(alpha: 0.055),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 760;
+            final tabs = _BottomTabs(
+              activeTab: activeTab,
+              showWallpaperTab: showWallpaperTab,
+              ambientMode: true,
+              compactMode: compactMode,
+              onTabChanged: onTabChanged,
+            );
+            final favorites = ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Container(
+                  height: 66,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
                     color: light
-                        ? Colors.white.withValues(alpha: 0.30)
-                        : Colors.white.withValues(alpha: 0.14),
+                        ? Colors.white.withValues(alpha: 0.22)
+                        : Colors.black.withValues(alpha: 0.055),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: light
+                          ? Colors.white.withValues(alpha: 0.30)
+                          : Colors.white.withValues(alpha: 0.14),
+                    ),
+                  ),
+                  child: _FavoriteAppsStrip(
+                    apps: favoriteApps,
+                    onAppTap: onFavoriteAppTap,
+                    onEditTap: onFavoriteAppsEdit,
+                    onRemove: onFavoriteAppRemove,
+                    onReorder: onFavoriteAppsReorder,
+                    compactVisual: true,
                   ),
                 ),
-                child: _FavoriteAppsStrip(
-                  apps: favoriteApps,
-                  onAppTap: onFavoriteAppTap,
-                  onEditTap: onFavoriteAppsEdit,
-                  onRemove: onFavoriteAppRemove,
-                  onReorder: onFavoriteAppsReorder,
-                  compactVisual: true,
-                ),
               ),
-            ),
-          );
+            );
 
-          if (narrow) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
+            if (narrow) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: constraints.maxWidth, child: favorites),
+                  const SizedBox(height: 10),
+                  Center(child: tabs),
+                ],
+              );
+            }
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(width: constraints.maxWidth, child: favorites),
-                const SizedBox(height: 10),
-                Center(child: tabs),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 430),
+                  child: favorites,
+                ),
+                const SizedBox(width: 16),
+                tabs,
               ],
             );
-          }
-
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 430),
-                child: favorites,
-              ),
-              const SizedBox(width: 16),
-              tabs,
-            ],
-          );
-        },
+          },
         ),
       ),
     );
