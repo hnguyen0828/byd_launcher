@@ -2431,6 +2431,7 @@ class _AddFavoriteAppButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final ambientMode = _AmbientUiScope.enabledOf(context);
     final buttonSize = compactVisual ? 48.0 : 52.0;
     final iconSize = compactVisual ? 18.0 : 20.0;
     final labelGap = compactVisual ? 1.0 : 2.0;
@@ -2441,21 +2442,36 @@ class _AddFavoriteAppButton extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Container(
-          width: buttonSize,
-          height: buttonSize,
-          decoration: BoxDecoration(
-            color: light
-                ? Colors.white.withValues(alpha: 0.70)
-                : Colors.white.withValues(alpha: 0.070),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: light
-                  ? const Color(0xFFDDE7F1).withValues(alpha: 0.88)
-                  : Colors.white.withValues(alpha: 0.060),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(
+              sigmaX: ambientMode ? 12 : 0,
+              sigmaY: ambientMode ? 12 : 0,
             ),
-          ),
-          child: Column(
+            child: Container(
+              width: buttonSize,
+              height: buttonSize,
+              decoration: BoxDecoration(
+                color: ambientMode
+                    ? (light
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.white.withValues(alpha: 0.055))
+                    : light
+                    ? Colors.white.withValues(alpha: 0.70)
+                    : Colors.white.withValues(alpha: 0.070),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: ambientMode
+                      ? (light
+                            ? Colors.white.withValues(alpha: 0.20)
+                            : Colors.white.withValues(alpha: 0.075))
+                      : light
+                      ? const Color(0xFFDDE7F1).withValues(alpha: 0.88)
+                      : Colors.white.withValues(alpha: 0.060),
+                ),
+              ),
+              child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
@@ -2474,7 +2490,9 @@ class _AddFavoriteAppButton extends StatelessWidget {
                   size: labelSize,
                 ),
               ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -4391,7 +4409,7 @@ class _VehicleMetricTile extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(10, compact ? 8 : 10, 10, compact ? 8 : 9),
       decoration: BoxDecoration(
         color: _isLight(context)
-            ? Colors.white.withValues(alpha: 0.34)
+            ? Colors.white.withValues(alpha: 0.20)
             : Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
@@ -5225,7 +5243,10 @@ class _VehicleCanvas extends StatelessWidget {
               child: _BottomTabs(
                 activeTab: activeTab,
                 showWallpaperTab: wallpaperButtonEnabled,
-                ambientMode: false,
+                // Ambient uses a full-screen translucent wallpaper layer, so
+                // the bottom dock must use the same glass treatment as the
+                // floating Status/Music cards instead of the normal solid dock.
+                ambientMode: wallpaperMode && !portraitMode,
                 compactMode: portraitMode,
                 onTabChanged: onTabChanged,
               ),
@@ -11343,9 +11364,13 @@ class _AmbientBottomDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: compactMode ? 12 : 22),
-      child: LayoutBuilder(
+    final light = _isLight(context);
+
+    return _AmbientUiScope(
+      enabled: true,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: compactMode ? 12 : 22),
+        child: LayoutBuilder(
         builder: (context, constraints) {
           final narrow = constraints.maxWidth < 760;
           final tabs = _BottomTabs(
@@ -11363,10 +11388,14 @@ class _AmbientBottomDock extends StatelessWidget {
                 height: 66,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.045),
+                  color: light
+                      ? Colors.white.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.055),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.14),
+                    color: light
+                        ? Colors.white.withValues(alpha: 0.30)
+                        : Colors.white.withValues(alpha: 0.14),
                   ),
                 ),
                 child: _FavoriteAppsStrip(
@@ -11404,6 +11433,7 @@ class _AmbientBottomDock extends StatelessWidget {
             ],
           );
         },
+        ),
       ),
     );
   }
@@ -11428,25 +11458,29 @@ class _BottomTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = _isLight(context);
     final containerColor = ambientMode
-        ? Colors.black.withValues(alpha: light ? 0.035 : 0.055)
+        ? (light
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.black.withValues(alpha: 0.060))
         : light
         ? Colors.white.withValues(alpha: 0.88)
         : const Color(0xFF07101A).withValues(alpha: 0.62);
     final borderColor = ambientMode
-        ? Colors.white.withValues(alpha: light ? 0.16 : 0.13)
+        ? (light
+              ? Colors.white.withValues(alpha: 0.22)
+              : Colors.white.withValues(alpha: 0.13))
         : light
         ? _premiumLightStroke.withValues(alpha: 0.95)
         : Colors.white.withValues(alpha: 0.07);
     final shadowAlpha = ambientMode
-        ? (light ? 0.06 : 0.12)
+        ? (light ? 0.025 : 0.12)
         : (light ? 0.10 : 0.26);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
         filter: ImageFilter.blur(
-          sigmaX: ambientMode ? 10 : 24,
-          sigmaY: ambientMode ? 10 : 24,
+          sigmaX: ambientMode ? 18 : 24,
+          sigmaY: ambientMode ? 18 : 24,
         ),
         child: Container(
           height: 52,
@@ -11538,7 +11572,11 @@ class _BottomTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = _isLight(context);
     final color = ambientMode
-        ? (selected ? Colors.white : Colors.white.withValues(alpha: 0.74))
+        ? (selected
+              ? (light ? const Color(0xFF1D4F86) : Colors.white)
+              : (light
+                    ? const Color(0xFF5F7187).withValues(alpha: 0.86)
+                    : Colors.white.withValues(alpha: 0.74)))
         : selected
         ? (light ? const Color(0xFF1D4F86) : _tone(context, Colors.white))
         : _tone(context, const Color(0xFF9FAEBE));
@@ -11559,10 +11597,15 @@ class _BottomTab extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: ambientMode
-                      ? [
-                          Colors.white.withValues(alpha: 0.070),
-                          Colors.white.withValues(alpha: 0.018),
-                        ]
+                      ? (light
+                            ? [
+                                Colors.white.withValues(alpha: 0.13),
+                                const Color(0xFFE5F2FF).withValues(alpha: 0.07),
+                              ]
+                            : [
+                                Colors.white.withValues(alpha: 0.070),
+                                Colors.white.withValues(alpha: 0.018),
+                              ])
                       : light
                       ? [
                           const Color(0xFFFFFFFF).withValues(alpha: 0.98),
@@ -11577,7 +11620,9 @@ class _BottomTab extends StatelessWidget {
           border: selected
               ? Border.all(
                   color: ambientMode
-                      ? Colors.white.withValues(alpha: 0.16)
+                      ? (light
+                            ? Colors.white.withValues(alpha: 0.12)
+                            : Colors.white.withValues(alpha: 0.16))
                       : light
                       ? const Color(0xFF78B7FF).withValues(alpha: 0.38)
                       : Colors.white.withValues(alpha: 0.08),
@@ -11588,14 +11633,14 @@ class _BottomTab extends StatelessWidget {
               ? [
                   BoxShadow(
                     color: const Color(0xFF78B7FF).withValues(
-                      alpha: ambientMode ? 0.045 : (light ? 0.20 : 0.12),
+                      alpha: ambientMode ? 0.020 : (light ? 0.20 : 0.12),
                     ),
                     blurRadius: ambientMode ? 14 : 18,
                     spreadRadius: 1,
                   ),
                   BoxShadow(
                     color: Colors.black.withValues(
-                      alpha: ambientMode ? 0.10 : (light ? 0.06 : 0.18),
+                      alpha: ambientMode ? 0.035 : (light ? 0.06 : 0.18),
                     ),
                     blurRadius: ambientMode ? 12 : (light ? 16 : 12),
                     offset: const Offset(0, 5),
