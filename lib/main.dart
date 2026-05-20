@@ -9843,21 +9843,28 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   int? _windowAreaForHotspot(_VehicleHotspot hotspot) {
+    // BYD bodywork window area ids are mirrored compared with the launcher
+    // visual hotspots. Keep the UI labels/positions as driver-facing left/right,
+    // but send the opposite side id to the vehicle bridge so tapping Left does
+    // not operate the Right window on the head unit.
     return switch (hotspot) {
-      _VehicleHotspot.frontLeftWindow => 1,
-      _VehicleHotspot.frontRightWindow => 2,
-      _VehicleHotspot.rearLeftWindow => 3,
-      _VehicleHotspot.rearRightWindow => 4,
+      _VehicleHotspot.frontLeftWindow => 2,
+      _VehicleHotspot.frontRightWindow => 1,
+      _VehicleHotspot.rearLeftWindow => 4,
+      _VehicleHotspot.rearRightWindow => 3,
       _ => null,
     };
   }
 
   _VehicleHotspot? _windowHotspotForArea(int area) {
+    // Mirror the incoming vehicle snapshot with the same mapping used for
+    // commands, otherwise the UI level indicator would still appear on the
+    // opposite side after the vehicle reports the real window state.
     return switch (area) {
-      1 => _VehicleHotspot.frontLeftWindow,
-      2 => _VehicleHotspot.frontRightWindow,
-      3 => _VehicleHotspot.rearLeftWindow,
-      4 => _VehicleHotspot.rearRightWindow,
+      1 => _VehicleHotspot.frontRightWindow,
+      2 => _VehicleHotspot.frontLeftWindow,
+      3 => _VehicleHotspot.rearRightWindow,
+      4 => _VehicleHotspot.rearLeftWindow,
       _ => null,
     };
   }
