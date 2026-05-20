@@ -472,8 +472,14 @@ void _applyNativeSystemBars({required bool dark}) {
 
   unawaited(apply());
   WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(apply()));
-  Future<void>.delayed(const Duration(milliseconds: 250), () => unawaited(apply()));
-  Future<void>.delayed(const Duration(milliseconds: 900), () => unawaited(apply()));
+  Future<void>.delayed(
+    const Duration(milliseconds: 250),
+    () => unawaited(apply()),
+  );
+  Future<void>.delayed(
+    const Duration(milliseconds: 900),
+    () => unawaited(apply()),
+  );
 }
 
 void _preloadVehicleModelAssets() {
@@ -11012,6 +11018,10 @@ Color _vehicleSceneBackground(BuildContext context) {
   return _isLight(context) ? const Color(0xFFEAF2FA) : const Color(0xFF070B12);
 }
 
+const String _darkDrivingSkylineAsset = 'assets/images/skyline_cutout_dark.png';
+const String _lightDrivingSkylineAsset =
+    'assets/images/skyline_cutout_light.png';
+
 class _DrivingRoadLayer extends StatefulWidget {
   const _DrivingRoadLayer({
     required this.active,
@@ -11111,16 +11121,152 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
 
           return Opacity(
             opacity: opacity,
-            child: CustomPaint(
-              painter: _DrivingRoadPainter(
-                progress: _motionController.value,
-                light: _isLight(context),
-                reverse: widget.reverse,
-              ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _DrivingSkylineLayer(light: _isLight(context)),
+                CustomPaint(
+                  painter: _DrivingRoadPainter(
+                    progress: _motionController.value,
+                    light: _isLight(context),
+                    reverse: widget.reverse,
+                  ),
+                ),
+              ],
             ),
           );
         },
       ),
+    );
+  }
+}
+
+class _DrivingSkylineLayer extends StatelessWidget {
+  const _DrivingSkylineLayer({required this.light});
+
+  final bool light;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        if (!size.width.isFinite ||
+            !size.height.isFinite ||
+            size.width <= 1 ||
+            size.height <= 1) {
+          return const SizedBox.expand();
+        }
+
+        final width = size.width * (light ? 0.535 : 0.59);
+        final height = size.height * (light ? 0.142 : 0.168);
+        final horizonY = size.height * (light ? 0.276 : 0.282);
+        final skylineTop =
+            horizonY - height + size.height * (light ? 0.002 : 0.006);
+        final glowWidth = width * 1.36;
+        final glowHeight = height * 2.12;
+        final bodyHazeWidth = width * 1.02;
+        final bodyHazeHeight = height * 0.70;
+        final baseHazeWidth = width * (light ? 1.04 : 1.06);
+        final baseHazeHeight = size.height * (light ? 0.018 : 0.026);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (!light)
+              Positioned(
+                left: (size.width - glowWidth) / 2,
+                top: horizonY - glowHeight * 0.70,
+                width: glowWidth,
+                height: glowHeight,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      colors: [
+                        _accentSoftBlue.withValues(alpha: 0.19),
+                        _accentSoftBlue.withValues(alpha: 0.070),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.0, 0.40, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            if (!light)
+              Positioned(
+                left: (size.width - bodyHazeWidth) / 2,
+                top: skylineTop + height * 0.20,
+                width: bodyHazeWidth,
+                height: bodyHazeHeight,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      radius: 0.82,
+                      colors: [
+                        _accentSoftBlue.withValues(alpha: 0.050),
+                        _accentSoftBlue.withValues(alpha: 0.022),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.0, 0.50, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: (size.width - width) / 2,
+              top: skylineTop,
+              width: width,
+              height: height,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: light ? 0.0 : 0.24,
+                  sigmaY: light ? 0.0 : 0.24,
+                ),
+                child: Opacity(
+                  opacity: light ? 0.66 : 0.56,
+                  child: Image.asset(
+                    light
+                        ? _lightDrivingSkylineAsset
+                        : _darkDrivingSkylineAsset,
+                    fit: BoxFit.contain,
+                    alignment: Alignment.bottomCenter,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: (size.width - baseHazeWidth) / 2,
+              top: horizonY - size.height * (light ? 0.008 : 0.010),
+              width: baseHazeWidth,
+              height: baseHazeHeight,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      (light ? const Color(0xFF6F8798) : _accentSoftBlue)
+                          .withValues(alpha: light ? 0.070 : 0.095),
+                      (light ? const Color(0xFF9EB0BC) : _accentSoftBlue)
+                          .withValues(alpha: light ? 0.038 : 0.036),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.42, 0.62, 1.0],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (light ? const Color(0xFF6F8798) : _accentSoftBlue)
+                          .withValues(alpha: light ? 0.035 : 0.065),
+                      blurRadius: light ? 12 : 18,
+                      spreadRadius: light ? 0 : 1,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
