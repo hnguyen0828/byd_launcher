@@ -2035,7 +2035,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       if (!mounted || data == null) return;
       _setVehicleSnapshotFromPlatform(
         _VehicleSnapshot.fromMap(data),
-        deferWhileSettings: true,
       );
     } catch (_) {}
   }
@@ -2044,7 +2043,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     if (!mounted || value is! Map) return;
     _setVehicleSnapshotFromPlatform(
       _VehicleSnapshot.fromMap(value),
-      deferWhileSettings: true,
     );
   }
 }
@@ -11676,11 +11674,12 @@ class _BottomTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final ambientLightLabelColor = _tone(context, _textPrimary);
     final color = ambientMode
         ? (selected
-              ? (light ? const Color(0xFF1D4F86) : Colors.white)
+              ? (light ? ambientLightLabelColor : Colors.white)
               : (light
-                    ? const Color(0xFF5F7187).withValues(alpha: 0.86)
+                    ? ambientLightLabelColor.withValues(alpha: 0.86)
                     : Colors.white.withValues(alpha: 0.74)))
         : selected
         ? (light ? const Color(0xFF1D4F86) : _tone(context, Colors.white))
