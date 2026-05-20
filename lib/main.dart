@@ -1033,14 +1033,16 @@ Color _tone(BuildContext context, Color color) {
     return color;
   }
 
+  final ambientMode = _AmbientUiScope.enabledOf(context);
+
   if (color == _textPrimary || color == Colors.white) {
-    return _lightInk;
+    return ambientMode ? const Color(0xFF09111B) : _lightInk;
   }
   if (color == _textSecondary) {
-    return _lightInkSoft;
+    return ambientMode ? const Color(0xFF1C3044) : _lightInkSoft;
   }
   if (color == _textMuted || color == const Color(0xFF9FAEBE)) {
-    return _lightMuted;
+    return ambientMode ? const Color(0xFF40556D) : _lightMuted;
   }
 
   return color;
@@ -1055,6 +1057,9 @@ TextStyle? _sharp(
   double? height,
   double? letterSpacing,
 }) {
+  final light = _isLight(context);
+  final ambientMode = _AmbientUiScope.enabledOf(context);
+
   return base?.copyWith(
     color: _tone(context, color),
     fontWeight: weight,
@@ -1062,6 +1067,15 @@ TextStyle? _sharp(
     height: height,
     letterSpacing: letterSpacing,
     leadingDistribution: TextLeadingDistribution.even,
+    shadows: ambientMode && light
+        ? const [
+            Shadow(
+              color: Color(0x99FFFFFF),
+              blurRadius: 8,
+              offset: Offset(0, 0),
+            ),
+          ]
+        : null,
   );
 }
 
@@ -2874,6 +2888,9 @@ class _GearText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final light = _isLight(context);
+    final ambientMode = _AmbientUiScope.enabledOf(context);
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -2885,14 +2902,22 @@ class _GearText extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active
-              ? _accentSoftBlue.withValues(alpha: 0.18)
+              ? light
+                    ? ambientMode
+                          ? Colors.white.withValues(alpha: 0.18)
+                          : _accentSoftBlue.withValues(alpha: 0.18)
+                    : _accentSoftBlue.withValues(alpha: 0.18)
               : Colors.transparent,
           boxShadow: active
               ? [
                   BoxShadow(
-                    color: _accentSoftBlue.withValues(alpha: 0.14),
-                    blurRadius: 10,
-                    spreadRadius: 1,
+                    color: light
+                        ? _accentSoftBlue.withValues(
+                            alpha: ambientMode ? 0.020 : 0.14,
+                          )
+                        : _accentSoftBlue.withValues(alpha: 0.14),
+                    blurRadius: ambientMode ? 3 : 10,
+                    spreadRadius: ambientMode ? 0 : 1,
                   ),
                 ]
               : null,
@@ -2903,7 +2928,15 @@ class _GearText extends StatelessWidget {
             style: _sharp(
               context,
               Theme.of(context).textTheme.labelMedium,
-              color: active ? Colors.white : _textMuted,
+              color: active
+                  ? light
+                        ? ambientMode
+                              ? const Color(0xFF2A5A8A)
+                              : Colors.white
+                        : Colors.white
+                  : ambientMode && light
+                  ? const Color(0xFF5D7289)
+                  : _textMuted,
               weight: active ? FontWeight.w700 : FontWeight.w500,
               size: fontSize,
               letterSpacing: 0.1,
@@ -3030,12 +3063,16 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
                 padding: gearPadding,
                 decoration: BoxDecoration(
                   color: light
-                      ? Colors.white.withValues(alpha: 0.58)
+                      ? (_AmbientUiScope.enabledOf(context)
+                            ? Colors.white.withValues(alpha: 0.18)
+                            : Colors.white.withValues(alpha: 0.58))
                       : Colors.black.withValues(alpha: 0.20),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: light
-                        ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                        ? (_AmbientUiScope.enabledOf(context)
+                              ? Colors.white.withValues(alpha: 0.34)
+                              : const Color(0xFFD4DEE9).withValues(alpha: 0.84))
                         : Colors.white.withValues(alpha: 0.055),
                   ),
                 ),
@@ -3412,9 +3449,9 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                       end: Alignment.bottomRight,
                       colors: light
                           ? (ambientMode
-                                ? const [
-                                    Color(0xF2FFFFFF),
-                                    Color(0xE6FFFFFF),
+                                ? [
+                                    Colors.white.withValues(alpha: 0.58),
+                                    const Color(0xFFEAF3FA).withValues(alpha: 0.26),
                                   ]
                                 : const [
                                     Color(0xFFFFF3D9),
@@ -3426,7 +3463,7 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                     border: Border.all(
                       color: light
                           ? (ambientMode
-                                ? const Color(0xCCFFFFFF)
+                                ? Colors.white.withValues(alpha: 0.52)
                                 : const Color(0xFFE2EAF3))
                           : Colors.white.withValues(alpha: 0.08),
                     ),
@@ -3436,7 +3473,7 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                           Icons.music_note_rounded,
                           color: light
                               ? (ambientMode
-                                    ? const Color(0xFFD6E2ED)
+                                    ? const Color(0xFFAFC0D3)
                                     : const Color(0xFF4D78A8))
                               : const Color(0xFFFFD36E),
                           size: 27,
@@ -3451,7 +3488,7 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                             ),
                             if (ambientMode && light)
                               Container(
-                                color: Colors.white.withValues(alpha: 0.78),
+                                color: Colors.white.withValues(alpha: 0.58),
                               ),
                           ],
                         ),
@@ -3663,9 +3700,9 @@ class _MediaWidgetState extends State<_MediaWidget>
                       end: Alignment.bottomRight,
                       colors: light
                           ? (ambientMode
-                                ? const [
-                                    Color(0xF2FFFFFF),
-                                    Color(0xE6FFFFFF),
+                                ? [
+                                    Colors.white.withValues(alpha: 0.58),
+                                    const Color(0xFFEAF3FA).withValues(alpha: 0.26),
                                   ]
                                 : const [
                                     Color(0xFFFFF3D9),
@@ -3677,7 +3714,7 @@ class _MediaWidgetState extends State<_MediaWidget>
                     border: Border.all(
                       color: light
                           ? (ambientMode
-                                ? const Color(0xCCFFFFFF)
+                                ? Colors.white.withValues(alpha: 0.52)
                                 : const Color(0xFFE2EAF3))
                           : Colors.white.withValues(alpha: 0.08),
                     ),
@@ -3685,10 +3722,10 @@ class _MediaWidgetState extends State<_MediaWidget>
                       BoxShadow(
                         color: light
                             ? const Color(0xFF9EBEE3).withValues(
-                                alpha: ambientMode ? 0.0 : 0.16,
+                                alpha: ambientMode ? 0.006 : 0.16,
                               )
                             : const Color(0xFFFFC857).withValues(alpha: 0.08),
-                        blurRadius: ambientMode ? 0 : 18,
+                        blurRadius: ambientMode ? 1 : 18,
                       ),
                     ],
                   ),
@@ -3697,7 +3734,7 @@ class _MediaWidgetState extends State<_MediaWidget>
                           Icons.music_note_rounded,
                           color: light
                               ? (ambientMode
-                                    ? const Color(0xFFD6E2ED)
+                                    ? const Color(0xFFAFC0D3)
                                     : const Color(0xFF4D78A8))
                               : const Color(0xFFFFD36E),
                           size: 32,
@@ -3712,7 +3749,7 @@ class _MediaWidgetState extends State<_MediaWidget>
                             ),
                             if (ambientMode && light)
                               Container(
-                                color: Colors.white.withValues(alpha: 0.78),
+                                color: Colors.white.withValues(alpha: 0.60),
                               ),
                           ],
                         ),
@@ -4258,9 +4295,11 @@ class _StatusSectionHeader extends StatelessWidget {
         Icon(
           icon,
           size: 14,
-          color: _accentSoftBlue.withValues(
-            alpha: _isLight(context) ? 0.92 : 0.86,
-          ),
+          color: _AmbientUiScope.enabledOf(context) && _isLight(context)
+              ? const Color(0xFF6C9FD4)
+              : _accentSoftBlue.withValues(
+                  alpha: _isLight(context) ? 0.92 : 0.86,
+                ),
         ),
         const SizedBox(width: 6),
         Text(
@@ -4347,7 +4386,7 @@ class _StatusMetricRow extends StatelessWidget {
               minHeight: 2.2,
               color: accent.withValues(alpha: _isLight(context) ? 0.82 : 0.88),
               backgroundColor: _isLight(context)
-                  ? const Color(0xFFD4E0EB).withValues(alpha: 0.72)
+                  ? const Color(0xFFD4E0EB).withValues(alpha: 0.86)
                   : Colors.white.withValues(alpha: 0.075),
             ),
           ),
@@ -4423,7 +4462,7 @@ class _StatusPercentBar extends StatelessWidget {
             minHeight: compact ? 3.8 : 4.2,
             color: accent.withValues(alpha: _isLight(context) ? 0.86 : 0.92),
             backgroundColor: _isLight(context)
-                ? const Color(0xFFD4E0EB).withValues(alpha: 0.72)
+                ? const Color(0xFFD4E0EB).withValues(alpha: 0.86)
                 : Colors.white.withValues(alpha: 0.075),
           ),
         ),
@@ -4541,7 +4580,7 @@ class _RangeSpeedGearMini extends StatelessWidget {
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: light
-                        ? Colors.white.withValues(alpha: 0.72)
+                        ? Colors.white.withValues(alpha: 0.86)
                         : Colors.white.withValues(alpha: 0.075),
                   ),
                 ),
@@ -4590,12 +4629,16 @@ class _RangeSpeedGearMini extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: light
-                      ? Colors.white.withValues(alpha: 0.58)
+                      ? (_AmbientUiScope.enabledOf(context)
+                            ? Colors.white.withValues(alpha: 0.18)
+                            : Colors.white.withValues(alpha: 0.58))
                       : Colors.black.withValues(alpha: 0.20),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: light
-                        ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
+                        ? (_AmbientUiScope.enabledOf(context)
+                              ? Colors.white.withValues(alpha: 0.34)
+                              : const Color(0xFFD4DEE9).withValues(alpha: 0.84))
                         : Colors.white.withValues(alpha: 0.055),
                   ),
                 ),
@@ -6204,7 +6247,7 @@ class _MapStatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
         color: light
-            ? Colors.white.withValues(alpha: 0.68)
+            ? Colors.white.withValues(alpha: 0.84)
             : const Color(0xFF07101A).withValues(alpha: 0.62),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
@@ -7934,7 +7977,7 @@ class _ThemeModePicker extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: light
-            ? const Color(0xFFE5EDF6).withValues(alpha: 0.72)
+            ? const Color(0xFFE5EDF6).withValues(alpha: 0.86)
             : Colors.black.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
@@ -8050,7 +8093,7 @@ class _EmbeddedMapScalePicker extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: light
-            ? const Color(0xFFE5EDF6).withValues(alpha: 0.72)
+            ? const Color(0xFFE5EDF6).withValues(alpha: 0.86)
             : Colors.black.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
@@ -8145,7 +8188,7 @@ class _RenderQualityPicker extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: light
-            ? const Color(0xFFE5EDF6).withValues(alpha: 0.72)
+            ? const Color(0xFFE5EDF6).withValues(alpha: 0.86)
             : Colors.black.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
@@ -10118,7 +10161,7 @@ class _HotspotFocusRipple extends StatelessWidget {
                           (_isLight(context)
                                   ? const Color(0xFF5AA9FF)
                                   : _accentSoftBlue)
-                              .withValues(alpha: 0.72),
+                              .withValues(alpha: 0.86),
                       width: 1.4,
                     ),
                     boxShadow: [
@@ -10232,7 +10275,7 @@ class _VehicleHotspotButton extends StatelessWidget {
                         _accentSoftBlue.withValues(
                           alpha: selected ? 0.44 : 0.28,
                         ),
-                        const Color(0xFF08111B).withValues(alpha: 0.72),
+                        const Color(0xFF08111B).withValues(alpha: 0.86),
                       ],
                     ),
               border: Border.all(
@@ -11368,7 +11411,7 @@ class _VehicleModelPlaceholder extends StatelessWidget {
         height: 300,
         decoration: BoxDecoration(
           color: light
-              ? Colors.white.withValues(alpha: 0.72)
+              ? Colors.white.withValues(alpha: 0.86)
               : const Color(0xFF111923),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
@@ -11900,14 +11943,14 @@ class _GlassCard extends StatelessWidget {
                   alpha: settingsPerformanceMode
                       ? 0.96
                       : ambientMode
-                      ? 0.22
+                      ? 0.26
                       : 0.88,
                 ),
                 const Color(0xFFEAF2FA).withValues(
                   alpha: settingsPerformanceMode
                       ? 0.90
                       : ambientMode
-                      ? 0.12
+                      ? 0.13
                       : 0.74,
                 ),
               ]
@@ -11934,9 +11977,9 @@ class _GlassCard extends StatelessWidget {
               color: light
                   ? const Color(
                       0xFFE7EEF6,
-                    ).withValues(alpha: ambientMode ? 0.28 : 0.96)
+                    ).withValues(alpha: ambientMode ? 0.42 : 0.96)
                   : Colors.white.withValues(alpha: ambientMode ? 0.045 : 0.065),
-              width: light ? 1.1 : 1,
+              width: light ? (ambientMode ? 1.0 : 1.1) : 1,
             )
           : null,
       boxShadow: settingsPerformanceMode
@@ -11945,18 +11988,18 @@ class _GlassCard extends StatelessWidget {
               BoxShadow(
                 color: Colors.black.withValues(
                   alpha: light
-                      ? (ambientMode ? 0.012 : 0.055)
+                      ? (ambientMode ? 0.014 : 0.055)
                       : (ambientMode ? 0.070 : 0.13),
                 ),
-                blurRadius: ambientMode ? 16 : (light ? 20 : 18),
+                blurRadius: ambientMode ? 12 : (light ? 20 : 18),
                 offset: const Offset(0, 8),
               ),
               if (light)
                 BoxShadow(
                   color: _accentSoftBlue.withValues(
-                    alpha: ambientMode ? 0.012 : 0.055,
+                    alpha: ambientMode ? 0.015 : 0.055,
                   ),
-                  blurRadius: ambientMode ? 14 : 18,
+                  blurRadius: ambientMode ? 12 : 18,
                   spreadRadius: -4,
                 ),
             ],
@@ -11976,7 +12019,10 @@ class _GlassCard extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        filter: ImageFilter.blur(
+          sigmaX: ambientMode && light ? 7 : 14,
+          sigmaY: ambientMode && light ? 7 : 14,
+        ),
         child: card,
       ),
     );
