@@ -23,20 +23,22 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
 import kotlin.math.max
 
 object NativeVehicleTexturePlugin {
     private const val CHANNEL = "byd/native_vehicle_texture"
     private val renderers = mutableMapOf<Long, VehicleTextureRenderer>()
+    private val preloadExecutor = Executors.newSingleThreadExecutor()
 
     fun preload(context: Context, asset: String) {
         val appContext = context.applicationContext
         val flutterAssetPath = normalizeFlutterAsset(asset)
-        Thread {
+        preloadExecutor.execute {
             runCatching {
                 cachedTextureModelBytes(appContext, flutterAssetPath)
             }
-        }.start()
+        }
     }
 
     fun register(flutterEngine: FlutterEngine, appContext: Context) {
@@ -60,6 +62,7 @@ object NativeVehicleTexturePlugin {
                     }
                     call.argument<String>("cameraOrbit")?.let(renderer::setCameraOrbit)
                     call.argument<Number>("color")?.let { renderer.setPaintColor(it.toLong()) }
+                    call.argument<Boolean>("active")?.let(renderer::setActive)
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -126,9 +129,11 @@ private class VehicleTextureRenderer(
     private var colorGrading: ColorGrading? = null
     private var cameraOrbit = params["cameraOrbit"] as? String
     private var paintColor = (params["color"] as? Number)?.toLong()
+    private var active = params["active"] as? Boolean ?: true
     private val quality = TextureRenderQuality.from(params["quality"] as? String)
     private var disposed = false
     private var lastRenderFrameNanos = 0L
+    private var frameCallbackPosted = false
 
     init {
         Utils.init()
@@ -177,24 +182,25 @@ private class VehicleTextureRenderer(
         addSunlight()
         loadModel()
         updateCamera()
-        choreographer.postFrameCallback(this)
+        postFrameCallbackIfNeeded()
     }
 
     override fun doFrame(frameTimeNanos: Long) {
+        frameCallbackPosted = false
         if (disposed) return
+        if (!active) return
 
         // BYD headunits can kill the app when Filament renders at full 60fps
         // while vehicle callbacks are also streaming. Cap native texture render to ~24fps
         // and never let a renderer exception take down the process.
         val minFrameIntervalNanos = 41_666_667L
         if (lastRenderFrameNanos != 0L && frameTimeNanos - lastRenderFrameNanos < minFrameIntervalNanos) {
-            choreographer.postFrameCallback(this)
+            postFrameCallbackIfNeeded()
             return
         }
         lastRenderFrameNanos = frameTimeNanos
 
         try {
-            updateCamera()
             if (renderer.beginFrame(swapChain, frameTimeNanos)) {
                 renderer.render(view)
                 renderer.endFrame()
@@ -203,12 +209,13 @@ private class VehicleTextureRenderer(
         } catch (error: Throwable) {
             try { FileLogger.log(context, "NativeVehicleTexture render error: ${error.javaClass.simpleName}: ${error.message}") } catch (_: Throwable) {}
         }
-        choreographer.postFrameCallback(this)
+        postFrameCallbackIfNeeded()
     }
 
     fun dispose() {
         disposed = true
         choreographer.removeFrameCallback(this)
+        frameCallbackPosted = false
         asset?.let { assetLoader.destroyAsset(it) }
         asset = null
         destroyLight(sunlight)
@@ -237,6 +244,25 @@ private class VehicleTextureRenderer(
     fun setPaintColor(value: Long) {
         paintColor = value
         asset?.let(::applyBodyPaint)
+    }
+
+    fun setActive(value: Boolean) {
+        if (active == value) return
+        active = value
+        if (active) {
+            lastRenderFrameNanos = 0L
+            updateCamera()
+            postFrameCallbackIfNeeded()
+        } else {
+            choreographer.removeFrameCallback(this)
+            frameCallbackPosted = false
+        }
+    }
+
+    private fun postFrameCallbackIfNeeded() {
+        if (disposed || !active || frameCallbackPosted) return
+        frameCallbackPosted = true
+        choreographer.postFrameCallback(this)
     }
 
     private fun loadModel() {

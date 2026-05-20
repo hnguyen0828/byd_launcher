@@ -61,10 +61,9 @@ Future<void> _disposeActiveNavigationVirtualDisplays() async {
 
   for (final textureId in textureIds) {
     try {
-      await _navigationVdChannel.invokeMethod<Object?>(
-        'dispose',
-        {'textureId': textureId},
-      );
+      await _navigationVdChannel.invokeMethod<Object?>('dispose', {
+        'textureId': textureId,
+      });
     } catch (_) {}
   }
 }
@@ -444,7 +443,9 @@ void _applySystemBarsForTheme(ThemeMode mode) {
 }
 
 void _preloadVehicleModelAssets() {
-  unawaited(rootBundle.load(_defaultVehicleModelAsset));
+  for (final asset in _vehicleModelAssets) {
+    unawaited(rootBundle.load(asset));
+  }
   unawaited(
     rootBundle.load('packages/model_viewer_plus/assets/model-viewer.min.js'),
   );
@@ -1010,10 +1011,7 @@ class _NoStretchScrollBehavior extends MaterialScrollBehavior {
 }
 
 class _AmbientUiScope extends InheritedWidget {
-  const _AmbientUiScope({
-    required this.enabled,
-    required super.child,
-  });
+  const _AmbientUiScope({required this.enabled, required super.child});
 
   final bool enabled;
 
@@ -1122,6 +1120,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
+  final List<Timer> _vehicleStartupRefreshTimers = [];
+  final GlobalKey<_NavigationPanelState> _navigationPanelKey =
+      GlobalKey<_NavigationPanelState>();
   _VehicleSnapshot? _pendingSettingsVehicleSnapshot;
 
   bool get _roadMotionActive =>
@@ -1135,7 +1136,18 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     return _debugModeEnabled && _demoLightMode != _DemoLightMode.off;
   }
 
-  _VehicleGear get _effectiveGear => _vehicleSnapshot.gear ?? _selectedGear;
+  _VehicleGear get _effectiveGear {
+    final snapshotGear = _vehicleSnapshot.gear;
+    final speedKmh = _vehicleSnapshot.speedKmh;
+    if (speedKmh != null && speedKmh > 1.0) {
+      if (snapshotGear == null ||
+          snapshotGear == _VehicleGear.p ||
+          snapshotGear == _VehicleGear.n) {
+        return _VehicleGear.d;
+      }
+    }
+    return snapshotGear ?? _selectedGear;
+  }
 
   double get _effectiveSpeedKmh =>
       _vehicleSnapshot.speedKmh ?? _vehicleSpeedKmh;
@@ -1160,10 +1172,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _loadNavigationPreferences();
     _loadWallpaperPreferences();
     _refreshDefaultLauncherStatus();
-    _refreshVehicleSnapshot();
     _vehicleSnapshotSubscription = _vehicleEvents
         .receiveBroadcastStream()
         .listen(_handleVehicleSnapshotEvent, onError: (_) {});
+    _refreshVehicleSnapshot();
+    _scheduleVehicleStartupRefreshes();
     _vehicleSnapshotTimer = Timer.periodic(
       const Duration(seconds: 8),
       (_) => _refreshVehicleSnapshot(),
@@ -1177,6 +1190,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _wallpaperTimer?.cancel();
     _transitionLoadingTimer?.cancel();
     _vehicleSnapshotSubscription?.cancel();
+    _cancelVehicleStartupRefreshes();
     super.dispose();
   }
 
@@ -1186,6 +1200,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _applySystemBarsForTheme(widget.themeMode);
       _refreshDefaultLauncherStatus();
       _refreshVehicleSnapshot();
+      _scheduleVehicleStartupRefreshes();
     }
   }
 
@@ -1296,6 +1311,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       navigationApps: _navigationApps,
                       selectedNavigationPackage: _selectedNavigationPackage,
                       embeddedMapScale: _embeddedMapScale,
+                      navigationPanelKey: _navigationPanelKey,
                       launchNavigationWithLauncher:
                           _launchNavigationWithLauncher,
                       defaultLauncherEnabled: _defaultLauncherEnabled,
@@ -1487,6 +1503,31 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _pendingSettingsVehicleSnapshot = null;
     if (!mounted || snapshot == null || snapshot == _vehicleSnapshot) return;
     setState(() => _applyVehicleSnapshot(snapshot));
+  }
+
+  void _scheduleVehicleStartupRefreshes() {
+    _cancelVehicleStartupRefreshes();
+    for (final delay in const [
+      Duration(milliseconds: 250),
+      Duration(milliseconds: 900),
+      Duration(milliseconds: 1800),
+      Duration(milliseconds: 3200),
+    ]) {
+      _vehicleStartupRefreshTimers.add(
+        Timer(delay, () {
+          if (mounted) {
+            unawaited(_refreshVehicleSnapshot());
+          }
+        }),
+      );
+    }
+  }
+
+  void _cancelVehicleStartupRefreshes() {
+    for (final timer in _vehicleStartupRefreshTimers) {
+      timer.cancel();
+    }
+    _vehicleStartupRefreshTimers.clear();
   }
 
   void _showTransitionLoading({
@@ -2085,39 +2126,39 @@ class _LeftDashboard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 18, 8, 18),
         child: LayoutBuilder(
           builder: (context, constraints) {
-          final compactHeight = constraints.maxHeight < 610;
-          // BYD head-unit screens have less vertical room than tablets.
-          // Keep Music tall enough for its controls, and reclaim space mostly
-          // from the Range widget so neither section overflows.
-          final mediaHeight = compactHeight ? 170.0 : 180.0;
-          final favoritesHeight = compactHeight ? 58.0 : 62.0;
-          final gapSmall = compactHeight ? 6.0 : 10.0;
+            final compactHeight = constraints.maxHeight < 610;
+            // BYD head-unit screens have less vertical room than tablets.
+            // Keep Music tall enough for its controls, and reclaim space mostly
+            // from the Range widget so neither section overflows.
+            final mediaHeight = compactHeight ? 170.0 : 180.0;
+            final favoritesHeight = compactHeight ? 58.0 : 62.0;
+            final gapSmall = compactHeight ? 6.0 : 10.0;
 
-          return Column(
-            children: [
-              Expanded(
-                child: _EnergyStrip(
-                  snapshot: vehicleSnapshot,
-                  gear: effectiveGear,
-                  vehicleSpeedKmh: vehicleSpeedKmh,
-                  onGearChanged: onGearChanged,
+            return Column(
+              children: [
+                Expanded(
+                  child: _EnergyStrip(
+                    snapshot: vehicleSnapshot,
+                    gear: effectiveGear,
+                    vehicleSpeedKmh: vehicleSpeedKmh,
+                    onGearChanged: onGearChanged,
+                  ),
                 ),
-              ),
-              SizedBox(height: gapSmall),
-              SizedBox(height: mediaHeight, child: const _MediaWidget()),
-              SizedBox(height: gapSmall),
-              SizedBox(
-                height: favoritesHeight,
-                child: _FavoriteAppsStrip(
-                  apps: favoriteApps,
-                  onAppTap: onFavoriteAppTap,
-                  onEditTap: onFavoriteAppsEdit,
-                  onRemove: onFavoriteAppRemove,
-                  onReorder: onFavoriteAppsReorder,
+                SizedBox(height: gapSmall),
+                SizedBox(height: mediaHeight, child: const _MediaWidget()),
+                SizedBox(height: gapSmall),
+                SizedBox(
+                  height: favoritesHeight,
+                  child: _FavoriteAppsStrip(
+                    apps: favoriteApps,
+                    onAppTap: onFavoriteAppTap,
+                    onEditTap: onFavoriteAppsEdit,
+                    onRemove: onFavoriteAppRemove,
+                    onReorder: onFavoriteAppsReorder,
+                  ),
                 ),
-              ),
-            ],
-          );
+              ],
+            );
           },
         ),
       ),
@@ -3351,14 +3392,8 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: light
-                          ? const [
-                              Color(0xFFFFF3D9),
-                              Color(0xFFE7F0FF),
-                            ]
-                          : const [
-                              Color(0xFF5E1E2A),
-                              Color(0xFF171B2D),
-                            ],
+                          ? const [Color(0xFFFFF3D9), Color(0xFFE7F0FF)]
+                          : const [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
@@ -3586,14 +3621,8 @@ class _MediaWidgetState extends State<_MediaWidget>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: light
-                          ? const [
-                              Color(0xFFFFF3D9),
-                              Color(0xFFE7F0FF),
-                            ]
-                          : const [
-                              Color(0xFF5E1E2A),
-                              Color(0xFF171B2D),
-                            ],
+                          ? const [Color(0xFFFFF3D9), Color(0xFFE7F0FF)]
+                          : const [Color(0xFF5E1E2A), Color(0xFF171B2D)],
                     ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
@@ -4897,6 +4926,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.navigationApps,
     required this.selectedNavigationPackage,
     required this.embeddedMapScale,
+    required this.navigationPanelKey,
     required this.launchNavigationWithLauncher,
     required this.defaultLauncherEnabled,
     required this.wallpaperButtonEnabled,
@@ -4957,6 +4987,7 @@ class _VehicleCanvas extends StatelessWidget {
   final List<_NavigationApp> navigationApps;
   final String? selectedNavigationPackage;
   final _EmbeddedMapScale embeddedMapScale;
+  final GlobalKey<_NavigationPanelState> navigationPanelKey;
   final bool launchNavigationWithLauncher;
   final bool defaultLauncherEnabled;
   final bool wallpaperButtonEnabled;
@@ -4995,12 +5026,14 @@ class _VehicleCanvas extends StatelessWidget {
     final ambientDockInset = wallpaperMode && !portraitMode
         ? (MediaQuery.sizeOf(context).width < 1100 ? 292.0 : 348.0)
         : 0.0;
-    final ambientDockLeftInset = wallpaperMode &&
+    final ambientDockLeftInset =
+        wallpaperMode &&
             !portraitMode &&
             landscapeSidebarPosition == _LandscapeSidebarPosition.left
         ? ambientDockInset
         : 0.0;
-    final ambientDockRightInset = wallpaperMode &&
+    final ambientDockRightInset =
+        wallpaperMode &&
             !portraitMode &&
             landscapeSidebarPosition == _LandscapeSidebarPosition.right
         ? ambientDockInset
@@ -5030,7 +5063,7 @@ class _VehicleCanvas extends StatelessWidget {
                   child: TickerMode(
                     enabled: activeTab == _LauncherTab.map,
                     child: _NavigationPanel(
-                      key: const ValueKey('navigation-keepalive'),
+                      key: navigationPanelKey,
                       apps: navigationApps,
                       selectedPackage: selectedNavigationPackage,
                       mapScale: embeddedMapScale,
@@ -5060,6 +5093,7 @@ class _VehicleCanvas extends StatelessWidget {
                       vehicleModelAsset: vehicleModelAsset,
                       vehicleColor: vehicleColor,
                       renderQuality: renderQuality,
+                      active: activeTab == _LauncherTab.status,
                       roadMotionActive:
                           activeTab == _LauncherTab.status && roadMotionActive,
                       reverseRoadMotion: reverseRoadMotion,
@@ -5210,6 +5244,7 @@ class _VehicleStage extends StatelessWidget {
     required this.vehicleModelAsset,
     required this.vehicleColor,
     required this.renderQuality,
+    required this.active,
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
@@ -5222,6 +5257,7 @@ class _VehicleStage extends StatelessWidget {
   final String vehicleModelAsset;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
+  final bool active;
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
@@ -5238,6 +5274,7 @@ class _VehicleStage extends StatelessWidget {
           vehicleModelAsset: vehicleModelAsset,
           vehicleColor: vehicleColor,
           renderQuality: renderQuality,
+          active: active,
           roadMotionActive: roadMotionActive,
           reverseRoadMotion: reverseRoadMotion,
           vehicleSpeedKmh: vehicleSpeedKmh,
@@ -5566,10 +5603,9 @@ class _NavigationVirtualDisplayViewState
           if (createdTextureId != null) {
             unawaited(
               _navigationVdChannel
-                  .invokeMethod<Object?>(
-                    'dispose',
-                    {'textureId': createdTextureId},
-                  )
+                  .invokeMethod<Object?>('dispose', {
+                    'textureId': createdTextureId,
+                  })
                   .catchError((Object _) => null),
             );
           }
@@ -9115,6 +9151,7 @@ class _VehicleHero extends StatefulWidget {
     required this.vehicleModelAsset,
     required this.vehicleColor,
     required this.renderQuality,
+    required this.active,
     required this.roadMotionActive,
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
@@ -9127,6 +9164,7 @@ class _VehicleHero extends StatefulWidget {
   final String vehicleModelAsset;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
+  final bool active;
   final bool roadMotionActive;
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
@@ -9265,6 +9303,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
                       cameraOrbit: focusedOrbit,
                       vehicleColor: widget.vehicleColor,
                       renderQuality: widget.renderQuality,
+                      active: widget.active,
                       drivingMode: widget.roadMotionActive || effectModeActive,
                       backgroundColor: sceneBackground,
                     )
@@ -10420,6 +10459,7 @@ class _NativeVehicleScene extends StatefulWidget {
     required this.cameraOrbit,
     required this.vehicleColor,
     required this.renderQuality,
+    required this.active,
     required this.drivingMode,
     required this.backgroundColor,
   });
@@ -10428,6 +10468,7 @@ class _NativeVehicleScene extends StatefulWidget {
   final String cameraOrbit;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
+  final bool active;
   final bool drivingMode;
   final Color backgroundColor;
 
@@ -10448,6 +10489,9 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   late final AnimationController _orbitController;
   _NativeOrbit? _orbitStart;
   _NativeOrbit? _orbitTarget;
+  int _textureGeneration = 0;
+  Size? _pendingTextureSize;
+  Timer? _textureCreateDebounceTimer;
 
   @override
   void initState() {
@@ -10470,14 +10514,18 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     if (oldWidget.vehicleColor != widget.vehicleColor) {
       _updateNativeTexture();
     }
+    if (oldWidget.active != widget.active) {
+      _updateNativeTexture();
+    }
     if (oldWidget.asset != widget.asset ||
         oldWidget.renderQuality != widget.renderQuality) {
-      _recreateForCurrentSize();
+      _scheduleNativeTextureCreate(debounce: Duration.zero);
     }
   }
 
   @override
   void dispose() {
+    _textureCreateDebounceTimer?.cancel();
     _orbitController.dispose();
     _disposeNativeTexture();
     super.dispose();
@@ -10487,17 +10535,22 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final renderScale = _nativeRenderScale(context, widget.renderQuality);
-        final size = Size(
-          (constraints.maxWidth * renderScale).clamp(1.0, 4096.0),
-          (constraints.maxHeight * renderScale).clamp(1.0, 4096.0),
+        final size = _nativeTextureSize(
+          constraints,
+          MediaQuery.devicePixelRatioOf(context),
+          widget.renderQuality,
         );
-        if (_textureSize != size && size.width > 1 && size.height > 1) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              _createNativeTexture(size);
-            }
-          });
+        if (_textureSize != size &&
+            _pendingTextureSize != size &&
+            size.width > 1 &&
+            size.height > 1) {
+          final shouldCreateImmediately = _textureId == null;
+          _scheduleNativeTextureCreate(
+            size: size,
+            debounce: shouldCreateImmediately
+                ? Duration.zero
+                : const Duration(milliseconds: 90),
+          );
         }
 
         final textureId = _textureId;
@@ -10538,15 +10591,30 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     );
   }
 
-  Future<void> _recreateForCurrentSize() async {
-    final size = _textureSize;
-    if (size != null) {
-      await _createNativeTexture(size);
+  void _scheduleNativeTextureCreate({
+    Size? size,
+    Duration debounce = const Duration(milliseconds: 90),
+  }) {
+    final nextSize = size ?? _textureSize;
+    if (nextSize == null || nextSize.width <= 1 || nextSize.height <= 1) {
+      return;
     }
+
+    _pendingTextureSize = nextSize;
+    _textureCreateDebounceTimer?.cancel();
+    _textureCreateDebounceTimer = Timer(debounce, () {
+      if (!mounted) return;
+      final pendingSize = _pendingTextureSize;
+      if (pendingSize != null) {
+        unawaited(_createNativeTexture(pendingSize));
+      }
+    });
   }
 
   Future<void> _createNativeTexture(Size size) async {
+    final generation = ++_textureGeneration;
     _textureSize = size;
+    _pendingTextureSize = null;
     await _disposeNativeTexture();
     try {
       final textureId = await _channel.invokeMethod<int>('create', {
@@ -10555,10 +10623,11 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
         'color': widget.vehicleColor.toARGB32(),
         'backgroundColor': widget.backgroundColor.toARGB32(),
         'quality': widget.renderQuality.name,
+        'active': widget.active,
         'width': size.width.round(),
         'height': size.height.round(),
       });
-      if (!mounted) {
+      if (!mounted || generation != _textureGeneration) {
         if (textureId != null) {
           await _channel.invokeMethod<void>('dispose', {
             'textureId': textureId,
@@ -10573,6 +10642,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
+        _pendingTextureSize = null;
         _textureId = null;
         _error = error;
       });
@@ -10624,6 +10694,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
         'textureId': textureId,
         'cameraOrbit': _orbit.toCameraOrbit(),
         'color': widget.vehicleColor.toARGB32(),
+        'active': widget.active,
       });
     } on Object {
       // Renderer updates are best-effort; Android can drop the texture on lifecycle changes.
@@ -10631,14 +10702,36 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   }
 }
 
-double _nativeRenderScale(BuildContext context, _VehicleRenderQuality quality) {
-  final deviceScale = MediaQuery.devicePixelRatioOf(context);
+double _nativeRenderScaleForDeviceScale(
+  double deviceScale,
+  _VehicleRenderQuality quality,
+) {
   return switch (quality) {
     _VehicleRenderQuality.low => (deviceScale * 0.55).clamp(0.70, 1.00),
     _VehicleRenderQuality.medium => (deviceScale * 0.72).clamp(0.85, 1.25),
     _VehicleRenderQuality.high =>
       deviceScale <= 1.25 ? 1.75 : (deviceScale * 1.05).clamp(1.35, 2.20),
   }.toDouble();
+}
+
+Size _nativeTextureSize(
+  BoxConstraints constraints,
+  double deviceScale,
+  _VehicleRenderQuality quality,
+) {
+  final width = constraints.maxWidth;
+  final height = constraints.maxHeight;
+  if (!width.isFinite || !height.isFinite || width <= 1 || height <= 1) {
+    return Size.zero;
+  }
+
+  final requestedScale = _nativeRenderScaleForDeviceScale(deviceScale, quality);
+  final maxScale = math.min(4096.0 / width, 4096.0 / height);
+  final scale = math.min(requestedScale, maxScale).clamp(0.10, requestedScale);
+  return Size(
+    (width * scale).roundToDouble(),
+    (height * scale).roundToDouble(),
+  );
 }
 
 class _NativeOrbit {
@@ -10830,7 +10923,10 @@ class _DrivingRoadPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final motionProgress = reverse ? 1.0 - progress : progress;
-    final glowCenter = Offset(size.width * 0.55, size.height * 0.52);
+    final vehicleCenterX = size.width * 0.50;
+    final roadCenterX = vehicleCenterX;
+    final contactY = size.height * 0.700;
+    final glowCenter = Offset(vehicleCenterX, size.height * 0.52);
     final glowPaint = Paint()
       ..shader =
           RadialGradient(
@@ -10851,8 +10947,8 @@ class _DrivingRoadPainter extends CustomPainter {
     // Road perspective is tuned to sit under the rear-driving camera view.
     // Wider far end + lower vanishing point avoids the old "runway triangle" feel
     // and makes the vehicle look planted on the surface.
-    final vanish = Offset(size.width * 0.56, size.height * 0.27);
-    final near = Offset(size.width * 0.56, size.height * 1.18);
+    final vanish = Offset(roadCenterX, size.height * 0.27);
+    final near = Offset(roadCenterX, size.height * 1.18);
     const roadPerp = Offset(1.0, 0.0);
 
     Offset centerAt(double t) {
@@ -10903,7 +10999,7 @@ class _DrivingRoadPainter extends CustomPainter {
       ).createShader(Offset.zero & size);
     canvas.drawPath(roadPath, roadPaint);
 
-    final vehicleContactCenter = Offset(size.width * 0.56, size.height * 0.705);
+    final vehicleContactCenter = Offset(vehicleCenterX, contactY);
     final softShadowPaint = Paint()
       ..shader =
           RadialGradient(
@@ -10916,15 +11012,15 @@ class _DrivingRoadPainter extends CustomPainter {
           ).createShader(
             Rect.fromCenter(
               center: vehicleContactCenter,
-              width: size.width * 0.34,
-              height: size.height * 0.16,
+              width: size.width * 0.38,
+              height: size.height * 0.145,
             ),
           );
     canvas.drawOval(
       Rect.fromCenter(
         center: vehicleContactCenter,
-        width: size.width * 0.34,
-        height: size.height * 0.16,
+        width: size.width * 0.38,
+        height: size.height * 0.145,
       ),
       softShadowPaint,
     );
@@ -10935,7 +11031,7 @@ class _DrivingRoadPainter extends CustomPainter {
     canvas
       ..drawOval(
         Rect.fromCenter(
-          center: Offset(size.width * 0.475, size.height * 0.705),
+          center: Offset(vehicleCenterX - size.width * 0.085, contactY),
           width: size.width * 0.105,
           height: size.height * 0.055,
         ),
@@ -10943,7 +11039,7 @@ class _DrivingRoadPainter extends CustomPainter {
       )
       ..drawOval(
         Rect.fromCenter(
-          center: Offset(size.width * 0.645, size.height * 0.705),
+          center: Offset(vehicleCenterX + size.width * 0.085, contactY),
           width: size.width * 0.105,
           height: size.height * 0.055,
         ),
@@ -11191,7 +11287,6 @@ class _VehicleModelPlaceholder extends StatelessWidget {
   }
 }
 
-
 class _AmbientBottomDock extends StatelessWidget {
   const _AmbientBottomDock({
     required this.activeTab,
@@ -11237,10 +11332,10 @@ class _AmbientBottomDock extends StatelessWidget {
                 height: 66,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.09),
+                  color: Colors.black.withValues(alpha: 0.045),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.20),
+                    color: Colors.white.withValues(alpha: 0.14),
                   ),
                 ),
                 child: _FavoriteAppsStrip(
@@ -11302,25 +11397,25 @@ class _BottomTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = _isLight(context);
     final containerColor = ambientMode
-        ? Colors.black.withValues(alpha: light ? 0.07 : 0.11)
+        ? Colors.black.withValues(alpha: light ? 0.035 : 0.055)
         : light
         ? Colors.white.withValues(alpha: 0.88)
         : const Color(0xFF07101A).withValues(alpha: 0.62);
     final borderColor = ambientMode
-        ? Colors.white.withValues(alpha: light ? 0.24 : 0.20)
+        ? Colors.white.withValues(alpha: light ? 0.16 : 0.13)
         : light
         ? _premiumLightStroke.withValues(alpha: 0.95)
         : Colors.white.withValues(alpha: 0.07);
     final shadowAlpha = ambientMode
-        ? (light ? 0.14 : 0.24)
+        ? (light ? 0.06 : 0.12)
         : (light ? 0.10 : 0.26);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
         filter: ImageFilter.blur(
-          sigmaX: ambientMode ? 8 : 24,
-          sigmaY: ambientMode ? 8 : 24,
+          sigmaX: ambientMode ? 10 : 24,
+          sigmaY: ambientMode ? 10 : 24,
         ),
         child: Container(
           height: 52,
@@ -11337,9 +11432,9 @@ class _BottomTabs extends StatelessWidget {
               ),
               BoxShadow(
                 color: _accentSoftBlue.withValues(
-                  alpha: ambientMode ? 0.10 : (light ? 0.10 : 0.05),
+                  alpha: ambientMode ? 0.045 : (light ? 0.10 : 0.05),
                 ),
-                blurRadius: ambientMode ? 32 : 26,
+                blurRadius: ambientMode ? 24 : 26,
                 spreadRadius: 1,
               ),
             ],
@@ -11434,8 +11529,8 @@ class _BottomTab extends StatelessWidget {
                   end: Alignment.bottomRight,
                   colors: ambientMode
                       ? [
-                          Colors.white.withValues(alpha: 0.12),
-                          Colors.white.withValues(alpha: 0.03),
+                          Colors.white.withValues(alpha: 0.070),
+                          Colors.white.withValues(alpha: 0.018),
                         ]
                       : light
                       ? [
@@ -11451,7 +11546,7 @@ class _BottomTab extends StatelessWidget {
           border: selected
               ? Border.all(
                   color: ambientMode
-                      ? Colors.white.withValues(alpha: 0.24)
+                      ? Colors.white.withValues(alpha: 0.16)
                       : light
                       ? const Color(0xFF78B7FF).withValues(alpha: 0.38)
                       : Colors.white.withValues(alpha: 0.08),
@@ -11462,16 +11557,16 @@ class _BottomTab extends StatelessWidget {
               ? [
                   BoxShadow(
                     color: const Color(0xFF78B7FF).withValues(
-                      alpha: ambientMode ? 0.10 : (light ? 0.20 : 0.12),
+                      alpha: ambientMode ? 0.045 : (light ? 0.20 : 0.12),
                     ),
-                    blurRadius: ambientMode ? 20 : 18,
+                    blurRadius: ambientMode ? 14 : 18,
                     spreadRadius: 1,
                   ),
                   BoxShadow(
                     color: Colors.black.withValues(
-                      alpha: ambientMode ? 0.22 : (light ? 0.06 : 0.18),
+                      alpha: ambientMode ? 0.10 : (light ? 0.06 : 0.18),
                     ),
-                    blurRadius: ambientMode ? 18 : (light ? 16 : 12),
+                    blurRadius: ambientMode ? 12 : (light ? 16 : 12),
                     offset: const Offset(0, 5),
                   ),
                 ]
@@ -11679,22 +11774,18 @@ class _GlassCard extends StatelessWidget {
         end: Alignment.bottomRight,
         colors: light
             ? [
-                const Color(
-                  0xFFFFFFFF,
-                ).withValues(
+                const Color(0xFFFFFFFF).withValues(
                   alpha: settingsPerformanceMode
                       ? 0.96
                       : ambientMode
-                      ? 0.40
+                      ? 0.22
                       : 0.88,
                 ),
-                const Color(
-                  0xFFEAF2FA,
-                ).withValues(
+                const Color(0xFFEAF2FA).withValues(
                   alpha: settingsPerformanceMode
                       ? 0.90
                       : ambientMode
-                      ? 0.24
+                      ? 0.12
                       : 0.74,
                 ),
               ]
@@ -11703,14 +11794,14 @@ class _GlassCard extends StatelessWidget {
                   alpha: settingsPerformanceMode
                       ? 0.070
                       : ambientMode
-                      ? 0.030
+                      ? 0.018
                       : 0.060,
                 ),
                 Colors.white.withValues(
                   alpha: settingsPerformanceMode
                       ? 0.042
                       : ambientMode
-                      ? 0.015
+                      ? 0.008
                       : 0.030,
                 ),
               ],
@@ -11719,10 +11810,10 @@ class _GlassCard extends StatelessWidget {
       border: showBorder
           ? Border.all(
               color: light
-                  ? const Color(0xFFE7EEF6).withValues(
-                      alpha: ambientMode ? 0.52 : 0.96,
-                    )
-                  : Colors.white.withValues(alpha: ambientMode ? 0.072 : 0.065),
+                  ? const Color(
+                      0xFFE7EEF6,
+                    ).withValues(alpha: ambientMode ? 0.28 : 0.96)
+                  : Colors.white.withValues(alpha: ambientMode ? 0.045 : 0.065),
               width: light ? 1.1 : 1,
             )
           : null,
@@ -11732,16 +11823,18 @@ class _GlassCard extends StatelessWidget {
               BoxShadow(
                 color: Colors.black.withValues(
                   alpha: light
-                      ? (ambientMode ? 0.024 : 0.055)
-                      : (ambientMode ? 0.13 : 0.13),
+                      ? (ambientMode ? 0.012 : 0.055)
+                      : (ambientMode ? 0.070 : 0.13),
                 ),
-                blurRadius: ambientMode ? 22 : (light ? 20 : 18),
+                blurRadius: ambientMode ? 16 : (light ? 20 : 18),
                 offset: const Offset(0, 8),
               ),
               if (light)
                 BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: ambientMode ? 0.024 : 0.055),
-                  blurRadius: ambientMode ? 20 : 18,
+                  color: _accentSoftBlue.withValues(
+                    alpha: ambientMode ? 0.012 : 0.055,
+                  ),
+                  blurRadius: ambientMode ? 14 : 18,
                   spreadRadius: -4,
                 ),
             ],

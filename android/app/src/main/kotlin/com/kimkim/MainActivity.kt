@@ -21,7 +21,15 @@ import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     private var pendingWallpaperImportResult: MethodChannel.Result? = null
-    private val defaultVehicleModelAsset = "assets/models/2024_byd_seal_u_dm-i.glb"
+    private val vehicleModelAssets = listOf(
+        "assets/models/2024_byd_atto_3.glb",
+        "assets/models/2024_byd_dolphin.glb",
+        "assets/models/2024_byd_m6.glb",
+        "assets/models/2024_byd_seagull.glb",
+        "assets/models/2024_byd_seal.glb",
+        "assets/models/2024_byd_seal_5_dm-i.glb",
+        "assets/models/2024_byd_seal_u_dm-i.glb",
+    )
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,8 +76,10 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        NativeVehicleScenePlugin.preload(applicationContext, defaultVehicleModelAsset)
-        NativeVehicleTexturePlugin.preload(applicationContext, defaultVehicleModelAsset)
+        vehicleModelAssets.forEach { asset ->
+            NativeVehicleScenePlugin.preload(applicationContext, asset)
+            NativeVehicleTexturePlugin.preload(applicationContext, asset)
+        }
 
         super.configureFlutterEngine(flutterEngine)
 

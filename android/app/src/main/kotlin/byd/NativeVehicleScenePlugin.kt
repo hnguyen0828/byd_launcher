@@ -18,19 +18,21 @@ import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
 import kotlin.math.pow
 
 object NativeVehicleScenePlugin {
     private const val VIEW_TYPE = "byd/native_vehicle_scene"
+    private val preloadExecutor = Executors.newSingleThreadExecutor()
 
     fun preload(context: Context, asset: String) {
         val appContext = context.applicationContext
         val flutterAssetPath = normalizeFlutterAsset(asset)
-        Thread {
+        preloadExecutor.execute {
             runCatching {
                 cachedModelBytes(appContext, flutterAssetPath)
             }
-        }.start()
+        }
     }
 
     fun register(flutterEngine: FlutterEngine) {
