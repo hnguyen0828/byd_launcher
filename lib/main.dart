@@ -1036,13 +1036,13 @@ Color _tone(BuildContext context, Color color) {
   final ambientMode = _AmbientUiScope.enabledOf(context);
 
   if (color == _textPrimary || color == Colors.white) {
-    return ambientMode ? const Color(0xFF09111B) : _lightInk;
+    return ambientMode ? const Color(0xFF050B13) : _lightInk;
   }
   if (color == _textSecondary) {
-    return ambientMode ? const Color(0xFF1C3044) : _lightInkSoft;
+    return ambientMode ? const Color(0xFF10243A) : _lightInkSoft;
   }
   if (color == _textMuted || color == const Color(0xFF9FAEBE)) {
-    return ambientMode ? const Color(0xFF40556D) : _lightMuted;
+    return ambientMode ? const Color(0xFF2E455F) : _lightMuted;
   }
 
   return color;
@@ -1059,10 +1059,21 @@ TextStyle? _sharp(
 }) {
   final light = _isLight(context);
   final ambientMode = _AmbientUiScope.enabledOf(context);
+  final effectiveWeight = ambientMode && light
+      ? (weight == FontWeight.w300
+            ? FontWeight.w500
+            : weight == FontWeight.w400
+            ? FontWeight.w600
+            : weight == FontWeight.w500
+            ? FontWeight.w700
+            : weight == FontWeight.w600
+            ? FontWeight.w700
+            : weight)
+      : weight;
 
   return base?.copyWith(
     color: _tone(context, color),
-    fontWeight: weight,
+    fontWeight: effectiveWeight,
     fontSize: size,
     height: height,
     letterSpacing: letterSpacing,
@@ -1070,9 +1081,14 @@ TextStyle? _sharp(
     shadows: ambientMode && light
         ? const [
             Shadow(
-              color: Color(0x99FFFFFF),
-              blurRadius: 8,
+              color: Color(0xE6FFFFFF),
+              blurRadius: 10,
               offset: Offset(0, 0),
+            ),
+            Shadow(
+              color: Color(0x33000000),
+              blurRadius: 1.2,
+              offset: Offset(0, 0.4),
             ),
           ]
         : null,
@@ -2935,7 +2951,7 @@ class _GearText extends StatelessWidget {
                               : Colors.white
                         : Colors.white
                   : ambientMode && light
-                  ? const Color(0xFF5D7289)
+                  ? const Color(0xFF4D637C)
                   : _textMuted,
               weight: active ? FontWeight.w700 : FontWeight.w500,
               size: fontSize,
@@ -3473,7 +3489,7 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                           Icons.music_note_rounded,
                           color: light
                               ? (ambientMode
-                                    ? const Color(0xFFAFC0D3)
+                                    ? const Color(0xFF9DB0C5)
                                     : const Color(0xFF4D78A8))
                               : const Color(0xFFFFD36E),
                           size: 27,
@@ -3734,7 +3750,7 @@ class _MediaWidgetState extends State<_MediaWidget>
                           Icons.music_note_rounded,
                           color: light
                               ? (ambientMode
-                                    ? const Color(0xFFAFC0D3)
+                                    ? const Color(0xFF9DB0C5)
                                     : const Color(0xFF4D78A8))
                               : const Color(0xFFFFD36E),
                           size: 32,
