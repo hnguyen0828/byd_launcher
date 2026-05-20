@@ -45,6 +45,7 @@ const EventChannel _vehicleEvents = EventChannel('byd.vehicle/events');
 const MethodChannel _navigationChannel = MethodChannel('byd/navigation');
 const MethodChannel _navigationVdChannel = MethodChannel('byd/navigation_vd');
 const MethodChannel _permissionChannel = MethodChannel('byd/permissions');
+const MethodChannel _launcherChannel = MethodChannel('byd/launcher');
 
 final Set<int> _activeNavigationTextureIds = <int>{};
 
@@ -456,6 +457,23 @@ void _applySystemBarsForTheme(ThemeMode mode) {
       systemNavigationBarContrastEnforced: false,
     ),
   );
+
+  _applyNativeSystemBars(dark: dark);
+}
+
+void _applyNativeSystemBars({required bool dark}) {
+  Future<void> apply() async {
+    try {
+      await _launcherChannel.invokeMethod<Object?>('applySystemBars', {
+        'dark': dark,
+      });
+    } catch (_) {}
+  }
+
+  unawaited(apply());
+  WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(apply()));
+  Future<void>.delayed(const Duration(milliseconds: 250), () => unawaited(apply()));
+  Future<void>.delayed(const Duration(milliseconds: 900), () => unawaited(apply()));
 }
 
 void _preloadVehicleModelAssets() {
@@ -1213,6 +1231,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _enableHomeLauncherCandidate();
     _loadVehiclePreferences();
     _loadDisplayPreferences();
     _loadFavoriteApps();
@@ -1914,27 +1933,52 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     await prefs.setBool(_launchNavigationWithLauncherPreferenceKey, value);
   }
 
+  Future<void> _enableHomeLauncherCandidate() async {
+    try {
+      await _launcherChannel.invokeMethod<Object?>('enableHomeComponent');
+    } catch (_) {}
+  }
+
   Future<void> _refreshDefaultLauncherStatus() async {
     try {
-      final enabled = await _permissionChannel.invokeMethod<bool>(
+      await _launcherChannel.invokeMethod<Object?>('enableHomeComponent');
+      final enabled = await _launcherChannel.invokeMethod<bool>(
         'isDefaultLauncher',
       );
       if (!mounted || enabled == null) return;
       setState(() => _defaultLauncherEnabled = enabled);
-    } catch (_) {}
+    } catch (_) {
+      try {
+        final enabled = await _permissionChannel.invokeMethod<bool>(
+          'isDefaultLauncher',
+        );
+        if (!mounted || enabled == null) return;
+        setState(() => _defaultLauncherEnabled = enabled);
+      } catch (_) {}
+    }
   }
 
   Future<void> _setDefaultLauncher(bool value) async {
     try {
-      await _permissionChannel.invokeMethod<Object?>(
+      await _launcherChannel.invokeMethod<Object?>('enableHomeComponent');
+      await _launcherChannel.invokeMethod<Object?>(
         'openDefaultLauncherSettings',
       );
-    } catch (_) {}
+    } catch (_) {
+      try {
+        await _permissionChannel.invokeMethod<Object?>(
+          'openDefaultLauncherSettings',
+        );
+      } catch (_) {}
+    }
 
-    Future<void>.delayed(
-      const Duration(milliseconds: 700),
-      _refreshDefaultLauncherStatus,
-    );
+    for (final delay in const [
+      Duration(milliseconds: 700),
+      Duration(milliseconds: 1800),
+      Duration(milliseconds: 3500),
+    ]) {
+      Future<void>.delayed(delay, _refreshDefaultLauncherStatus);
+    }
   }
 
   Future<void> _loadWallpaperPreferences() async {

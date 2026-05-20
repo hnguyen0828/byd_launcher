@@ -2,6 +2,9 @@ package com.kimkim
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ComponentName
+import android.content.pm.PackageManager
+import android.provider.Settings
 import android.net.Uri
 import android.provider.OpenableColumns
 import byd.VehicleBridge
@@ -21,6 +24,7 @@ import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     private var pendingWallpaperImportResult: MethodChannel.Result? = null
+    private var lastSystemBarsDark: Boolean? = null
     private val vehicleModelAssets = listOf(
         "assets/models/2024_byd_atto_3.glb",
         "assets/models/2024_byd_dolphin.glb",
@@ -33,6 +37,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        enableHomeComponentIfNeeded()
         applyLauncherSystemUi()
     }
 
@@ -48,30 +53,60 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun applyLauncherSystemUi() {
-        window.statusBarColor = android.graphics.Color.parseColor("#F1F5FA")
-        window.navigationBarColor = android.graphics.Color.parseColor("#F1F5FA")
+    private fun applyLauncherSystemUi(dark: Boolean = lastSystemBarsDark ?: resolveInitialSystemBarsDark()) {
+        lastSystemBarsDark = dark
 
-        var flags = android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
-            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        val barColor = if (dark) {
+            android.graphics.Color.parseColor("#070B12")
+        } else {
+            android.graphics.Color.parseColor("#F1F5FA")
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+
+        window.statusBarColor = barColor
+        window.navigationBarColor = barColor
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
         }
-        window.decorView.systemUiVisibility = flags
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(true)
             window.insetsController?.let { controller ->
-                controller.hide(android.view.WindowInsets.Type.systemBars())
-                controller.systemBarsBehavior =
-                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.show(android.view.WindowInsets.Type.systemBars())
+
+                val lightAppearance =
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                val appearance = if (dark) 0 else lightAppearance
+
+                controller.setSystemBarsAppearance(appearance, lightAppearance)
             }
+        } else {
+            var flags = android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+
+            if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            }
+            if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            }
+
+            window.decorView.systemUiVisibility = flags
+        }
+    }
+
+    private fun resolveInitialSystemBarsDark(): Boolean {
+        val storedTheme = getSharedPreferences("FlutterSharedPreferences", android.content.Context.MODE_PRIVATE)
+            .getString("flutter.launcher.themeMode", "light")
+        return when (storedTheme) {
+            "dark" -> true
+            "system" -> {
+                val nightMode = resources.configuration.uiMode and
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            }
+            else -> false
         }
     }
 
@@ -90,6 +125,36 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "importWallpapers" -> importWallpapers(result)
                 "getWallpaperPath" -> result.success(wallpapersDir().absolutePath)
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            LAUNCHER_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "enableHomeComponent" -> {
+                    enableHomeComponentIfNeeded()
+                    result.success(true)
+                }
+                "isDefaultLauncher", "isDefaultHomeApp" -> {
+                    enableHomeComponentIfNeeded()
+                    result.success(isDefaultHomeApp())
+                }
+                "openDefaultLauncherSettings", "openHomeSettings" -> {
+                    enableHomeComponentIfNeeded()
+                    openHomeSettings(result)
+                }
+                "applySystemBars" -> {
+                    val dark = call.argument<Boolean>("dark") ?: resolveInitialSystemBarsDark()
+                    applyLauncherSystemUi(dark)
+                    result.success(true)
+                }
+                "goHome" -> {
+                    goHome()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -122,6 +187,77 @@ class MainActivity : FlutterActivity() {
         )
         NativeVehicleScenePlugin.register(flutterEngine)
         NativeVehicleTexturePlugin.register(flutterEngine, applicationContext)
+    }
+
+
+    private fun homeComponentName(): ComponentName {
+        return ComponentName(this, MainActivity::class.java)
+    }
+
+    private fun enableHomeComponentIfNeeded() {
+        val component = homeComponentName()
+        val currentState = packageManager.getComponentEnabledSetting(component)
+        if (currentState != PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+            packageManager.setComponentEnabledSetting(
+                component,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
+    }
+
+    private fun isDefaultHomeApp(): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            addCategory(Intent.CATEGORY_DEFAULT)
+        }
+        val resolveInfo = packageManager.resolveActivity(
+            intent,
+            PackageManager.MATCH_DEFAULT_ONLY,
+        )
+        return resolveInfo?.activityInfo?.packageName == packageName
+    }
+
+    private fun openHomeSettings(result: MethodChannel.Result) {
+        val intents = listOf(
+            Intent(Settings.ACTION_HOME_SETTINGS),
+            Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS),
+        )
+
+        for (intent in intents) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                if (intent.resolveActivity(packageManager) != null) {
+                    startActivity(intent)
+                    result.success(true)
+                    return
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        try {
+            val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(fallback)
+            result.success(true)
+        } catch (error: Exception) {
+            result.error(
+                "HOME_SETTINGS_UNAVAILABLE",
+                error.message ?: "Could not open default launcher settings.",
+                null,
+            )
+        }
+    }
+
+    private fun goHome() {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     private fun importWallpapers(result: MethodChannel.Result) {
@@ -312,6 +448,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val WALLPAPER_CHANNEL = "byd/wallpapers"
+        private const val LAUNCHER_CHANNEL = "byd/launcher"
         private const val WALLPAPER_IMPORT_REQUEST_CODE = 9082
         private val SUPPORTED_IMAGE_EXTENSIONS = setOf(
             "jpg",
