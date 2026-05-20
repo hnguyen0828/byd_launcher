@@ -8,6 +8,8 @@ import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.InputEvent
@@ -20,6 +22,7 @@ import io.flutter.view.TextureRegistry
 object NavigationVirtualDisplayPlugin {
     private const val CHANNEL = "byd/navigation_vd"
     private val sessions = mutableMapOf<Long, NavigationVirtualDisplaySession>()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun register(flutterEngine: FlutterEngine, context: Context, activity: Activity?) {
         MethodChannel(
@@ -51,7 +54,27 @@ object NavigationVirtualDisplayPlugin {
                     }
                     result.success(null)
                 }
+                "disposeAll" -> {
+                    disposeAll(context.applicationContext)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun disposeAll(context: Context) {
+        val activeSessions = sessions.values.toList()
+        sessions.clear()
+        FileLogger.log(context, "NavigationVD disposeAll count=${activeSessions.size}")
+        activeSessions.forEach { session ->
+            try {
+                session.dispose()
+            } catch (error: Throwable) {
+                FileLogger.log(
+                    context,
+                    "NavigationVD disposeAll failed ${error.javaClass.simpleName}: ${error.message}"
+                )
             }
         }
     }
@@ -88,6 +111,7 @@ object NavigationVirtualDisplayPlugin {
                 width = width,
                 height = height,
                 densityDpi = densityDpi,
+                mainHandler = mainHandler,
             )
             sessions[textureEntry.id()] = session
             result.success(
@@ -112,6 +136,7 @@ private class NavigationVirtualDisplaySession(
     width: Int,
     height: Int,
     private val densityDpi: Int,
+    private val mainHandler: Handler,
 ) {
     private val displayManager =
         context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
@@ -131,16 +156,30 @@ private class NavigationVirtualDisplaySession(
             DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
     )
     val displayId: Int? = virtualDisplay?.display?.displayId
-    val launchOk: Boolean = launchNavigation()
+    @Volatile private var disposed = false
+    @Volatile private var launchAttempted = false
+    @Volatile private var launchResult = true
+    val launchOk: Boolean
+        get() = launchResult
+    private val launchRunnable = Runnable {
+        if (disposed || virtualDisplay == null) {
+            FileLogger.log(context, "NavigationVD delayed launch cancelled package=$packageName displayId=$displayId")
+            return@Runnable
+        }
+        launchAttempted = true
+        launchResult = launchNavigation()
+    }
 
     init {
+        mainHandler.postDelayed(launchRunnable, 90L)
         FileLogger.log(
             context,
-            "NavigationVD session package=$packageName displayId=$displayId launchOk=$launchOk size=${this.width}x${this.height}"
+            "NavigationVD session package=$packageName displayId=$displayId launchPending=true size=${this.width}x${this.height}"
         )
     }
 
     fun resize(width: Int, height: Int) {
+        if (disposed) return
         val nextWidth = width.coerceAtLeast(1)
         val nextHeight = height.coerceAtLeast(1)
         if (nextWidth == this.width && nextHeight == this.height) return
@@ -153,6 +192,7 @@ private class NavigationVirtualDisplaySession(
     }
 
     fun injectTouch(args: Map<*, *>?): Boolean {
+        if (disposed) return false
         val displayId = displayId ?: return false
         if (args == null) return false
         val actionName = args["action"] as? String ?: return false
@@ -218,13 +258,37 @@ private class NavigationVirtualDisplaySession(
     }
 
     fun dispose() {
-        FileLogger.log(context, "NavigationVD dispose texture=${textureEntry.id()} displayId=$displayId")
+        if (disposed) return
+        disposed = true
+        mainHandler.removeCallbacks(launchRunnable)
+        FileLogger.log(
+            context,
+            "NavigationVD dispose texture=${textureEntry.id()} displayId=$displayId launched=$launchAttempted package=$packageName"
+        )
+        stopNavigationTask()
         virtualDisplay?.release()
         virtualDisplay = null
         textureEntry.release()
     }
 
+    private fun stopNavigationTask() {
+        // If the VirtualDisplay is released while Maps/Waze still owns a task on
+        // that display, some Android/BYD builds move that task to the main
+        // display for a moment. Stop the embedded task first, then release the
+        // display so tab switches do not flash the map full-screen.
+        val command = "am force-stop ${packageName.shellQuote()}"
+        val result = LocalAdbClient.runShellCommandWithCandidates(context, command)
+        val ok = result.started && result.exitCode == 0 &&
+            !result.output.contains("Error:", ignoreCase = true) &&
+            !result.output.contains("Exception", ignoreCase = true)
+        FileLogger.log(
+            context,
+            "NavigationVD stop package=$packageName ok=$ok exit=${result.exitCode} output=${result.output}"
+        )
+    }
+
     private fun launchNavigation(): Boolean {
+        if (disposed) return false
         val displayId = displayId ?: run {
             FileLogger.log(context, "NavigationVD launch skipped; no display for package=$packageName")
             return false

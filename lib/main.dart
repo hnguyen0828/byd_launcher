@@ -46,6 +46,48 @@ const MethodChannel _navigationChannel = MethodChannel('byd/navigation');
 const MethodChannel _navigationVdChannel = MethodChannel('byd/navigation_vd');
 const MethodChannel _permissionChannel = MethodChannel('byd/permissions');
 
+final Set<int> _activeNavigationTextureIds = <int>{};
+
+Future<void> _disposeActiveNavigationVirtualDisplays() async {
+  final textureIds = List<int>.from(_activeNavigationTextureIds);
+  _activeNavigationTextureIds.clear();
+
+  // Prefer the native global cleanup first. It also knows about sessions that
+  // were created after Dart requested a tab switch but before the texture id was
+  // returned to Flutter.
+  try {
+    await _navigationVdChannel.invokeMethod<Object?>('disposeAll');
+  } catch (_) {}
+
+  for (final textureId in textureIds) {
+    try {
+      await _navigationVdChannel.invokeMethod<Object?>(
+        'dispose',
+        {'textureId': textureId},
+      );
+    } catch (_) {}
+  }
+}
+
+void _scheduleNavigationVirtualDisplayCleanupSweep() {
+  // The native create() call is async. If the user leaves Navigation while the
+  // VirtualDisplay is still being created, the session can appear after the
+  // first dispose call and briefly launch Maps/Waze on the main screen. Run a
+  // few delayed best-effort sweeps to catch that late session.
+  unawaited(_disposeActiveNavigationVirtualDisplays());
+  for (final delay in const [
+    Duration(milliseconds: 80),
+    Duration(milliseconds: 220),
+    Duration(milliseconds: 520),
+    Duration(milliseconds: 1000),
+  ]) {
+    Future<void>.delayed(
+      delay,
+      () => unawaited(_disposeActiveNavigationVirtualDisplays()),
+    );
+  }
+}
+
 const List<_VehiclePaintOption> _vehiclePaintOptions = [
   _VehiclePaintOption('Arctic White', Color(0xFFE9EEF4)),
   _VehiclePaintOption('Snow White', Color(0xFFF3F5F2)),
@@ -755,7 +797,7 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'enableMusicAccess': 'Enable Music access in Settings',
     'systemPermissions': 'System permissions',
     'systemPermissionsSubtitle':
-        'One tap setup for music, overlay, vehicle data and launcher bridge.',
+        'One tap setup for music, overlay, embedded navigation and launcher bridge.',
     'checkingPermissions': 'Checking permissions',
     'permissionsReady': 'Permissions ready',
     'grantAllPermissions': 'Grant all permissions',
@@ -828,7 +870,7 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'enableMusicAccess': 'Bật quyền Nhạc trong Cài đặt',
     'systemPermissions': 'Quyền hệ thống',
     'systemPermissionsSubtitle':
-        'Thiết lập một chạm cho nhạc, overlay, dữ liệu xe và launcher bridge.',
+        'Thiết lập một chạm cho nhạc, overlay, dẫn đường nhúng và launcher bridge.',
     'checkingPermissions': 'Đang kiểm tra quyền',
     'permissionsReady': 'Quyền đã sẵn sàng',
     'grantAllPermissions': 'Cấp tất cả quyền',
@@ -967,6 +1009,27 @@ class _NoStretchScrollBehavior extends MaterialScrollBehavior {
   }
 }
 
+class _AmbientUiScope extends InheritedWidget {
+  const _AmbientUiScope({
+    required this.enabled,
+    required super.child,
+  });
+
+  final bool enabled;
+
+  static bool enabledOf(BuildContext context) {
+    return context
+            .dependOnInheritedWidgetOfExactType<_AmbientUiScope>()
+            ?.enabled ??
+        false;
+  }
+
+  @override
+  bool updateShouldNotify(_AmbientUiScope oldWidget) {
+    return oldWidget.enabled != enabled;
+  }
+}
+
 Color _tone(BuildContext context, Color color) {
   if (!_isLight(context)) {
     return color;
@@ -1027,6 +1090,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     with WidgetsBindingObserver {
   _VehicleView _view = _VehicleView.status;
   _LauncherTab _activeTab = _LauncherTab.status;
+  bool _navigationPanelMounted = false;
   _VehicleRenderQuality _renderQuality = _VehicleRenderQuality.medium;
   String _vehicleModelAsset = _defaultVehicleModelAsset;
   Color _vehicleColor = const Color(0xFFE9EEF4);
@@ -1190,13 +1254,20 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       onFavoriteAppsEdit: _editFavoriteApps,
                       onFavoriteAppRemove: _removeFavoriteApp,
                       onFavoriteAppsReorder: _reorderFavoriteApps,
+                      ambientMode: _activeTab == _LauncherTab.wallpaper,
                     );
                     final vehicleCanvas = _VehicleCanvas(
+                      favoriteApps: _favoriteApps,
+                      onFavoriteAppTap: _launchFavoriteApp,
+                      onFavoriteAppsEdit: _editFavoriteApps,
+                      onFavoriteAppRemove: _removeFavoriteApp,
+                      onFavoriteAppsReorder: _reorderFavoriteApps,
                       enable3dModel:
                           widget.enable3dModel && _vehiclePreferencesLoaded,
                       cameraOrbit: _cameraOrbit,
                       view: _view,
                       activeTab: _activeTab,
+                      navigationPanelMounted: _navigationPanelMounted,
                       vehicleModelAsset: _vehicleModelAsset,
                       vehicleColor: _vehicleColor,
                       renderQuality: _renderQuality,
@@ -1275,7 +1346,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       );
                     }
 
-                    final showSidebar = _activeTab != _LauncherTab.wallpaper;
                     final sidebar = SizedBox(
                       width: sidebarWidth,
                       child: dashboard,
@@ -1285,11 +1355,25 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                         _landscapeSidebarPosition ==
                         _LandscapeSidebarPosition.right;
 
+                    if (_activeTab == _LauncherTab.wallpaper) {
+                      return Stack(
+                        children: [
+                          Positioned.fill(child: vehicleCanvas),
+                          Align(
+                            alignment: sidebarOnRight
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: sidebar,
+                          ),
+                        ],
+                      );
+                    }
+
                     return Row(
                       children: [
-                        if (showSidebar && !sidebarOnRight) sidebar,
+                        if (!sidebarOnRight) sidebar,
                         canvas,
-                        if (showSidebar && sidebarOnRight) sidebar,
+                        if (sidebarOnRight) sidebar,
                       ],
                     );
                   },
@@ -1311,8 +1395,18 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
 
   void _handleTabChanged(_LauncherTab tab) {
     if (tab == _activeTab) return;
+
     _showTransitionLoading();
-    setState(() => _activeTab = tab);
+    setState(() {
+      _activeTab = tab;
+      if (tab == _LauncherTab.map) {
+        // Lazy-mount the embedded map on first use, then keep it alive behind
+        // other tabs. Disposing the VirtualDisplay on every tab switch makes
+        // Google Maps/Waze reload from scratch when returning to Navigation and
+        // can also make the map task briefly jump to the main display.
+        _navigationPanelMounted = true;
+      }
+    });
     if (tab != _LauncherTab.settings) {
       _flushPendingVehicleSnapshot();
     }
@@ -1967,6 +2061,7 @@ class _LeftDashboard extends StatelessWidget {
     required this.onFavoriteAppsEdit,
     required this.onFavoriteAppRemove,
     required this.onFavoriteAppsReorder,
+    this.ambientMode = false,
   });
 
   final _VehicleGear selectedGear;
@@ -1980,13 +2075,16 @@ class _LeftDashboard extends StatelessWidget {
   final VoidCallback onFavoriteAppsEdit;
   final ValueChanged<_LauncherApp> onFavoriteAppRemove;
   final ValueChanged<List<_LauncherApp>> onFavoriteAppsReorder;
+  final bool ambientMode;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 8, 18),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
+    return _AmbientUiScope(
+      enabled: ambientMode,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 8, 18),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
           final compactHeight = constraints.maxHeight < 610;
           // BYD head-unit screens have less vertical room than tablets.
           // Keep Music tall enough for its controls, and reclaim space mostly
@@ -2020,7 +2118,8 @@ class _LeftDashboard extends StatelessWidget {
               ),
             ],
           );
-        },
+          },
+        ),
       ),
     );
   }
@@ -2033,6 +2132,7 @@ class _FavoriteAppsStrip extends StatefulWidget {
     required this.onEditTap,
     required this.onRemove,
     required this.onReorder,
+    this.compactVisual = false,
   });
 
   final List<_LauncherApp> apps;
@@ -2040,6 +2140,7 @@ class _FavoriteAppsStrip extends StatefulWidget {
   final VoidCallback onEditTap;
   final ValueChanged<_LauncherApp> onRemove;
   final ValueChanged<List<_LauncherApp>> onReorder;
+  final bool compactVisual;
 
   @override
   State<_FavoriteAppsStrip> createState() => _FavoriteAppsStripState();
@@ -2084,8 +2185,12 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
       onTapOutside: (_) => _exitEditing(),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final itemExtent = constraints.maxWidth >= 430 ? 74.0 : 60.0;
-          final addExtent = constraints.maxWidth >= 430 ? 78.0 : 60.0;
+          final itemExtent = widget.compactVisual
+              ? (constraints.maxWidth >= 430 ? 70.0 : 56.0)
+              : (constraints.maxWidth >= 430 ? 74.0 : 60.0);
+          final addExtent = widget.compactVisual
+              ? (constraints.maxWidth >= 430 ? 72.0 : 56.0)
+              : (constraints.maxWidth >= 430 ? 78.0 : 60.0);
 
           return Row(
             children: [
@@ -2112,6 +2217,7 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                                 app: app,
                                 editing: _editing,
                                 highlighted: highlighted,
+                                compactVisual: widget.compactVisual,
                                 onTap: () => _editing
                                     ? _exitEditing()
                                     : widget.onAppTap(app),
@@ -2127,7 +2233,7 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                                   color: Colors.transparent,
                                   child: SizedBox(
                                     width: itemExtent,
-                                    height: 58,
+                                    height: widget.compactVisual ? 54 : 58,
                                     child: button,
                                   ),
                                 ),
@@ -2148,7 +2254,10 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                 const SizedBox(width: 6),
                 SizedBox(
                   width: addExtent,
-                  child: _AddFavoriteAppButton(onTap: widget.onEditTap),
+                  child: _AddFavoriteAppButton(
+                    onTap: widget.onEditTap,
+                    compactVisual: widget.compactVisual,
+                  ),
                 ),
               ],
             ],
@@ -2167,6 +2276,7 @@ class _FavoriteAppButton extends StatelessWidget {
     required this.onRemove,
     this.editing = false,
     this.highlighted = false,
+    this.compactVisual = false,
   });
 
   final _LauncherApp app;
@@ -2175,10 +2285,17 @@ class _FavoriteAppButton extends StatelessWidget {
   final VoidCallback onRemove;
   final bool editing;
   final bool highlighted;
+  final bool compactVisual;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final tilePadding = compactVisual
+        ? const EdgeInsets.symmetric(horizontal: 2, vertical: 1)
+        : const EdgeInsets.symmetric(horizontal: 2, vertical: 3);
+    final iconSize = compactVisual ? 26.0 : 28.0;
+    final labelGap = compactVisual ? 2.0 : 4.0;
+    final labelSize = compactVisual ? 8.0 : 9.5;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -2186,7 +2303,7 @@ class _FavoriteAppButton extends StatelessWidget {
         Positioned.fill(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
-            margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+            margin: tilePadding,
             decoration: BoxDecoration(
               color: highlighted
                   ? _accentSoftBlue.withValues(alpha: light ? 0.14 : 0.18)
@@ -2207,12 +2324,13 @@ class _FavoriteAppButton extends StatelessWidget {
           onTap: onTap,
           onLongPress: onLongPress,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+            padding: tilePadding,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _LauncherAppIcon(app: app, size: 28),
-                const SizedBox(height: 4),
+                _LauncherAppIcon(app: app, size: iconSize),
+                SizedBox(height: labelGap),
                 Text(
                   app.label,
                   maxLines: 1,
@@ -2223,7 +2341,7 @@ class _FavoriteAppButton extends StatelessWidget {
                     Theme.of(context).textTheme.labelSmall,
                     color: _textPrimary,
                     weight: FontWeight.w600,
-                    size: 9.5,
+                    size: labelSize,
                   ),
                 ),
               ],
@@ -2261,13 +2379,21 @@ class _FavoriteAppButton extends StatelessWidget {
 }
 
 class _AddFavoriteAppButton extends StatelessWidget {
-  const _AddFavoriteAppButton({required this.onTap});
+  const _AddFavoriteAppButton({
+    required this.onTap,
+    this.compactVisual = false,
+  });
 
   final VoidCallback onTap;
+  final bool compactVisual;
 
   @override
   Widget build(BuildContext context) {
     final light = _isLight(context);
+    final buttonSize = compactVisual ? 48.0 : 52.0;
+    final iconSize = compactVisual ? 18.0 : 20.0;
+    final labelGap = compactVisual ? 1.0 : 2.0;
+    final labelSize = compactVisual ? 8.5 : 9.5;
 
     return Align(
       alignment: Alignment.center,
@@ -2275,8 +2401,8 @@ class _AddFavoriteAppButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Container(
-          width: 52,
-          height: 52,
+          width: buttonSize,
+          height: buttonSize,
           decoration: BoxDecoration(
             color: light
                 ? Colors.white.withValues(alpha: 0.70)
@@ -2294,9 +2420,9 @@ class _AddFavoriteAppButton extends StatelessWidget {
               Icon(
                 Icons.add_rounded,
                 color: _tone(context, _textPrimary),
-                size: 20,
+                size: iconSize,
               ),
-              const SizedBox(height: 2),
+              SizedBox(height: labelGap),
               Text(
                 _t(context, 'add'),
                 style: _sharp(
@@ -2304,7 +2430,7 @@ class _AddFavoriteAppButton extends StatelessWidget {
                   Theme.of(context).textTheme.labelSmall,
                   color: _textPrimary,
                   weight: FontWeight.w600,
-                  size: 9.5,
+                  size: labelSize,
                 ),
               ),
             ],
@@ -3221,17 +3347,32 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
                   height: 46,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [Color(0xFF5E1E2A), Color(0xFF171B2D)],
+                      colors: light
+                          ? const [
+                              Color(0xFFFFF3D9),
+                              Color(0xFFE7F0FF),
+                            ]
+                          : const [
+                              Color(0xFF5E1E2A),
+                              Color(0xFF171B2D),
+                            ],
                     ),
                     borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: light
+                          ? const Color(0xFFE2EAF3)
+                          : Colors.white.withValues(alpha: 0.08),
+                    ),
                   ),
                   child: _state.albumArt == null
-                      ? const Icon(
+                      ? Icon(
                           Icons.music_note_rounded,
-                          color: Color(0xFFFFD36E),
+                          color: light
+                              ? const Color(0xFF4D78A8)
+                              : const Color(0xFFFFD36E),
                           size: 27,
                         )
                       : Image.memory(
@@ -3441,23 +3582,40 @@ class _MediaWidgetState extends State<_MediaWidget>
                   height: 66,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [Color(0xFF5E1E2A), Color(0xFF171B2D)],
+                      colors: light
+                          ? const [
+                              Color(0xFFFFF3D9),
+                              Color(0xFFE7F0FF),
+                            ]
+                          : const [
+                              Color(0xFF5E1E2A),
+                              Color(0xFF171B2D),
+                            ],
                     ),
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: light
+                          ? const Color(0xFFE2EAF3)
+                          : Colors.white.withValues(alpha: 0.08),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFFFC857).withValues(alpha: 0.08),
+                        color: light
+                            ? const Color(0xFF9EBEE3).withValues(alpha: 0.16)
+                            : const Color(0xFFFFC857).withValues(alpha: 0.08),
                         blurRadius: 18,
                       ),
                     ],
                   ),
                   child: _state.albumArt == null
-                      ? const Icon(
+                      ? Icon(
                           Icons.music_note_rounded,
-                          color: Color(0xFFFFD36E),
+                          color: light
+                              ? const Color(0xFF4D78A8)
+                              : const Color(0xFFFFD36E),
                           size: 32,
                         )
                       : Image.memory(
@@ -4704,10 +4862,16 @@ class _LauncherTransitionLoading extends StatelessWidget {
 
 class _VehicleCanvas extends StatelessWidget {
   const _VehicleCanvas({
+    required this.favoriteApps,
+    required this.onFavoriteAppTap,
+    required this.onFavoriteAppsEdit,
+    required this.onFavoriteAppRemove,
+    required this.onFavoriteAppsReorder,
     required this.enable3dModel,
     required this.cameraOrbit,
     required this.view,
     required this.activeTab,
+    required this.navigationPanelMounted,
     required this.vehicleModelAsset,
     required this.vehicleColor,
     required this.renderQuality,
@@ -4757,10 +4921,16 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onLanguageChanged,
   });
 
+  final List<_LauncherApp> favoriteApps;
+  final ValueChanged<_LauncherApp> onFavoriteAppTap;
+  final VoidCallback onFavoriteAppsEdit;
+  final ValueChanged<_LauncherApp> onFavoriteAppRemove;
+  final ValueChanged<List<_LauncherApp>> onFavoriteAppsReorder;
   final bool enable3dModel;
   final String cameraOrbit;
   final _VehicleView view;
   final _LauncherTab activeTab;
+  final bool navigationPanelMounted;
   final String vehicleModelAsset;
   final Color vehicleColor;
   final _VehicleRenderQuality renderQuality;
@@ -4822,6 +4992,19 @@ class _VehicleCanvas extends StatelessWidget {
     final visibleDemoLightMode = lightEffectEnabled
         ? candidateLightMode
         : _DemoLightMode.off;
+    final ambientDockInset = wallpaperMode && !portraitMode
+        ? (MediaQuery.sizeOf(context).width < 1100 ? 292.0 : 348.0)
+        : 0.0;
+    final ambientDockLeftInset = wallpaperMode &&
+            !portraitMode &&
+            landscapeSidebarPosition == _LandscapeSidebarPosition.left
+        ? ambientDockInset
+        : 0.0;
+    final ambientDockRightInset = wallpaperMode &&
+            !portraitMode &&
+            landscapeSidebarPosition == _LandscapeSidebarPosition.right
+        ? ambientDockInset
+        : 0.0;
 
     return Padding(
       padding: wallpaperMode
@@ -4831,27 +5014,34 @@ class _VehicleCanvas extends StatelessWidget {
           : const EdgeInsets.fromLTRB(26, 28, 38, 28),
       child: Stack(
         children: [
-          Positioned.fill(
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: wallpaperMode ? 0 : 68,
-            child: IgnorePointer(
-              ignoring: activeTab != _LauncherTab.map,
-              child: Opacity(
-                opacity: activeTab == _LauncherTab.map ? 1.0 : 0.0,
-                child: _NavigationPanel(
-                  key: const ValueKey('navigation-persistent'),
-                  apps: navigationApps,
-                  selectedPackage: selectedNavigationPackage,
-                  mapScale: embeddedMapScale,
-                  onAppSelected: onDefaultNavigationAppChanged,
-                  onReload: onNavigationReloadRequested,
-                  onOpen: onDefaultNavigationOpenRequested,
+          // Lazy-mount Navigation the first time it is opened and keep the
+          // native VirtualDisplay alive while hidden. This prevents Maps/Waze
+          // from reloading every time the user returns to the Navigation tab.
+          if (navigationPanelMounted)
+            Positioned.fill(
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 68,
+              child: Offstage(
+                offstage: activeTab != _LauncherTab.map,
+                child: IgnorePointer(
+                  ignoring: activeTab != _LauncherTab.map,
+                  child: TickerMode(
+                    enabled: activeTab == _LauncherTab.map,
+                    child: _NavigationPanel(
+                      key: const ValueKey('navigation-keepalive'),
+                      apps: navigationApps,
+                      selectedPackage: selectedNavigationPackage,
+                      mapScale: embeddedMapScale,
+                      onAppSelected: onDefaultNavigationAppChanged,
+                      onReload: onNavigationReloadRequested,
+                      onOpen: onDefaultNavigationOpenRequested,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
           Positioned.fill(
             left: 0,
             top: 0,
@@ -4914,8 +5104,6 @@ class _VehicleCanvas extends StatelessWidget {
                 child: switch (activeTab) {
                   _LauncherTab.settings => _SettingsPanel(
                     key: const ValueKey('settings'),
-                    vehicleModelAsset: vehicleModelAsset,
-                    onVehicleModelChanged: onVehicleModelChanged,
                     vehicleColor: vehicleColor,
                     onVehicleColorChanged: onVehicleColorChanged,
                     renderQuality: renderQuality,
@@ -4991,14 +5179,19 @@ class _VehicleCanvas extends StatelessWidget {
               ),
             ),
           Positioned(
-            left: 0,
-            right: 0,
-            bottom: wallpaperMode ? 16 : 4,
+            left: ambientDockLeftInset,
+            right: ambientDockRightInset,
+            // In normal landscape tabs, _VehicleCanvas has 28px bottom padding
+            // and the dock sits 4px above that padded edge. Ambient uses
+            // EdgeInsets.zero so the wallpaper can fill the full screen, so
+            // add the same 28px back only for the dock. This keeps the tab bar
+            // perfectly aligned when switching into/out of Ambient.
+            bottom: wallpaperMode && !portraitMode ? 32 : 4,
             child: Center(
               child: _BottomTabs(
                 activeTab: activeTab,
                 showWallpaperTab: wallpaperButtonEnabled,
-                ambientMode: wallpaperMode,
+                ambientMode: false,
                 compactMode: portraitMode,
                 onTabChanged: onTabChanged,
               ),
@@ -5271,12 +5464,15 @@ class _NavigationVirtualDisplayViewState
   bool _launchOk = true;
   Object? _error;
   bool _resizeScheduled = false;
+  bool _disposed = false;
+  int _sessionGeneration = 0;
 
   @override
   void didUpdateWidget(covariant _NavigationVirtualDisplayView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.app.packageName != widget.app.packageName ||
         oldWidget.mapScale != widget.mapScale) {
+      _sessionGeneration++;
       _disposeSession();
       _textureId = null;
       _textureSize = null;
@@ -5288,6 +5484,10 @@ class _NavigationVirtualDisplayViewState
 
   @override
   void dispose() {
+    _disposed = true;
+    _sessionGeneration++;
+    _pendingTextureSize = null;
+    _resizeScheduled = false;
     _disposeSession();
     super.dispose();
   }
@@ -5301,7 +5501,7 @@ class _NavigationVirtualDisplayViewState
           (constraints.maxWidth * ratio).clamp(1.0, 4096.0),
           (constraints.maxHeight * ratio).clamp(1.0, 4096.0),
         );
-        if (_shouldScheduleTextureSize(size)) {
+        if (!_disposed && _shouldScheduleTextureSize(size)) {
           _scheduleCreateOrResize(size);
         }
 
@@ -5345,6 +5545,7 @@ class _NavigationVirtualDisplayViewState
   }
 
   Future<void> _createOrResize(Size size) async {
+    final generation = _sessionGeneration;
     final width = size.width.round();
     final height = size.height.round();
     final textureId = _textureId;
@@ -5357,9 +5558,29 @@ class _NavigationVirtualDisplayViewState
               'height': height,
               'densityDpi': _embeddedMapScaleDensityDpi(widget.mapScale),
             });
-        if (!mounted) return;
+        final createdTextureId = (result?['textureId'] as num?)?.toInt();
+        if (!mounted || _disposed || generation != _sessionGeneration) {
+          // create() may complete after the user already left Navigation. Do
+          // not let this late native session survive or it can flash Maps/Waze
+          // over the newly selected tab.
+          if (createdTextureId != null) {
+            unawaited(
+              _navigationVdChannel
+                  .invokeMethod<Object?>(
+                    'dispose',
+                    {'textureId': createdTextureId},
+                  )
+                  .catchError((Object _) => null),
+            );
+          }
+          _scheduleNavigationVirtualDisplayCleanupSweep();
+          return;
+        }
+        if (createdTextureId != null) {
+          _activeNavigationTextureIds.add(createdTextureId);
+        }
         setState(() {
-          _textureId = (result?['textureId'] as num?)?.toInt();
+          _textureId = createdTextureId;
           _launchOk = result?['launchOk'] != false;
           _textureSize = size;
           _pendingTextureSize = null;
@@ -5371,14 +5592,14 @@ class _NavigationVirtualDisplayViewState
           'width': width,
           'height': height,
         });
-        if (!mounted) return;
+        if (!mounted || _disposed || generation != _sessionGeneration) return;
         setState(() {
           _textureSize = size;
           _pendingTextureSize = null;
         });
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || _disposed) return;
       setState(() {
         _pendingTextureSize = null;
         _error = error;
@@ -5413,7 +5634,7 @@ class _NavigationVirtualDisplayViewState
     _resizeScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _resizeScheduled = false;
-      if (!mounted) return;
+      if (!mounted || _disposed) return;
 
       final pendingSize = _pendingTextureSize;
       if (pendingSize != null) {
@@ -5464,6 +5685,8 @@ class _NavigationVirtualDisplayViewState
     _textureId = null;
     _textureSize = null;
     _pendingTextureSize = null;
+    _resizeScheduled = false;
+    _activeNavigationTextureIds.remove(textureId);
     unawaited(
       _navigationVdChannel
           .invokeMethod<Object?>('dispose', {'textureId': textureId})
@@ -6477,8 +6700,6 @@ class _PremiumActionButton extends StatelessWidget {
 
 class _SettingsPanel extends StatelessWidget {
   const _SettingsPanel({
-    required this.vehicleModelAsset,
-    required this.onVehicleModelChanged,
     required this.vehicleColor,
     required this.onVehicleColorChanged,
     required this.renderQuality,
@@ -6512,8 +6733,6 @@ class _SettingsPanel extends StatelessWidget {
     super.key,
   });
 
-  final String vehicleModelAsset;
-  final ValueChanged<String> onVehicleModelChanged;
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
@@ -6549,8 +6768,6 @@ class _SettingsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mainColumn = _SettingsMainColumn(
-      vehicleModelAsset: vehicleModelAsset,
-      onVehicleModelChanged: onVehicleModelChanged,
       vehicleColor: vehicleColor,
       onVehicleColorChanged: onVehicleColorChanged,
       renderQuality: renderQuality,
@@ -6646,8 +6863,6 @@ class _SettingsPanel extends StatelessWidget {
                   if (constraints.maxWidth < 760) {
                     final portraitMainColumn = _SettingsMainColumn(
                       scrollable: false,
-                      vehicleModelAsset: vehicleModelAsset,
-                      onVehicleModelChanged: onVehicleModelChanged,
                       vehicleColor: vehicleColor,
                       onVehicleColorChanged: onVehicleColorChanged,
                       renderQuality: renderQuality,
@@ -6721,8 +6936,6 @@ class _SettingsPanel extends StatelessWidget {
 class _SettingsMainColumn extends StatelessWidget {
   const _SettingsMainColumn({
     this.scrollable = true,
-    required this.vehicleModelAsset,
-    required this.onVehicleModelChanged,
     required this.vehicleColor,
     required this.onVehicleColorChanged,
     required this.renderQuality,
@@ -6756,8 +6969,6 @@ class _SettingsMainColumn extends StatelessWidget {
   });
 
   final bool scrollable;
-  final String vehicleModelAsset;
-  final ValueChanged<String> onVehicleModelChanged;
   final Color vehicleColor;
   final ValueChanged<Color> onVehicleColorChanged;
   final _VehicleRenderQuality renderQuality;
@@ -6794,19 +7005,6 @@ class _SettingsMainColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     final content = Column(
       children: [
-        _GlassCard(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: _SettingsInlineControl(
-            icon: Icons.directions_car_filled_outlined,
-            title: _t(context, 'vehicleModel'),
-            subtitle: _t(context, 'vehicleModelSubtitle'),
-            child: _VehicleModelPicker(
-              selectedAsset: vehicleModelAsset,
-              onChanged: onVehicleModelChanged,
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
         _GlassCard(
           padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
           child: Column(
@@ -7196,6 +7394,7 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
     try {
       final result = await _permissionChannel.invokeMethod<Object?>(
         'grantRecommendedPermissions',
+        {'includeVehicleData': true},
       );
       await _applyPermissionStatusMap(result);
       await _refreshPermissionStatus();
@@ -7218,17 +7417,15 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
   Widget build(BuildContext context) {
     final music = _permissionStatuses['musicAccess']!;
     final overlay = _permissionStatuses['systemOverlay']!;
-    final vehicle = _permissionStatuses['vehicleData']!;
     final navigation = _permissionStatuses['navigationEmbed']!;
     final internet = _permissionStatuses['internet']!;
     final readyCount = [
       music,
       overlay,
-      vehicle,
       navigation,
       internet,
     ].where((status) => status.ready).length;
-    final allReady = readyCount == 5;
+    final allReady = readyCount == 4;
 
     return RepaintBoundary(
       child: _GlassCard(
@@ -7244,7 +7441,7 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
             const SizedBox(height: 16),
             _PermissionSummaryPanel(
               readyCount: readyCount,
-              totalCount: 5,
+              totalCount: 4,
               allReady: allReady,
               statuses: _permissionStatuses,
             ),
@@ -7345,10 +7542,6 @@ class _PermissionSummaryPanel extends StatelessWidget {
                 status: statuses['systemOverlay']!,
               ),
               _PermissionStatusChip(
-                label: _t(context, 'vehicle'),
-                status: statuses['vehicleData']!,
-              ),
-              _PermissionStatusChip(
                 label: _t(context, 'navigation'),
                 status: statuses['navigationEmbed']!,
               ),
@@ -7431,14 +7624,16 @@ class _PermissionStatus {
   static const defaults = {
     'musicAccess': _PermissionStatus(ready: false, status: 'Needed'),
     'systemOverlay': _PermissionStatus(ready: false, status: 'Needed'),
-    'vehicleData': _PermissionStatus(
+    'navigationEmbed': _PermissionStatus(
       ready: false,
       status: 'System only',
       systemOnly: true,
     ),
-    'navigationEmbed': _PermissionStatus(
+    // Keep vehicle permission/status in the internal permission flow so native
+    // vehicle data continues to work, but do not show it as a chip in Settings.
+    'vehicleData': _PermissionStatus(
       ready: false,
-      status: 'System only',
+      status: 'Needed',
       systemOnly: true,
     ),
     'internet': _PermissionStatus(ready: true, status: 'Granted'),
@@ -10996,6 +11191,98 @@ class _VehicleModelPlaceholder extends StatelessWidget {
   }
 }
 
+
+class _AmbientBottomDock extends StatelessWidget {
+  const _AmbientBottomDock({
+    required this.activeTab,
+    required this.showWallpaperTab,
+    required this.compactMode,
+    required this.favoriteApps,
+    required this.onFavoriteAppTap,
+    required this.onFavoriteAppsEdit,
+    required this.onFavoriteAppRemove,
+    required this.onFavoriteAppsReorder,
+    required this.onTabChanged,
+  });
+
+  final _LauncherTab activeTab;
+  final bool showWallpaperTab;
+  final bool compactMode;
+  final List<_LauncherApp> favoriteApps;
+  final ValueChanged<_LauncherApp> onFavoriteAppTap;
+  final VoidCallback onFavoriteAppsEdit;
+  final ValueChanged<_LauncherApp> onFavoriteAppRemove;
+  final ValueChanged<List<_LauncherApp>> onFavoriteAppsReorder;
+  final ValueChanged<_LauncherTab> onTabChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: compactMode ? 12 : 22),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 760;
+          final tabs = _BottomTabs(
+            activeTab: activeTab,
+            showWallpaperTab: showWallpaperTab,
+            ambientMode: true,
+            compactMode: compactMode,
+            onTabChanged: onTabChanged,
+          );
+          final favorites = ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                height: 66,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.20),
+                  ),
+                ),
+                child: _FavoriteAppsStrip(
+                  apps: favoriteApps,
+                  onAppTap: onFavoriteAppTap,
+                  onEditTap: onFavoriteAppsEdit,
+                  onRemove: onFavoriteAppRemove,
+                  onReorder: onFavoriteAppsReorder,
+                  compactVisual: true,
+                ),
+              ),
+            ),
+          );
+
+          if (narrow) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: constraints.maxWidth, child: favorites),
+                const SizedBox(height: 10),
+                Center(child: tabs),
+              ],
+            );
+          }
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: favorites,
+              ),
+              const SizedBox(width: 16),
+              tabs,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _BottomTabs extends StatelessWidget {
   const _BottomTabs({
     required this.activeTab,
@@ -11015,17 +11302,17 @@ class _BottomTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = _isLight(context);
     final containerColor = ambientMode
-        ? Colors.black.withValues(alpha: light ? 0.10 : 0.14)
+        ? Colors.black.withValues(alpha: light ? 0.07 : 0.11)
         : light
         ? Colors.white.withValues(alpha: 0.88)
         : const Color(0xFF07101A).withValues(alpha: 0.62);
     final borderColor = ambientMode
-        ? Colors.white.withValues(alpha: light ? 0.26 : 0.18)
+        ? Colors.white.withValues(alpha: light ? 0.24 : 0.20)
         : light
         ? _premiumLightStroke.withValues(alpha: 0.95)
         : Colors.white.withValues(alpha: 0.07);
     final shadowAlpha = ambientMode
-        ? (light ? 0.18 : 0.28)
+        ? (light ? 0.14 : 0.24)
         : (light ? 0.10 : 0.26);
 
     return ClipRRect(
@@ -11177,7 +11464,7 @@ class _BottomTab extends StatelessWidget {
                     color: const Color(0xFF78B7FF).withValues(
                       alpha: ambientMode ? 0.10 : (light ? 0.20 : 0.12),
                     ),
-                    blurRadius: ambientMode ? 22 : 18,
+                    blurRadius: ambientMode ? 20 : 18,
                     spreadRadius: 1,
                   ),
                   BoxShadow(
@@ -11384,6 +11671,7 @@ class _GlassCard extends StatelessWidget {
     final settingsPerformanceMode = _SettingsPerformanceScope.enabledOf(
       context,
     );
+    final ambientMode = _AmbientUiScope.enabledOf(context);
 
     final decoration = BoxDecoration(
       gradient: LinearGradient(
@@ -11393,17 +11681,37 @@ class _GlassCard extends StatelessWidget {
             ? [
                 const Color(
                   0xFFFFFFFF,
-                ).withValues(alpha: settingsPerformanceMode ? 0.96 : 0.88),
+                ).withValues(
+                  alpha: settingsPerformanceMode
+                      ? 0.96
+                      : ambientMode
+                      ? 0.40
+                      : 0.88,
+                ),
                 const Color(
                   0xFFEAF2FA,
-                ).withValues(alpha: settingsPerformanceMode ? 0.90 : 0.74),
+                ).withValues(
+                  alpha: settingsPerformanceMode
+                      ? 0.90
+                      : ambientMode
+                      ? 0.24
+                      : 0.74,
+                ),
               ]
             : [
                 Colors.white.withValues(
-                  alpha: settingsPerformanceMode ? 0.070 : 0.060,
+                  alpha: settingsPerformanceMode
+                      ? 0.070
+                      : ambientMode
+                      ? 0.030
+                      : 0.060,
                 ),
                 Colors.white.withValues(
-                  alpha: settingsPerformanceMode ? 0.042 : 0.030,
+                  alpha: settingsPerformanceMode
+                      ? 0.042
+                      : ambientMode
+                      ? 0.015
+                      : 0.030,
                 ),
               ],
       ),
@@ -11411,8 +11719,10 @@ class _GlassCard extends StatelessWidget {
       border: showBorder
           ? Border.all(
               color: light
-                  ? const Color(0xFFE7EEF6).withValues(alpha: 0.96)
-                  : Colors.white.withValues(alpha: 0.065),
+                  ? const Color(0xFFE7EEF6).withValues(
+                      alpha: ambientMode ? 0.52 : 0.96,
+                    )
+                  : Colors.white.withValues(alpha: ambientMode ? 0.072 : 0.065),
               width: light ? 1.1 : 1,
             )
           : null,
@@ -11420,14 +11730,18 @@ class _GlassCard extends StatelessWidget {
           ? const []
           : [
               BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.055 : 0.13),
-                blurRadius: light ? 20 : 18,
+                color: Colors.black.withValues(
+                  alpha: light
+                      ? (ambientMode ? 0.024 : 0.055)
+                      : (ambientMode ? 0.13 : 0.13),
+                ),
+                blurRadius: ambientMode ? 22 : (light ? 20 : 18),
                 offset: const Offset(0, 8),
               ),
               if (light)
                 BoxShadow(
-                  color: _accentSoftBlue.withValues(alpha: 0.055),
-                  blurRadius: 18,
+                  color: _accentSoftBlue.withValues(alpha: ambientMode ? 0.024 : 0.055),
+                  blurRadius: ambientMode ? 20 : 18,
                   spreadRadius: -4,
                 ),
             ],
