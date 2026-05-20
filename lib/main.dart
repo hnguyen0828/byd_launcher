@@ -1149,6 +1149,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   bool _keepLightCameraOrbitAfterOff = false;
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
   Timer? _vehicleSnapshotTimer;
+  bool _vehicleSnapshotRefreshInFlight = false;
   StreamSubscription<dynamic>? _vehicleSnapshotSubscription;
   final List<Timer> _vehicleStartupRefreshTimers = [];
   final GlobalKey<_NavigationPanelState> _navigationPanelKey =
@@ -1208,7 +1209,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _refreshVehicleSnapshot();
     _scheduleVehicleStartupRefreshes();
     _vehicleSnapshotTimer = Timer.periodic(
-      const Duration(seconds: 8),
+      const Duration(milliseconds: 650),
       (_) => _refreshVehicleSnapshot(),
     );
   }
@@ -2028,6 +2029,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   Future<void> _refreshVehicleSnapshot() async {
+    if (_vehicleSnapshotRefreshInFlight) return;
+    _vehicleSnapshotRefreshInFlight = true;
     try {
       final data = await _vehicleChannel.invokeMapMethod<String, dynamic>(
         'getVehicleSnapshot',
@@ -2036,7 +2039,10 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _setVehicleSnapshotFromPlatform(
         _VehicleSnapshot.fromMap(data),
       );
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _vehicleSnapshotRefreshInFlight = false;
+    }
   }
 
   void _handleVehicleSnapshotEvent(dynamic value) {
@@ -2812,8 +2818,8 @@ class _SpeedCluster extends StatelessWidget {
       children: [
         TweenAnimationBuilder<double>(
           tween: Tween<double>(end: vehicleSpeedKmh),
-          duration: const Duration(milliseconds: 620),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutQuad,
           builder: (context, value, _) {
             return Text(
               value.round().toString(),
@@ -3044,8 +3050,8 @@ class _PremiumSpeedGearCluster extends StatelessWidget {
             children: [
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(end: vehicleSpeedKmh),
-                duration: const Duration(milliseconds: 620),
-                curve: Curves.easeOutCubic,
+                duration: const Duration(milliseconds: 120),
+                curve: Curves.easeOutQuad,
                 builder: (context, value, _) {
                   return Text(
                     value.round().toString(),
@@ -4606,8 +4612,8 @@ class _RangeSpeedGearMini extends StatelessWidget {
             children: [
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(end: vehicleSpeedKmh),
-                duration: const Duration(milliseconds: 520),
-                curve: Curves.easeOutCubic,
+                duration: const Duration(milliseconds: 120),
+                curve: Curves.easeOutQuad,
                 builder: (context, value, _) {
                   return Text(
                     value.round().toString(),
