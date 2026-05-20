@@ -7247,7 +7247,9 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
   Map<String, _PermissionStatus> _permissionStatuses =
       _cachedPermissionStatuses;
   bool _grantInProgress = false;
+  bool _permissionRefreshInFlight = false;
   Timer? _permissionRefreshTimer;
+  Timer? _deferredPermissionApplyTimer;
 
   @override
   void initState() {
@@ -7260,6 +7262,7 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
   @override
   void dispose() {
     _permissionRefreshTimer?.cancel();
+    _deferredPermissionApplyTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -7296,25 +7299,30 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
       }
 
       if (!mounted) return;
-      setState(() {
-        _permissionStatuses = cached;
-        _cachedPermissionStatuses = cached;
-      });
+      _cachedPermissionStatuses = cached;
+      if (!_permissionStatusesEqual(_permissionStatuses, cached)) {
+        _applyPermissionStatusesWhenIdle(cached);
+      }
     } catch (_) {
       // Keep in-memory cache when SharedPreferences is temporarily unavailable.
     }
   }
 
-  void _schedulePermissionRefresh() {
+  void _schedulePermissionRefresh({
+    Duration delay = const Duration(milliseconds: 800),
+  }) {
     _permissionRefreshTimer?.cancel();
     // BYD head units can stutter when Settings is scrolling and this column
     // refreshes permissions immediately after every frame. Debounce the native
     // permission probe so scrolling stays smooth, then refresh once after the
     // page has settled.
-    _permissionRefreshTimer = Timer(const Duration(milliseconds: 800), () {
-      if (mounted) {
-        unawaited(_refreshPermissionStatus());
+    _permissionRefreshTimer = Timer(delay, () {
+      if (!mounted) return;
+      if (Scrollable.recommendDeferredLoadingForContext(context)) {
+        _schedulePermissionRefresh(delay: const Duration(milliseconds: 700));
+        return;
       }
+      unawaited(_refreshPermissionStatus());
     });
   }
 
@@ -7399,13 +7407,34 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
 
     final changed = !_permissionStatusesEqual(_permissionStatuses, merged);
     _cachedPermissionStatuses = merged;
-    await _savePermissionStatusCache(merged);
+    unawaited(_savePermissionStatusCache(merged));
 
     if (!mounted || !changed) return;
-    setState(() => _permissionStatuses = merged);
+    _applyPermissionStatusesWhenIdle(merged);
+  }
+
+  void _applyPermissionStatusesWhenIdle(
+    Map<String, _PermissionStatus> statuses,
+  ) {
+    _deferredPermissionApplyTimer?.cancel();
+    if (_grantInProgress ||
+        !Scrollable.recommendDeferredLoadingForContext(context)) {
+      setState(() => _permissionStatuses = statuses);
+      return;
+    }
+
+    _deferredPermissionApplyTimer = Timer(
+      const Duration(milliseconds: 180),
+      () {
+        if (!mounted) return;
+        setState(() => _permissionStatuses = statuses);
+      },
+    );
   }
 
   Future<void> _refreshPermissionStatus() async {
+    if (_permissionRefreshInFlight) return;
+    _permissionRefreshInFlight = true;
     try {
       final data = await _permissionChannel.invokeMethod<Object?>('getStatus');
       await _applyPermissionStatusMap(data);
@@ -7421,6 +7450,8 @@ class _SettingsPermissionColumnState extends State<_SettingsPermissionColumn>
         return;
       }
       setState(() => _permissionStatuses = _cachedPermissionStatuses);
+    } finally {
+      _permissionRefreshInFlight = false;
     }
   }
 
