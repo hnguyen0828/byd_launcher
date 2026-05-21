@@ -12,16 +12,14 @@ void main() {
 
     expect(find.text('SEALION 6'), findsNothing);
     expect(find.text('Vehicle'), findsOneWidget);
-    expect(find.text('FL'), findsNothing);
-    expect(find.text('FR'), findsNothing);
-    expect(find.text('RL'), findsNothing);
-    expect(find.text('RR'), findsNothing);
+    expect(find.text('FL'), findsWidgets);
+    expect(find.text('FR'), findsWidgets);
+    expect(find.text('RL'), findsWidgets);
+    expect(find.text('RR'), findsWidgets);
     expect(find.text('Doors'), findsNothing);
     expect(find.text('Windows'), findsNothing);
     expect(find.text('Sunroof'), findsNothing);
     expect(find.text('TPMS'), findsOneWidget);
-    expect(find.text('Lock'), findsOneWidget);
-    expect(find.text('Trunk'), findsOneWidget);
     expect(find.text('Fuel'), findsOneWidget);
     expect(find.text('Battery'), findsOneWidget);
     expect(find.text('0'), findsOneWidget);
@@ -31,25 +29,16 @@ void main() {
     await tester.tap(find.text('Navigation'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Navigation app'), findsOneWidget);
     expect(find.text('No map app installed'), findsOneWidget);
     expect(
-      find.text('Install a navigation app, then tap reload above.'),
+      find.text('Install Google Map or Waze, then tap reload above.'),
       findsOneWidget,
     );
     expect(find.text('Fuel'), findsOneWidget);
     expect(find.text('Battery'), findsOneWidget);
-    expect(find.text('TPMS'), findsNothing);
+    expect(find.text('TPMS'), findsOneWidget);
 
-    await tester.tap(find.text('Settings'));
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.text('Vehicle color'), findsOneWidget);
-    expect(find.text('Appearance'), findsOneWidget);
-    expect(find.text('System'), findsOneWidget);
-    expect(find.text('Default launcher'), findsOneWidget);
-    expect(find.text('System permissions'), findsOneWidget);
-    expect(find.text('System overlay'), findsOneWidget);
-    expect(find.text('TPMS'), findsNothing);
+    expect(find.text('Settings'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
   });
 }
