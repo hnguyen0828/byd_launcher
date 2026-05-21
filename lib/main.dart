@@ -2741,6 +2741,7 @@ class _PortraitBottomDashboard extends StatelessWidget {
                     onEditTap: onFavoriteAppsEdit,
                     onRemove: onFavoriteAppRemove,
                     onReorder: onFavoriteAppsReorder,
+                    compactVisual: false,
                   ),
                 ),
               ],
@@ -2818,6 +2819,7 @@ class _LeftDashboard extends StatelessWidget {
                     onEditTap: onFavoriteAppsEdit,
                     onRemove: onFavoriteAppRemove,
                     onReorder: onFavoriteAppsReorder,
+                    compactVisual: false,
                   ),
                 ),
               ],
@@ -3320,9 +3322,7 @@ class _FavoriteAppsDialogState extends State<_FavoriteAppsDialog> {
 }
 
 class _StatusBar extends StatefulWidget {
-  const _StatusBar({this.outsideTemperatureC});
-
-  final int? outsideTemperatureC;
+  const _StatusBar();
 
   @override
   State<_StatusBar> createState() => _StatusBarState();
@@ -3403,9 +3403,7 @@ class _StatusBarState extends State<_StatusBar> {
               ),
               const SizedBox(width: 6),
               Text(
-                widget.outsideTemperatureC == null
-                    ? '--°C'
-                    : '${widget.outsideTemperatureC}°C',
+                '--°C',
                 style: _sharp(
                   context,
                   Theme.of(context).textTheme.labelMedium,
@@ -3426,98 +3424,6 @@ String _formatClockTime(DateTime time) {
   final hour = time.hour.toString().padLeft(2, '0');
   final minute = time.minute.toString().padLeft(2, '0');
   return '$hour:$minute';
-}
-
-class _SpeedCluster extends StatelessWidget {
-  const _SpeedCluster({
-    required this.selectedGear,
-    required this.vehicleSpeedKmh,
-    required this.onGearChanged,
-  });
-
-  final _VehicleGear selectedGear;
-  final double vehicleSpeedKmh;
-  final ValueChanged<_VehicleGear> onGearChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final light = _isLight(context);
-
-    return Column(
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: vehicleSpeedKmh),
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOutQuad,
-          builder: (context, value, _) {
-            return Text(
-              value.round().toString(),
-              style: _sharp(
-                context,
-                Theme.of(context).textTheme.displayLarge,
-                color: _textPrimary,
-                weight: FontWeight.w300,
-                size: 88,
-                height: 0.86,
-                letterSpacing: -2.6,
-              ),
-            );
-          },
-        ),
-        Text(
-          'km/h',
-          style: _sharp(
-            context,
-            Theme.of(context).textTheme.titleMedium,
-            color: _textSecondary,
-            weight: FontWeight.w500,
-            size: 14,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            color: light
-                ? Colors.white.withValues(alpha: 0.58)
-                : Colors.black.withValues(alpha: 0.20),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: light
-                  ? const Color(0xFFD4DEE9).withValues(alpha: 0.84)
-                  : Colors.white.withValues(alpha: 0.055),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _GearText(
-                'P',
-                active: selectedGear == _VehicleGear.p,
-                onTap: () => onGearChanged(_VehicleGear.p),
-              ),
-              _GearText(
-                'R',
-                active: selectedGear == _VehicleGear.r,
-                onTap: () => onGearChanged(_VehicleGear.r),
-              ),
-              _GearText(
-                'N',
-                active: selectedGear == _VehicleGear.n,
-                onTap: () => onGearChanged(_VehicleGear.n),
-              ),
-              _GearText(
-                'D',
-                active: selectedGear == _VehicleGear.d,
-                onTap: () => onGearChanged(_VehicleGear.d),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _GearText extends StatelessWidget {
@@ -4059,7 +3965,9 @@ class _CompactMediaWidgetState extends State<_CompactMediaWidget>
 
   void _handleNativeState(dynamic value) {
     if (!mounted || value is! Map) return;
-    setState(() => _state = _MediaPlaybackState.fromMap(value));
+    final nextState = _MediaPlaybackState.fromMap(value);
+    if (nextState.hasSamePayload(_state)) return;
+    setState(() => _state = nextState);
   }
 
   void _invoke(String method) {
@@ -4303,9 +4211,9 @@ class _MediaWidgetState extends State<_MediaWidget>
 
   void _handleNativeState(dynamic value) {
     if (!mounted || value is! Map) return;
-    setState(() {
-      _state = _MediaPlaybackState.fromMap(value);
-    });
+    final nextState = _MediaPlaybackState.fromMap(value);
+    if (nextState.hasSamePayload(_state)) return;
+    setState(() => _state = nextState);
   }
 
   void _invoke(String method) {
@@ -4659,6 +4567,18 @@ class _MediaPlaybackState {
     final age = DateTime.now().millisecondsSinceEpoch - receivedAtMs;
     return positionMs + age.clamp(0, 3600000);
   }
+
+  bool hasSamePayload(_MediaPlaybackState other) {
+    return hasPermission == other.hasPermission &&
+        hasController == other.hasController &&
+        title == other.title &&
+        artist == other.artist &&
+        album == other.album &&
+        isPlaying == other.isPlaying &&
+        durationMs == other.durationMs &&
+        positionMs == other.positionMs &&
+        listEquals(albumArt, other.albumArt);
+  }
 }
 
 String _stringFromMap(Map<dynamic, dynamic> map, String key) {
@@ -4866,7 +4786,7 @@ class _EnergyStrip extends StatelessWidget {
                         child: _StatusPercentBar(
                           icon: Icons.battery_5_bar,
                           label: _t(context, 'battery'),
-                          value: battery == null ? null : battery.round(),
+                          value: battery?.round(),
                           accent: _accentSoftBlue,
                           compact: true,
                         ),
@@ -4971,22 +4891,14 @@ class _StatusMetricRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
-    this.progress,
-    this.accent = _accentSoftBlue,
   });
 
   final IconData icon;
   final String label;
   final String value;
-  final double? progress;
-  final Color accent;
 
   @override
   Widget build(BuildContext context) {
-    final clampedProgress = progress == null
-        ? null
-        : (progress!.clamp(0.0, 1.0) as num).toDouble();
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -5024,20 +4936,6 @@ class _StatusMetricRow extends StatelessWidget {
             ),
           ],
         ),
-        if (clampedProgress != null) ...[
-          const SizedBox(height: 5),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: clampedProgress,
-              minHeight: 2.2,
-              color: accent.withValues(alpha: _isLight(context) ? 0.82 : 0.88),
-              backgroundColor: _isLight(context)
-                  ? const Color(0xFFD4E0EB).withValues(alpha: 0.86)
-                  : Colors.white.withValues(alpha: 0.075),
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -5114,49 +5012,6 @@ class _StatusPercentBar extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _VehicleMetricTile extends StatelessWidget {
-  const _VehicleMetricTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.progress,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-  final double progress;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(10, compact ? 8 : 10, 10, compact ? 8 : 9),
-      decoration: BoxDecoration(
-        color: _isLight(context)
-            ? Colors.white.withValues(alpha: 0.20)
-            : Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: _isLight(context)
-              ? const Color(0xFFD8E4F0).withValues(alpha: 0.66)
-              : Colors.white.withValues(alpha: 0.045),
-        ),
-      ),
-      child: _EnergyLevel(
-        icon: icon,
-        label: label,
-        value: value,
-        color: color,
-        progress: (progress.clamp(0.0, 1.0) as num).toDouble(),
-      ),
     );
   }
 }
@@ -9224,49 +9079,6 @@ class _LandscapeSidebarPositionPicker extends StatelessWidget {
   }
 }
 
-class _LayoutModePicker extends StatelessWidget {
-  const _LayoutModePicker({
-    required this.selectedMode,
-    required this.onChanged,
-  });
-
-  final _LauncherLayoutMode selectedMode;
-  final ValueChanged<_LauncherLayoutMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SegmentedButton<_LauncherLayoutMode>(
-      segments: [
-        ButtonSegment<_LauncherLayoutMode>(
-          value: _LauncherLayoutMode.landscape,
-          icon: Icon(Icons.stay_current_landscape_outlined, size: 17),
-          label: Text(_t(context, 'landscapeShort')),
-        ),
-        ButtonSegment<_LauncherLayoutMode>(
-          value: _LauncherLayoutMode.portrait,
-          icon: Icon(Icons.stay_current_portrait_outlined, size: 17),
-          label: Text(_t(context, 'portraitShort')),
-        ),
-      ],
-      selected: {selectedMode},
-      showSelectedIcon: false,
-      onSelectionChanged: (selection) => onChanged(selection.first),
-      style: ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        textStyle: WidgetStatePropertyAll(
-          _sharp(
-            context,
-            Theme.of(context).textTheme.labelSmall,
-            color: _textPrimary,
-            weight: FontWeight.w700,
-            size: 11,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _LanguagePicker extends StatelessWidget {
   const _LanguagePicker({
     required this.selectedLanguage,
@@ -9301,131 +9113,6 @@ class _LanguagePicker extends StatelessWidget {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _VehicleModelPicker extends StatelessWidget {
-  const _VehicleModelPicker({
-    required this.selectedAsset,
-    required this.onChanged,
-  });
-
-  final String selectedAsset;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String>(
-        value: _parseVehicleModelAsset(selectedAsset),
-        borderRadius: BorderRadius.circular(16),
-        onChanged: (asset) {
-          if (asset != null) onChanged(asset);
-        },
-        items: [
-          for (final asset in _vehicleModelAssets)
-            DropdownMenuItem<String>(
-              value: asset,
-              child: Text(
-                _vehicleModelLabel(asset),
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.labelMedium,
-                  color: _textPrimary,
-                  weight: FontWeight.w700,
-                  size: 12,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PermissionRow extends StatelessWidget {
-  const _PermissionRow({
-    required this.icon,
-    required this.title,
-    required this.status,
-    this.highlighted = false,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String status;
-  final bool highlighted;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final light = _isLight(context);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-        decoration: BoxDecoration(
-          color: highlighted
-              ? const Color(0xFF78B7FF).withValues(alpha: 0.09)
-              : light
-              ? Colors.white.withValues(alpha: 0.58)
-              : Colors.black.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: highlighted
-                ? _accentSoftBlue.withValues(alpha: 0.22)
-                : light
-                ? const Color(0xFFD4DEE9).withValues(alpha: 0.82)
-                : Colors.white.withValues(alpha: 0.045),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: highlighted
-                  ? _accentSoftBlue
-                  : _tone(context, _textSecondary),
-              size: 21,
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(
-                title,
-                style: _sharp(
-                  context,
-                  Theme.of(context).textTheme.bodyMedium,
-                  color: _textPrimary,
-                  weight: FontWeight.w600,
-                  size: 13.5,
-                ),
-              ),
-            ),
-            Text(
-              status,
-              style: _sharp(
-                context,
-                Theme.of(context).textTheme.labelSmall,
-                color: highlighted ? _accentSoftBlue : _textMuted,
-                weight: FontWeight.w700,
-                size: 11.5,
-              ),
-            ),
-            if (onTap != null) ...[
-              const SizedBox(width: 5),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: _tone(context, _textMuted),
-                size: 18,
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }
@@ -11481,6 +11168,8 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   Timer? _textureCreateDebounceTimer;
   Timer? _visibleCallbackTimer;
   bool _visibleReportedForActive = false;
+  bool _nativeUpdateInFlight = false;
+  bool _nativeUpdatePending = false;
 
   @override
   void initState() {
@@ -11726,6 +11415,11 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     if (textureId == null) {
       return;
     }
+    if (_nativeUpdateInFlight) {
+      _nativeUpdatePending = true;
+      return;
+    }
+    _nativeUpdateInFlight = true;
     try {
       await _channel.invokeMethod<void>('update', {
         'textureId': textureId,
@@ -11735,6 +11429,14 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
       });
     } on Object {
       // Renderer updates are best-effort; Android can drop the texture on lifecycle changes.
+    } finally {
+      _nativeUpdateInFlight = false;
+      if (_nativeUpdatePending && mounted && _textureId != null) {
+        _nativeUpdatePending = false;
+        unawaited(_updateNativeTexture());
+      } else {
+        _nativeUpdatePending = false;
+      }
     }
   }
 }
@@ -12679,109 +12381,6 @@ class _VehicleModelPlaceholder extends StatelessWidget {
   }
 }
 
-class _AmbientBottomDock extends StatelessWidget {
-  const _AmbientBottomDock({
-    required this.activeTab,
-    required this.showWallpaperTab,
-    required this.compactMode,
-    required this.favoriteApps,
-    required this.onFavoriteAppTap,
-    required this.onFavoriteAppsEdit,
-    required this.onFavoriteAppRemove,
-    required this.onFavoriteAppsReorder,
-    required this.onTabChanged,
-  });
-
-  final _LauncherTab activeTab;
-  final bool showWallpaperTab;
-  final bool compactMode;
-  final List<_LauncherApp> favoriteApps;
-  final ValueChanged<_LauncherApp> onFavoriteAppTap;
-  final VoidCallback onFavoriteAppsEdit;
-  final ValueChanged<_LauncherApp> onFavoriteAppRemove;
-  final ValueChanged<List<_LauncherApp>> onFavoriteAppsReorder;
-  final ValueChanged<_LauncherTab> onTabChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final light = _isLight(context);
-
-    return _AmbientUiScope(
-      enabled: true,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: compactMode ? 12 : 22),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < 760;
-            final tabs = _BottomTabs(
-              activeTab: activeTab,
-              showWallpaperTab: showWallpaperTab,
-              ambientMode: true,
-              compactMode: compactMode,
-              onTabChanged: onTabChanged,
-            );
-            final favorites = ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                child: Container(
-                  height: 66,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: light
-                        ? Colors.white.withValues(alpha: 0.22)
-                        : Colors.black.withValues(alpha: 0.055),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: light
-                          ? Colors.white.withValues(alpha: 0.30)
-                          : Colors.white.withValues(alpha: 0.14),
-                    ),
-                  ),
-                  child: _FavoriteAppsStrip(
-                    apps: favoriteApps,
-                    onAppTap: onFavoriteAppTap,
-                    onEditTap: onFavoriteAppsEdit,
-                    onRemove: onFavoriteAppRemove,
-                    onReorder: onFavoriteAppsReorder,
-                    compactVisual: true,
-                  ),
-                ),
-              ),
-            );
-
-            if (narrow) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(width: constraints.maxWidth, child: favorites),
-                  const SizedBox(height: 10),
-                  Center(child: tabs),
-                ],
-              );
-            }
-
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 430),
-                  child: favorites,
-                ),
-                const SizedBox(width: 16),
-                tabs,
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
 class _BottomTabs extends StatelessWidget {
   const _BottomTabs({
     required this.activeTab,
@@ -13173,12 +12772,10 @@ class _GlassCard extends StatelessWidget {
   const _GlassCard({
     required this.child,
     this.padding = const EdgeInsets.all(14),
-    this.showBorder = true,
   });
 
   final Widget child;
   final EdgeInsets padding;
-  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -13227,16 +12824,14 @@ class _GlassCard extends StatelessWidget {
               ],
       ),
       borderRadius: BorderRadius.circular(22),
-      border: showBorder
-          ? Border.all(
-              color: light
-                  ? const Color(
-                      0xFFE7EEF6,
-                    ).withValues(alpha: ambientMode ? 0.42 : 0.96)
-                  : Colors.white.withValues(alpha: ambientMode ? 0.045 : 0.065),
-              width: light ? (ambientMode ? 1.0 : 1.1) : 1,
-            )
-          : null,
+      border: Border.all(
+        color: light
+            ? const Color(
+                0xFFE7EEF6,
+              ).withValues(alpha: ambientMode ? 0.42 : 0.96)
+            : Colors.white.withValues(alpha: ambientMode ? 0.045 : 0.065),
+        width: light ? (ambientMode ? 1.0 : 1.1) : 1,
+      ),
       boxShadow: settingsPerformanceMode
           ? const []
           : [
