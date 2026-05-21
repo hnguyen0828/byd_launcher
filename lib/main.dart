@@ -9447,13 +9447,13 @@ class _BrakeStatusPainter extends CustomPainter {
     // Rear brake glow: intentionally placed *behind and below* the rear bumper
     // so the native 3D vehicle does not cover it and it reads as light spill
     // around the two rear tyres.
-    final rearCenter = Offset(size.width * 0.500, size.height * 0.745);
-    final rearHalf = size.width * 0.154;
+    final rearCenter = Offset(size.width * 0.500, size.height * 0.732);
+    final rearHalf = size.width * 0.150;
     final red = light ? const Color(0xFFFF3B32) : const Color(0xFFFF5148);
     final glowT = 0.90 + 0.10 * math.sin(pulse * math.pi);
-    final glowAlpha = (0.16 + 0.20 * intensity) * glowT;
-    final leftRearWheel = rearCenter.translate(-rearHalf * 0.76, 0);
-    final rightRearWheel = rearCenter.translate(rearHalf * 0.76, 0);
+    final glowAlpha = (0.145 + 0.18 * intensity) * glowT;
+    final leftRearWheel = rearCenter.translate(-rearHalf * 0.72, 0);
+    final rightRearWheel = rearCenter.translate(rearHalf * 0.72, 0);
 
     _drawTailLamp(canvas, leftRearWheel, rearHalf, red, glowAlpha);
     _drawTailLamp(canvas, rightRearWheel, rearHalf, red, glowAlpha);
@@ -9487,8 +9487,8 @@ class _BrakeStatusPainter extends CustomPainter {
     final spillPaint = Paint()
       ..shader = RadialGradient(
         colors: [
-          red.withValues(alpha: 0.24 + 0.18 * intensity),
-          red.withValues(alpha: 0.08 + 0.08 * intensity),
+          red.withValues(alpha: 0.20 + 0.15 * intensity),
+          red.withValues(alpha: 0.065 + 0.065 * intensity),
           red.withValues(alpha: 0),
         ],
         stops: const [0.0, 0.48, 1.0],
@@ -9529,15 +9529,15 @@ class _BrakeStatusPainter extends CustomPainter {
     double glowT,
   ) {
     final rect = Rect.fromCenter(
-      center: Offset(rearCenter.dx, rearCenter.dy + size.height * 0.046),
-      width: rearHalf * (2.25 + intensity * 0.42),
-      height: size.height * (0.046 + intensity * 0.020),
+      center: Offset(rearCenter.dx, rearCenter.dy + size.height * 0.040),
+      width: rearHalf * (2.05 + intensity * 0.36),
+      height: size.height * (0.040 + intensity * 0.018),
     );
     final paint = Paint()
       ..shader = RadialGradient(
         colors: [
-          red.withValues(alpha: (light ? 0.045 : 0.065) * intensity * glowT),
-          red.withValues(alpha: (light ? 0.018 : 0.032) * intensity),
+          red.withValues(alpha: (light ? 0.036 : 0.052) * intensity * glowT),
+          red.withValues(alpha: (light ? 0.014 : 0.026) * intensity),
           red.withValues(alpha: 0),
         ],
         stops: const [0.0, 0.44, 1.0],
