@@ -11312,11 +11312,13 @@ class _DrivingRoadPainter extends CustomPainter {
           );
     canvas.drawRect(Offset.zero & size, glowPaint);
 
-    // Road perspective is tuned to sit under the rear-driving camera view.
-    // Wider far end + lower vanishing point avoids the old "runway triangle" feel
-    // and makes the vehicle look planted on the surface.
+    // Keep the road detached from the skyline: the perspective still resolves
+    // toward the horizon, but visible edges begin after a short atmospheric gap.
     final vanish = Offset(roadCenterX, size.height * 0.27);
-    final near = Offset(roadCenterX, size.height * 1.18);
+    final near = Offset(roadCenterX, size.height * 1.24);
+    final roadFarT = light ? 0.180 : 0.160;
+    final edgeStartT = light ? 0.260 : 0.230;
+    final laneStartT = light ? 0.275 : 0.245;
     const roadPerp = Offset(1.0, 0.0);
 
     Offset centerAt(double t) {
@@ -11327,8 +11329,10 @@ class _DrivingRoadPainter extends CustomPainter {
       );
     }
 
-    double halfWidthAt(double t) =>
-        lerpDouble(size.width * 0.13, size.width * 0.40, t)!;
+    double halfWidthAt(double t) {
+      final depth = Curves.easeInCubic.transform(t.clamp(0.0, 1.0));
+      return lerpDouble(size.width * 0.018, size.width * 0.482, depth)!;
+    }
 
     Offset roadPoint(double t, double side) {
       final center = centerAt(t);
@@ -11341,12 +11345,12 @@ class _DrivingRoadPainter extends CustomPainter {
 
     final roadPath = Path()
       ..moveTo(roadPoint(1, -1).dx, roadPoint(1, -1).dy)
-      ..lineTo(roadPoint(0, -1).dx, roadPoint(0, -1).dy)
+      ..lineTo(roadPoint(roadFarT, -1).dx, roadPoint(roadFarT, -1).dy)
       ..quadraticBezierTo(
         vanish.dx,
-        vanish.dy - size.height * 0.012,
-        roadPoint(0, 1).dx,
-        roadPoint(0, 1).dy,
+        vanish.dy + size.height * 0.006,
+        roadPoint(roadFarT, 1).dx,
+        roadPoint(roadFarT, 1).dy,
       )
       ..lineTo(roadPoint(1, 1).dx, roadPoint(1, 1).dy)
       ..close();
@@ -11357,15 +11361,45 @@ class _DrivingRoadPainter extends CustomPainter {
         end: Alignment.bottomCenter,
         colors: light
             ? [
-                const Color(0xFFCBD8E5).withValues(alpha: 0.12),
-                const Color(0xFF8FA2B7).withValues(alpha: 0.23),
+                const Color(0xFFCBD8E5).withValues(alpha: 0.055),
+                const Color(0xFF8FA2B7).withValues(alpha: 0.190),
               ]
             : [
-                const Color(0xFF101C28).withValues(alpha: 0.18),
+                const Color(0xFF101C28).withValues(alpha: 0.105),
                 const Color(0xFF02070D).withValues(alpha: 0.38),
               ],
       ).createShader(Offset.zero & size);
     canvas.drawPath(roadPath, roadPaint);
+
+    final roadCenterWashPath = Path()
+      ..moveTo(roadPoint(1, -0.56).dx, roadPoint(1, -0.56).dy)
+      ..lineTo(roadPoint(roadFarT, -0.22).dx, roadPoint(roadFarT, -0.22).dy)
+      ..quadraticBezierTo(
+        vanish.dx,
+        vanish.dy + size.height * 0.012,
+        roadPoint(roadFarT, 0.22).dx,
+        roadPoint(roadFarT, 0.22).dy,
+      )
+      ..lineTo(roadPoint(1, 0.56).dx, roadPoint(1, 0.56).dy)
+      ..close();
+    final roadCenterWashPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: light
+            ? [
+                Colors.white.withValues(alpha: 0.00),
+                Colors.white.withValues(alpha: 0.055),
+                Colors.white.withValues(alpha: 0.020),
+              ]
+            : [
+                _accentSoftBlue.withValues(alpha: 0.00),
+                _accentSoftBlue.withValues(alpha: 0.035),
+                _accentSoftBlue.withValues(alpha: 0.012),
+              ],
+        stops: const [0.0, 0.58, 1.0],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(roadCenterWashPath, roadCenterWashPaint);
 
     final vehicleContactCenter = Offset(vehicleCenterX, contactY);
     final softShadowPaint = Paint()
@@ -11415,12 +11449,27 @@ class _DrivingRoadPainter extends CustomPainter {
       );
 
     final edgePaint = Paint()
-      ..color = _accentSoftBlue.withValues(alpha: light ? 0.05 : 0.065)
-      ..strokeWidth = 0.8
+      ..strokeWidth = 0.75
       ..style = PaintingStyle.stroke;
-    canvas
-      ..drawLine(roadPoint(0, -1), roadPoint(1, -1), edgePaint)
-      ..drawLine(roadPoint(0, 1), roadPoint(1, 1), edgePaint);
+
+    void drawFadedEdge(double side) {
+      const segmentCount = 22;
+      var previous = roadPoint(edgeStartT, side);
+      for (var i = 1; i <= segmentCount; i++) {
+        final t =
+            edgeStartT + (1 - edgeStartT) * (i / segmentCount).clamp(0.0, 1.0);
+        final local = ((t - edgeStartT) / (1 - edgeStartT)).clamp(0.0, 1.0);
+        final alpha =
+            Curves.easeInCubic.transform(local) * (light ? 0.029 : 0.041);
+        final current = roadPoint(t, side);
+        edgePaint.color = _accentSoftBlue.withValues(alpha: alpha);
+        canvas.drawLine(previous, current, edgePaint);
+        previous = current;
+      }
+    }
+
+    drawFadedEdge(-1);
+    drawFadedEdge(1);
 
     canvas.save();
     canvas.clipPath(roadPath);
@@ -11437,11 +11486,15 @@ class _DrivingRoadPainter extends CustomPainter {
       final center = centerAt(t);
       final segment = lerpDouble(7, 48, t)!;
       final distanceFade = Curves.easeOut.transform(t).clamp(0.0, 1.0);
+      final horizonFade = ((t - laneStartT) / 0.22).clamp(0.0, 1.0);
       final nearFade = (1.0 - ((t - 0.80).clamp(0.0, 0.20) / 0.20)).clamp(
         0.0,
         1.0,
       );
-      final alpha = distanceFade * nearFade;
+      final alpha = distanceFade * horizonFade * nearFade;
+      if (alpha <= 0.01) {
+        continue;
+      }
       lanePaint.color = (light ? const Color(0xFF31516F) : Colors.white)
           .withValues(alpha: (light ? 0.30 : 0.22) * alpha);
       canvas.drawLine(
@@ -11452,11 +11505,17 @@ class _DrivingRoadPainter extends CustomPainter {
     }
 
     final speedPaint = Paint()
-      ..color = _accentSoftBlue.withValues(alpha: light ? 0.16 : 0.13)
       ..strokeWidth = 1.0
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 8; i++) {
       final t = ((i / 8) + motionProgress) % 1.0;
+      final horizonFade = ((t - edgeStartT) / 0.22).clamp(0.0, 1.0);
+      if (horizonFade <= 0.01) {
+        continue;
+      }
+      speedPaint.color = _accentSoftBlue.withValues(
+        alpha: (light ? 0.16 : 0.13) * horizonFade,
+      );
       final left = roadPoint(t, -1);
       final right = roadPoint(t, 1);
       canvas.drawLine(left, left + const Offset(-22, -34), speedPaint);
