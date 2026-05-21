@@ -1299,6 +1299,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   @override
   Widget build(BuildContext context) {
     final light = Theme.of(context).brightness == Brightness.light;
+    final topSystemInset = MediaQuery.viewPaddingOf(context).top;
+    final contentTopInset = topSystemInset > 0 ? topSystemInset + 1.0 : 0.0;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -1332,6 +1334,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
           child: Stack(
             children: [
               Positioned.fill(
+                top: contentTopInset,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final compact = constraints.maxWidth < 1100;
