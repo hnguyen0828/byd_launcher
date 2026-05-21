@@ -1303,8 +1303,15 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       resizeToAvoidBottomInset: false,
-      body: SafeArea(
+      body: MediaQuery.removePadding(
+        context: context,
+        removeTop: true,
+        removeBottom: true,
+        removeLeft: true,
+        removeRight: true,
         child: Container(
+          width: double.infinity,
+          height: double.infinity,
           decoration: BoxDecoration(
             gradient: RadialGradient(
               center: const Alignment(0.40, -0.25),
