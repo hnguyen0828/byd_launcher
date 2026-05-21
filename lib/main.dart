@@ -1300,7 +1300,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   Widget build(BuildContext context) {
     final light = Theme.of(context).brightness == Brightness.light;
     final topSystemInset = MediaQuery.viewPaddingOf(context).top;
-    final contentTopInset = topSystemInset > 0 ? topSystemInset + 1.0 : 0.0;
+    final contentTopInset = topSystemInset;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -9752,8 +9752,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (widget.roadMotionActive && hotspot == _VehicleHotspot.trunk) {
       return;
     }
-    final clampedLevel = level.clamp(0.0, 1.0);
     final windowHotspot = _windowAreaForHotspot(hotspot) != null;
+    final clampedLevel = windowHotspot
+        ? _snapWindowLevel(level)
+        : level.clamp(0.0, 1.0);
     setState(() {
       if (!windowHotspot) {
         _hotspotLevels[hotspot] = clampedLevel;
@@ -9765,7 +9767,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
       _selectedHotspot = hotspot;
       _hotspotsVisible = true;
     });
-    if (clampedLevel <= 0.02 || clampedLevel >= 0.98) {
+    if (clampedLevel <= 0.02 ||
+        clampedLevel >= 0.98 ||
+        (windowHotspot && (clampedLevel - 0.5).abs() < 0.02)) {
       unawaited(_sendBodyworkHotspotCommand(hotspot, clampedLevel));
       if (windowHotspot) {
         _scheduleWindowCommandSettle(hotspot);
@@ -9784,6 +9788,13 @@ class _VehicleHeroState extends State<_VehicleHero> {
     _restartHotspotAutoHideTimer();
   }
 
+  double _snapWindowLevel(double level) {
+    final clamped = level.clamp(0.0, 1.0);
+    if (clamped < 0.25) return 0;
+    if (clamped > 0.75) return 1;
+    return 0.5;
+  }
+
   void _scheduleWindowCommandSettle(_VehicleHotspot hotspot) {
     _windowCommandSettleTimer?.cancel();
     _windowCommandSettleTimer = Timer(const Duration(seconds: 5), () {
@@ -9800,7 +9811,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
     _VehicleHotspot hotspot,
     double level,
   ) async {
-    final action = level >= 0.5 ? 'open' : 'close';
+    final windowHotspot = _windowAreaForHotspot(hotspot) != null;
+    final targetLevel = windowHotspot ? _snapWindowLevel(level) : level;
+    final action = targetLevel >= 0.5 ? 'open' : 'close';
     String method;
     Map<String, Object?> arguments;
 
@@ -9810,28 +9823,28 @@ class _VehicleHeroState extends State<_VehicleHero> {
         arguments = {
           'area': _windowAreaForHotspot(hotspot),
           'action': action,
-          'percent': (level * 100).round(),
+          'percent': (targetLevel * 100).round(),
         };
       case _VehicleHotspot.frontRightWindow:
         method = 'controlWindow';
         arguments = {
           'area': _windowAreaForHotspot(hotspot),
           'action': action,
-          'percent': (level * 100).round(),
+          'percent': (targetLevel * 100).round(),
         };
       case _VehicleHotspot.rearLeftWindow:
         method = 'controlWindow';
         arguments = {
           'area': _windowAreaForHotspot(hotspot),
           'action': action,
-          'percent': (level * 100).round(),
+          'percent': (targetLevel * 100).round(),
         };
       case _VehicleHotspot.rearRightWindow:
         method = 'controlWindow';
         arguments = {
           'area': _windowAreaForHotspot(hotspot),
           'action': action,
-          'percent': (level * 100).round(),
+          'percent': (targetLevel * 100).round(),
         };
       case _VehicleHotspot.sunroof:
         method = 'controlSunroof';
@@ -10630,6 +10643,15 @@ class _HotspotControlCard extends StatelessWidget {
                         onTap: () => onSetLevel(0),
                       ),
                     ),
+                    if (_isWindowHotspot(spec.hotspot)) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _HotspotActionButton(
+                          label: '1/2',
+                          onTap: () => onSetLevel(0.5),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     Expanded(
                       child: _HotspotActionButton(
@@ -10647,6 +10669,16 @@ class _HotspotControlCard extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _isWindowHotspot(_VehicleHotspot hotspot) {
+  return switch (hotspot) {
+    _VehicleHotspot.frontLeftWindow ||
+    _VehicleHotspot.frontRightWindow ||
+    _VehicleHotspot.rearLeftWindow ||
+    _VehicleHotspot.rearRightWindow => true,
+    _VehicleHotspot.sunroof || _VehicleHotspot.trunk => false,
+  };
 }
 
 class _HotspotActionButton extends StatelessWidget {

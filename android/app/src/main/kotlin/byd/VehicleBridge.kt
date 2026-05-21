@@ -444,12 +444,16 @@ class VehicleBridge {
             val device = bodyworkDevice ?: return false
             var success = false
 
-            val methodCode = invokeBodyworkSingleIntMethod(device, "setSunshadeState", percent)
-            FileLogger.log(
-                appContext,
-                "BODYWORK CONTROL sunshade method setSunshadeState percent=$percent -> ${bodyworkCodeLabel(methodCode)}"
-            )
-            success = methodCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            for (value in listOf(state, percent).distinct()) {
+                val methodCode = invokeBodyworkSingleIntMethod(device, "setSunshadeState", value)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL sunshade method setSunshadeState value=$value state=$state percent=$percent -> ${bodyworkCodeLabel(methodCode)}"
+                )
+                success = methodCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            }
+
+            success = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_SUNSHADE_PANEL, state, percent) || success
 
             val featureIds = listOfNotNull(
                 bodyworkFeatureId("BODYWORK_SUNSHADE_PANEL_PERCENT_SET"),
@@ -484,6 +488,30 @@ class VehicleBridge {
                 else -> if (state == BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN) 1 else 2
             }
             var success = false
+            val device = bodyworkDevice
+
+            if (device != null) {
+                val doorCode = invokeBodyworkPublicIntMethod(device, "setDoorState", BODYWORK_LUGGAGE_DOOR, state)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL trunk method setDoorState door=$BODYWORK_LUGGAGE_DOOR state=$state -> ${bodyworkCodeLabel(doorCode)}"
+                )
+                success = doorCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+                val commandDoorCode = invokeBodyworkPublicIntMethod(
+                    device,
+                    "setDoorState",
+                    BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR,
+                    state,
+                )
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL trunk method setDoorState command=${BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR} state=$state -> ${bodyworkCodeLabel(commandDoorCode)}"
+                )
+                success = commandDoorCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+                success = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR, state) || success
+            }
 
             val settingCode = invokeSettingSingleIntMethod("voiceCtlBackDoor", cmd)
             FileLogger.log(
@@ -499,7 +527,6 @@ class VehicleBridge {
                 return success
             }
 
-            val device = bodyworkDevice
             val values = listOf(cmd, state).distinct()
             for (value in values) {
                 val deviceCode = if (device != null) {
