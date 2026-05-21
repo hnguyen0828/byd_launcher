@@ -20,6 +20,9 @@ const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
 const String _lightEffectEnabledPreferenceKey = 'launcher.lightEffectEnabled';
 const String _debugModePreferenceKey = 'launcher.debugMode';
+const String _appContactEmail = 'hnguyen0828@gmail.com';
+const String _appDeveloperName = 'leonng2023';
+const String _appVersionLabel = '1.0.3+5';
 const String _layoutModePreferenceKey = 'launcher.layoutMode';
 const String _landscapeSidebarPositionPreferenceKey =
     'launcher.landscapeSidebarPosition';
@@ -814,6 +817,11 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'lightEffectSubtitle': 'Show the animated beam overlay on the vehicle.',
     'debugMode': 'Debug mode',
     'debugModeSubtitle': 'Enable demo gear and light controls.',
+    'aboutApp': 'About',
+    'aboutAppSubtitle': 'App information and maintainer details.',
+    'contactEmail': 'Email',
+    'developedBy': 'Developed by',
+    'version': 'Version',
     'ambientSubtitle': 'Use images from the app Ambient folder.',
     'showAmbientButton': 'Show Ambient button',
     'showAmbientButtonSubtitle':
@@ -888,6 +896,11 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'lightEffectSubtitle': 'Hiển thị animation luồng sáng trên xe.',
     'debugMode': 'Debug mode',
     'debugModeSubtitle': 'Bật điều khiển demo số và đèn.',
+    'aboutApp': 'Thông tin',
+    'aboutAppSubtitle': 'Thông tin app và người phát triển.',
+    'contactEmail': 'Email',
+    'developedBy': 'Developed by',
+    'version': 'Version',
     'ambientSubtitle': 'Dùng ảnh từ thư mục Ambient của app.',
     'showAmbientButton': 'Hiện nút Ambient',
     'showAmbientButtonSubtitle': 'Hiện hoặc ẩn tab Ambient ở dock dưới.',
@@ -1181,7 +1194,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   int _wallpaperIndex = 0;
   Timer? _wallpaperTimer;
   Timer? _transitionLoadingTimer;
+  Timer? _vehicleTabLightEffectTimer;
   bool _transitionLoading = false;
+  bool _vehicleTabLightEffectDeferred = false;
   double _vehicleSpeedKmh = 0;
   _DemoLightMode _demoLightMode = _DemoLightMode.off;
   bool _lightEffectEnabled = true;
@@ -1261,6 +1276,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _vehicleSnapshotTimer?.cancel();
     _wallpaperTimer?.cancel();
     _transitionLoadingTimer?.cancel();
+    _vehicleTabLightEffectTimer?.cancel();
     _vehicleSnapshotSubscription?.cancel();
     _cancelVehicleStartupRefreshes();
     super.dispose();
@@ -1374,6 +1390,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       demoLightMode: _demoLightMode,
                       debugModeEnabled: _debugModeEnabled,
                       onDemoLightModeChanged: (mode) => _setDemoLightMode(mode),
+                      deferLightEffectOnVehicleEntry:
+                          _vehicleTabLightEffectDeferred,
                       effectiveGear: _effectiveGear,
                       vehicleSnapshot: _vehicleSnapshot,
                       onGearChanged: _setGear,
@@ -1490,6 +1508,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   void _handleTabChanged(_LauncherTab tab) {
     if (tab == _activeTab) return;
 
+    final enteringVehicleTab = tab == _LauncherTab.status;
     _showTransitionLoading();
     setState(() {
       _activeTab = tab;
@@ -1503,6 +1522,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     });
     if (tab != _LauncherTab.settings) {
       _flushPendingVehicleSnapshot();
+    }
+    if (enteringVehicleTab) {
+      _deferVehicleTabLightEffect();
+    } else {
+      _clearVehicleTabLightEffectDeferral();
     }
     _scheduleWallpaperTimer();
   }
@@ -1621,7 +1645,29 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     });
   }
 
+  void _deferVehicleTabLightEffect({
+    Duration duration = const Duration(milliseconds: 720),
+  }) {
+    _vehicleTabLightEffectTimer?.cancel();
+    if (!_vehicleTabLightEffectDeferred && mounted) {
+      setState(() => _vehicleTabLightEffectDeferred = true);
+    }
+    _vehicleTabLightEffectTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() => _vehicleTabLightEffectDeferred = false);
+    });
+  }
+
+  void _clearVehicleTabLightEffectDeferral() {
+    _vehicleTabLightEffectTimer?.cancel();
+    _vehicleTabLightEffectTimer = null;
+    if (_vehicleTabLightEffectDeferred && mounted) {
+      setState(() => _vehicleTabLightEffectDeferred = false);
+    }
+  }
+
   void _setGear(_VehicleGear gear) {
+    final enteringVehicleTab = _activeTab != _LauncherTab.status;
     setState(() {
       _selectedGear = gear;
       _keepLightCameraOrbitAfterOff = false;
@@ -1641,6 +1687,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         _view = _VehicleView.status;
       }
     });
+    if (enteringVehicleTab) {
+      _deferVehicleTabLightEffect();
+    }
   }
 
   Future<void> _loadVehiclePreferences() async {
@@ -2065,12 +2114,16 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   }
 
   Future<void> _setWallpaperButtonEnabled(bool value) async {
+    final enteringVehicleTab = !value && _activeTab == _LauncherTab.wallpaper;
     setState(() {
       _wallpaperButtonEnabled = value;
       if (!value && _activeTab == _LauncherTab.wallpaper) {
         _activeTab = _LauncherTab.status;
       }
     });
+    if (enteringVehicleTab) {
+      _deferVehicleTabLightEffect();
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_wallpaperButtonEnabledPreferenceKey, value);
     _scheduleWallpaperTimer();
@@ -5107,6 +5160,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.debugModeEnabled,
     required this.lightEffectEnabled,
     required this.onDemoLightModeChanged,
+    required this.deferLightEffectOnVehicleEntry,
     required this.effectiveGear,
     required this.vehicleSnapshot,
     required this.onGearChanged,
@@ -5168,6 +5222,7 @@ class _VehicleCanvas extends StatelessWidget {
   final bool debugModeEnabled;
   final bool lightEffectEnabled;
   final ValueChanged<_DemoLightMode> onDemoLightModeChanged;
+  final bool deferLightEffectOnVehicleEntry;
   final _VehicleGear effectiveGear;
   final _VehicleSnapshot vehicleSnapshot;
   final ValueChanged<_VehicleGear> onGearChanged;
@@ -5213,7 +5268,8 @@ class _VehicleCanvas extends StatelessWidget {
         : debugModeEnabled
         ? demoLightMode
         : _DemoLightMode.off;
-    final visibleDemoLightMode = lightEffectEnabled
+    final visibleDemoLightMode =
+        lightEffectEnabled && !deferLightEffectOnVehicleEntry
         ? candidateLightMode
         : _DemoLightMode.off;
     final ambientDockInset = wallpaperMode && !portraitMode
@@ -7414,6 +7470,38 @@ class _SettingsMainColumn extends StatelessWidget {
             onChanged: onDebugModeChanged,
           ),
         ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingsSectionTitle(
+                icon: Icons.info_outline_rounded,
+                title: _t(context, 'aboutApp'),
+                subtitle: _t(context, 'aboutAppSubtitle'),
+              ),
+              const SizedBox(height: 14),
+              _SettingsInfoRow(
+                icon: Icons.mail_outline_rounded,
+                label: _t(context, 'contactEmail'),
+                value: _appContactEmail,
+              ),
+              const SizedBox(height: 10),
+              _SettingsInfoRow(
+                icon: Icons.person_outline_rounded,
+                label: _t(context, 'developedBy'),
+                value: _appDeveloperName,
+              ),
+              const SizedBox(height: 10),
+              _SettingsInfoRow(
+                icon: Icons.new_releases_outlined,
+                label: _t(context, 'version'),
+                value: _appVersionLabel,
+              ),
+            ],
+          ),
+        ),
       ],
     );
 
@@ -7974,6 +8062,70 @@ class _SettingsSectionTitle extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SettingsInfoRow extends StatelessWidget {
+  const _SettingsInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: light ? 0.50 : 0.045),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: light
+              ? const Color(0xFFDCE7F2).withValues(alpha: 0.85)
+              : Colors.white.withValues(alpha: 0.055),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _accentSoftBlue, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelMedium,
+                color: _textMuted,
+                weight: FontWeight.w600,
+                size: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            flex: 2,
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: _sharp(
+                context,
+                Theme.of(context).textTheme.labelLarge,
+                color: _textPrimary,
+                weight: FontWeight.w700,
+                size: 12.5,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -9408,6 +9560,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
   Timer? _hotspotAutoHideTimer;
   Timer? _windowCommandSettleTimer;
   Timer? _windowCommandDebounceTimer;
+  bool _vehicleSceneVisible = false;
   bool _hotspotsVisible = false;
   int _hotspotAnimationSeed = 0;
   _VehicleHotspot? _selectedHotspot;
@@ -9436,6 +9589,19 @@ class _VehicleHeroState extends State<_VehicleHero> {
   @override
   void didUpdateWidget(covariant _VehicleHero oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!widget.active && oldWidget.active) {
+      _vehicleSceneVisible = false;
+      _lightEffectRevealTimer?.cancel();
+      if (_visibleLightMode != _DemoLightMode.off) {
+        _visibleLightMode = _DemoLightMode.off;
+      }
+    } else if (widget.active && !oldWidget.active) {
+      _vehicleSceneVisible = false;
+      _lightEffectRevealTimer?.cancel();
+      if (_visibleLightMode != _DemoLightMode.off) {
+        _visibleLightMode = _DemoLightMode.off;
+      }
+    }
     if (oldWidget.demoLightMode != widget.demoLightMode) {
       _syncLightEffectReveal(oldWidget.demoLightMode, widget.demoLightMode);
     }
@@ -9487,7 +9653,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final focusOffset = _focusOffset;
     final focusScale = _focusScale;
     final effectModeActive = widget.demoLightMode != _DemoLightMode.off;
-    final visibleLightMode = effectModeActive
+    final allowLightOverlay = !useNativeRenderer || _vehicleSceneVisible;
+    final visibleLightMode = effectModeActive && allowLightOverlay
         ? _visibleLightMode
         : _DemoLightMode.off;
     final signalModeActive =
@@ -9538,6 +9705,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
                       active: widget.active,
                       drivingMode: widget.roadMotionActive || effectModeActive,
                       backgroundColor: sceneBackground,
+                      onVisible: _handleVehicleSceneVisible,
                     )
                   : ModelViewer(
                       src: widget.vehicleModelAsset,
@@ -9566,6 +9734,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
                           '--poster-color: transparent; }',
                       onWebViewCreated: (controller) {
                         _webViewController = controller;
+                        _handleVehicleSceneVisible();
                         _scheduleColorApply();
                       },
                     ),
@@ -9630,6 +9799,14 @@ class _VehicleHeroState extends State<_VehicleHero> {
 
     if (_visibleLightMode != newMode) {
       setState(() => _visibleLightMode = newMode);
+    }
+  }
+
+  void _handleVehicleSceneVisible() {
+    if (!mounted || _vehicleSceneVisible) return;
+    setState(() => _vehicleSceneVisible = true);
+    if (widget.demoLightMode != _DemoLightMode.off) {
+      _syncLightEffectReveal(_DemoLightMode.off, widget.demoLightMode);
     }
   }
 
@@ -10758,6 +10935,7 @@ class _NativeVehicleScene extends StatefulWidget {
     required this.active,
     required this.drivingMode,
     required this.backgroundColor,
+    required this.onVisible,
   });
 
   final String asset;
@@ -10767,6 +10945,7 @@ class _NativeVehicleScene extends StatefulWidget {
   final bool active;
   final bool drivingMode;
   final Color backgroundColor;
+  final VoidCallback onVisible;
 
   @override
   State<_NativeVehicleScene> createState() => _NativeVehicleSceneState();
@@ -10786,8 +10965,11 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   _NativeOrbit? _orbitStart;
   _NativeOrbit? _orbitTarget;
   int _textureGeneration = 0;
+  int _visibleCallbackGeneration = 0;
   Size? _pendingTextureSize;
   Timer? _textureCreateDebounceTimer;
+  Timer? _visibleCallbackTimer;
+  bool _visibleReportedForActive = false;
 
   @override
   void initState() {
@@ -10812,9 +10994,18 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     }
     if (oldWidget.active != widget.active) {
       _updateNativeTexture();
+      _visibleCallbackTimer?.cancel();
+      _visibleCallbackTimer = null;
+      _visibleReportedForActive = false;
+      if (widget.active) {
+        _scheduleVisibleCallback();
+      }
     }
     if (oldWidget.asset != widget.asset ||
         oldWidget.renderQuality != widget.renderQuality) {
+      _visibleCallbackTimer?.cancel();
+      _visibleCallbackTimer = null;
+      _visibleReportedForActive = false;
       _scheduleNativeTextureCreate(debounce: Duration.zero);
     }
   }
@@ -10822,6 +11013,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   @override
   void dispose() {
     _textureCreateDebounceTimer?.cancel();
+    _visibleCallbackTimer?.cancel();
     _orbitController.dispose();
     _disposeNativeTexture();
     super.dispose();
@@ -10851,6 +11043,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
 
         final textureId = _textureId;
         if (textureId != null) {
+          _scheduleVisibleCallback();
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onPanUpdate: widget.drivingMode ? null : _handleOrbitDrag,
@@ -10935,6 +11128,8 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
         _textureId = textureId;
         _error = null;
       });
+      _visibleReportedForActive = false;
+      _scheduleVisibleCallback();
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -10948,6 +11143,9 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   Future<void> _disposeNativeTexture() async {
     final textureId = _textureId;
     _textureId = null;
+    _visibleCallbackTimer?.cancel();
+    _visibleCallbackTimer = null;
+    _visibleReportedForActive = false;
     if (textureId != null) {
       try {
         await _channel.invokeMethod<void>('dispose', {'textureId': textureId});
@@ -10955,6 +11153,38 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
         // Native texture may already be gone after an Android lifecycle change.
       }
     }
+  }
+
+  void _scheduleVisibleCallback() {
+    final textureId = _textureId;
+    if (!widget.active ||
+        textureId == null ||
+        _visibleReportedForActive ||
+        _visibleCallbackTimer != null) {
+      return;
+    }
+
+    final generation = ++_visibleCallbackGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !widget.active ||
+          _textureId != textureId ||
+          generation != _visibleCallbackGeneration) {
+        return;
+      }
+      _visibleCallbackTimer = Timer(const Duration(milliseconds: 720), () {
+        _visibleCallbackTimer = null;
+        if (!mounted ||
+            !widget.active ||
+            _textureId != textureId ||
+            generation != _visibleCallbackGeneration ||
+            _visibleReportedForActive) {
+          return;
+        }
+        _visibleReportedForActive = true;
+        widget.onVisible();
+      });
+    });
   }
 
   void _handleOrbitDrag(DragUpdateDetails details) {
