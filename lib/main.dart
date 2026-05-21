@@ -1299,9 +1299,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   @override
   Widget build(BuildContext context) {
     final light = Theme.of(context).brightness == Brightness.light;
-    final topSystemInset = MediaQuery.viewPaddingOf(context).top;
-    final contentTopInset = topSystemInset;
-
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       resizeToAvoidBottomInset: false,
@@ -1334,7 +1331,6 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
           child: Stack(
             children: [
               Positioned.fill(
-                top: contentTopInset,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final compact = constraints.maxWidth < 1100;
@@ -10617,24 +10613,8 @@ class _HotspotControlCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 7,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
-                    ),
-                  ),
-                  child: Slider(
-                    value: progress,
-                    min: 0,
-                    max: 1,
-                    onChanged: onSetLevel,
-                  ),
-                ),
-                const SizedBox(height: 4),
+                _HotspotLevelBar(progress: progress),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
@@ -10667,6 +10647,46 @@ class _HotspotControlCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _HotspotLevelBar extends StatelessWidget {
+  const _HotspotLevelBar({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = _isLight(context);
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: progress.clamp(0.0, 1.0)),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, _) {
+        return Container(
+          height: 6,
+          decoration: BoxDecoration(
+            color: (light ? const Color(0xFFD7E5F2) : Colors.white).withValues(
+              alpha: light ? 0.82 : 0.10,
+            ),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          clipBehavior: Clip.antiAlias,
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            widthFactor: value,
+            heightFactor: 1,
+            alignment: Alignment.centerLeft,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: _accentSoftBlue.withValues(alpha: light ? 0.70 : 0.82),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

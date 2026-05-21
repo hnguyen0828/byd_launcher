@@ -233,7 +233,12 @@ class VehicleBridge {
             val state = stateFromAction(action, call.argument<Int>("state"))
             val ok = postTrunkEvent(action, state)
             FileLogger.log(appContext, "BODYWORK CONTROL trunk action=$action state=$state ok=$ok")
-            return mapOf("ok" to ok, "state" to state, "featureId" to BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR)
+            return mapOf(
+                "ok" to ok,
+                "state" to state,
+                "command" to trunkCommandFromAction(action, state),
+                "featureId" to BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR,
+            )
         }
 
         private fun controlDoorLock(call: MethodCall): Map<String, Any?> {
@@ -482,35 +487,36 @@ class VehicleBridge {
         }
 
         private fun postTrunkEvent(action: String?, state: Int): Boolean {
-            val cmd = when (action?.lowercase()) {
-                "close", "down", "off" -> 2
-                "stop" -> 3
-                else -> if (state == BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN) 1 else 2
-            }
+            val cmd = trunkCommandFromAction(action, state)
             var success = false
             val device = bodyworkDevice
 
             if (device != null) {
-                val doorCode = invokeBodyworkPublicIntMethod(device, "setDoorState", BODYWORK_LUGGAGE_DOOR, state)
-                FileLogger.log(
-                    appContext,
-                    "BODYWORK CONTROL trunk method setDoorState door=$BODYWORK_LUGGAGE_DOOR state=$state -> ${bodyworkCodeLabel(doorCode)}"
-                )
-                success = doorCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+                val values = trunkControlValues(action, state)
+                for (value in values) {
+                    val doorCode = invokeBodyworkPublicIntMethod(device, "setDoorState", BODYWORK_LUGGAGE_DOOR, value)
+                    FileLogger.log(
+                        appContext,
+                        "BODYWORK CONTROL trunk method setDoorState door=$BODYWORK_LUGGAGE_DOOR value=$value cmd=$cmd state=$state -> ${bodyworkCodeLabel(doorCode)}"
+                    )
+                    success = doorCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
 
-                val commandDoorCode = invokeBodyworkPublicIntMethod(
-                    device,
-                    "setDoorState",
-                    BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR,
-                    state,
-                )
-                FileLogger.log(
-                    appContext,
-                    "BODYWORK CONTROL trunk method setDoorState command=${BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR} state=$state -> ${bodyworkCodeLabel(commandDoorCode)}"
-                )
-                success = commandDoorCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+                    val commandDoorCode = invokeBodyworkPublicIntMethod(
+                        device,
+                        "setDoorState",
+                        BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR,
+                        value,
+                    )
+                    FileLogger.log(
+                        appContext,
+                        "BODYWORK CONTROL trunk method setDoorState command=${BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR} value=$value cmd=$cmd state=$state -> ${bodyworkCodeLabel(commandDoorCode)}"
+                    )
+                    success = commandDoorCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+                }
 
-                success = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR, state) || success
+                for (value in values) {
+                    success = postBodyworkEvent(BYDAutoBodyworkDevice.BODYWORK_CMD_DOOR_LUGGAGE_DOOR, value) || success
+                }
             }
 
             val settingCode = invokeSettingSingleIntMethod("voiceCtlBackDoor", cmd)
@@ -527,7 +533,7 @@ class VehicleBridge {
                 return success
             }
 
-            val values = listOf(cmd, state).distinct()
+            val values = trunkControlValues(action, state)
             for (value in values) {
                 val deviceCode = if (device != null) {
                     invokeBodyworkSetInt(device, DEVICE_BODYWORK, featureId, value)
@@ -549,6 +555,25 @@ class VehicleBridge {
                 success = managerCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
             }
             return success
+        }
+
+        private fun trunkCommandFromAction(action: String?, state: Int): Int {
+            return when (action?.lowercase()) {
+                "close", "down", "off" -> 2
+                "stop" -> 3
+                else -> if (state == BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN) 1 else 2
+            }
+        }
+
+        private fun trunkControlValues(action: String?, state: Int): List<Int> {
+            val cmd = trunkCommandFromAction(action, state)
+            return when (action?.lowercase()) {
+                // Kinex labels trunk control as a toggle. On this BYD firmware,
+                // value 1 opens the trunk and can also be the close/toggle pulse
+                // while it is already open, so try it before close-only fallbacks.
+                "close", "down", "off" -> listOf(1, cmd, state, 3).distinct()
+                else -> listOf(cmd, state).distinct()
+            }
         }
 
         private fun logWindowStatusAfterControl(area: Int) {
