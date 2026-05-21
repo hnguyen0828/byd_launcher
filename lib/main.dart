@@ -128,6 +128,8 @@ class _VehicleSnapshot {
     this.fuelPercent,
     this.batteryPercent,
     this.outsideTemperatureC,
+    this.brakeDepth,
+    this.braking = false,
     this.tpms = const {},
     this.windowLevels = const {},
     this.lightMode = _DemoLightMode.off,
@@ -146,6 +148,10 @@ class _VehicleSnapshot {
       fuelPercent: _intFromMapOrNull(map, 'fuelPercent'),
       batteryPercent: _doubleFromMap(map, 'batteryPercent'),
       outsideTemperatureC: _intFromMapOrNull(map, 'outsideTemperatureC'),
+      brakeDepth: _intFromMapOrNull(map, 'brakeDepth'),
+      braking: map['braking'] == true ||
+          ((_intFromMapOrNull(map, 'brakeDepth') ?? 0) > 2) ||
+          ((_intFromMapOrNull(map, 'brakePedalState') ?? 0) == 1),
       tpms: tpmsMap is Map
           ? {
               'frontLeft': _TyreSnapshot.fromMap(tpmsMap['frontLeft']),
@@ -166,6 +172,8 @@ class _VehicleSnapshot {
   final int? fuelPercent;
   final double? batteryPercent;
   final int? outsideTemperatureC;
+  final int? brakeDepth;
+  final bool braking;
   final Map<String, _TyreSnapshot> tpms;
   final Map<int, double> windowLevels;
   final _DemoLightMode lightMode;
@@ -182,6 +190,8 @@ class _VehicleSnapshot {
         other.fuelPercent == fuelPercent &&
         other.batteryPercent == batteryPercent &&
         other.outsideTemperatureC == outsideTemperatureC &&
+        other.brakeDepth == brakeDepth &&
+        other.braking == braking &&
         mapEquals(other.tpms, tpms) &&
         mapEquals(other.windowLevels, windowLevels) &&
         other.lightMode == lightMode;
@@ -196,6 +206,8 @@ class _VehicleSnapshot {
     fuelPercent,
     batteryPercent,
     outsideTemperatureC,
+    brakeDepth,
+    braking,
     Object.hashAllUnordered(
       tpms.entries.map((entry) => Object.hash(entry.key, entry.value)),
     ),
@@ -916,6 +928,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'fog': 'Fog',
     'signalLeft': 'Signal L',
     'signalRight': 'Signal R',
+    'brake': 'Brake',
+    'brakeOn': 'Brake On',
     'frontLeftWindow': 'Front Left Window',
     'frontRightWindow': 'Front Right Window',
     'rearLeftWindow': 'Rear Left Window',
@@ -1054,6 +1068,8 @@ const Map<_AppLanguage, Map<String, String>> _localizedStrings = {
     'fog': 'Đèn sương mù',
     'signalLeft': 'Xi nhan T',
     'signalRight': 'Xi nhan P',
+    'brake': 'Phanh',
+    'brakeOn': 'Đang phanh',
     'frontLeftWindow': 'Kính trước trái',
     'frontRightWindow': 'Kính trước phải',
     'rearLeftWindow': 'Kính sau trái',
@@ -1707,6 +1723,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   bool _vehicleTabLightEffectDeferred = false;
   double _vehicleSpeedKmh = 0;
   _DemoLightMode _demoLightMode = _DemoLightMode.off;
+  bool _demoBrakeActive = false;
   bool _lightEffectEnabled = true;
   bool _debugModeEnabled = false;
   bool _keepLightCameraOrbitAfterOff = false;
@@ -1745,6 +1762,19 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
 
   double get _effectiveSpeedKmh =>
       _vehicleSnapshot.speedKmh ?? _vehicleSpeedKmh;
+
+  bool get _effectiveBrakeActive =>
+      _roadMotionActive &&
+      (_vehicleSnapshot.braking || (_debugModeEnabled && _demoBrakeActive));
+
+  double get _effectiveBrakeIntensity {
+    if (!_effectiveBrakeActive) return 0.0;
+    final depth = _vehicleSnapshot.brakeDepth;
+    if (depth != null && depth > 0) {
+      return (depth / 100.0).clamp(0.18, 1.0);
+    }
+    return 0.86;
+  }
 
   List<_LauncherApp> get _favoriteApps {
     final appsByPackage = {
@@ -1896,8 +1926,13 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                       reverseRoadMotion: _reverseRoadMotion,
                       vehicleSpeedKmh: _effectiveSpeedKmh,
                       demoLightMode: _demoLightMode,
+                      brakeActive: _effectiveBrakeActive,
+                      demoBrakeActive: _debugModeEnabled && _demoBrakeActive,
+                      brakeIntensity: _effectiveBrakeIntensity,
                       debugModeEnabled: _debugModeEnabled,
                       onDemoLightModeChanged: (mode) => _setDemoLightMode(mode),
+                      onDemoBrakeChanged: (active) =>
+                          setState(() => _demoBrakeActive = active),
                       deferLightEffectOnVehicleEntry:
                           _vehicleTabLightEffectDeferred,
                       effectiveGear: _effectiveGear,
@@ -5520,9 +5555,13 @@ class _VehicleCanvas extends StatelessWidget {
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
     required this.demoLightMode,
+    required this.brakeActive,
+    required this.demoBrakeActive,
+    required this.brakeIntensity,
     required this.debugModeEnabled,
     required this.lightEffectEnabled,
     required this.onDemoLightModeChanged,
+    required this.onDemoBrakeChanged,
     required this.deferLightEffectOnVehicleEntry,
     required this.effectiveGear,
     required this.vehicleSnapshot,
@@ -5582,9 +5621,13 @@ class _VehicleCanvas extends StatelessWidget {
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
   final _DemoLightMode demoLightMode;
+  final bool brakeActive;
+  final bool demoBrakeActive;
+  final double brakeIntensity;
   final bool debugModeEnabled;
   final bool lightEffectEnabled;
   final ValueChanged<_DemoLightMode> onDemoLightModeChanged;
+  final ValueChanged<bool> onDemoBrakeChanged;
   final bool deferLightEffectOnVehicleEntry;
   final _VehicleGear effectiveGear;
   final _VehicleSnapshot vehicleSnapshot;
@@ -5711,6 +5754,8 @@ class _VehicleCanvas extends StatelessWidget {
                       reverseRoadMotion: reverseRoadMotion,
                       vehicleSpeedKmh: vehicleSpeedKmh,
                       windowLevels: vehicleSnapshot.windowLevels,
+                      brakeActive: activeTab == _LauncherTab.status && brakeActive,
+                      brakeIntensity: brakeIntensity,
                       demoLightMode: activeTab == _LauncherTab.status
                           ? visibleDemoLightMode
                           : _DemoLightMode.off,
@@ -5807,7 +5852,9 @@ class _VehicleCanvas extends StatelessWidget {
                 onRear: () => onViewChanged(_VehicleView.rear),
                 debugModeEnabled: debugModeEnabled,
                 lightMode: demoLightMode,
+                brakeActive: demoBrakeActive,
                 onLightModeChanged: onDemoLightModeChanged,
+                onBrakeChanged: onDemoBrakeChanged,
               ),
             ),
           if (activeTab == _LauncherTab.status && portraitMode)
@@ -5864,6 +5911,8 @@ class _VehicleStage extends StatelessWidget {
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
     required this.windowLevels,
+    required this.brakeActive,
+    required this.brakeIntensity,
     required this.demoLightMode,
   });
 
@@ -5877,6 +5926,8 @@ class _VehicleStage extends StatelessWidget {
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
   final Map<int, double> windowLevels;
+  final bool brakeActive;
+  final double brakeIntensity;
   final _DemoLightMode demoLightMode;
 
   @override
@@ -5894,6 +5945,8 @@ class _VehicleStage extends StatelessWidget {
           reverseRoadMotion: reverseRoadMotion,
           vehicleSpeedKmh: vehicleSpeedKmh,
           windowLevels: windowLevels,
+          brakeActive: brakeActive,
+          brakeIntensity: brakeIntensity,
           demoLightMode: demoLightMode,
         ),
       ),
@@ -9169,14 +9222,18 @@ class _FloatingVehicleControls extends StatelessWidget {
     required this.onRear,
     required this.debugModeEnabled,
     required this.lightMode,
+    required this.brakeActive,
     required this.onLightModeChanged,
+    required this.onBrakeChanged,
   });
 
   final _VehicleView view;
   final VoidCallback onRear;
   final bool debugModeEnabled;
   final _DemoLightMode lightMode;
+  final bool brakeActive;
   final ValueChanged<_DemoLightMode> onLightModeChanged;
+  final ValueChanged<bool> onBrakeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -9187,7 +9244,9 @@ class _FloatingVehicleControls extends StatelessWidget {
           onRear: onRear,
           debugModeEnabled: debugModeEnabled,
           lightMode: lightMode,
+          brakeActive: brakeActive,
           onLightModeChanged: onLightModeChanged,
+          onBrakeChanged: onBrakeChanged,
         ),
       ],
     );
@@ -9199,13 +9258,17 @@ class _QuickActionStrip extends StatefulWidget {
     required this.onRear,
     required this.debugModeEnabled,
     required this.lightMode,
+    required this.brakeActive,
     required this.onLightModeChanged,
+    required this.onBrakeChanged,
   });
 
   final VoidCallback onRear;
   final bool debugModeEnabled;
   final _DemoLightMode lightMode;
+  final bool brakeActive;
   final ValueChanged<_DemoLightMode> onLightModeChanged;
+  final ValueChanged<bool> onBrakeChanged;
 
   @override
   State<_QuickActionStrip> createState() => _QuickActionStripState();
@@ -9223,51 +9286,65 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
     if (!widget.debugModeEnabled) return const SizedBox.shrink();
     final light = _isLight(context);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: light
-                ? Colors.white.withValues(alpha: 0.88)
-                : const Color(0xFF0B111A).withValues(alpha: 0.58),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
+    Widget debugPill(Widget child) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
               color: light
-                  ? _premiumLightStroke.withValues(alpha: 0.92)
-                  : Colors.white.withValues(alpha: 0.075),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: light ? 0.08 : 0.18),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
+                  ? Colors.white.withValues(alpha: 0.88)
+                  : const Color(0xFF0B111A).withValues(alpha: 0.58),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: light
+                    ? _premiumLightStroke.withValues(alpha: 0.92)
+                    : Colors.white.withValues(alpha: 0.075),
+                width: 1,
               ),
-              BoxShadow(
-                color: const Color(
-                  0xFF78B7FF,
-                ).withValues(alpha: light ? 0.10 : 0.055),
-                blurRadius: 24,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.debugModeEnabled)
-                _MiniAction(
-                  icon: Icons.light_mode_rounded,
-                  label: _demoLightLabel(context, widget.lightMode),
-                  onTap: _cycleLightMode,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: light ? 0.08 : 0.18),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
                 ),
-            ],
+                BoxShadow(
+                  color: const Color(
+                    0xFF78B7FF,
+                  ).withValues(alpha: light ? 0.10 : 0.055),
+                  blurRadius: 24,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: child,
           ),
         ),
-      ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        debugPill(
+          _MiniAction(
+            icon: Icons.light_mode_rounded,
+            label: _demoLightLabel(context, widget.lightMode),
+            onTap: _cycleLightMode,
+          ),
+        ),
+        const SizedBox(width: 8),
+        debugPill(
+          _MiniAction(
+            icon: Icons.stop_circle_outlined,
+            label: widget.brakeActive ? _t(context, 'brakeOn') : _t(context, 'brake'),
+            active: widget.brakeActive,
+            onTap: () => widget.onBrakeChanged(!widget.brakeActive),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -9294,6 +9371,187 @@ String _vehicleLightModeName(_DemoLightMode mode) {
     _DemoLightMode.turnLeft => 'turn_left',
     _DemoLightMode.turnRight => 'turn_right',
   };
+}
+
+
+class _BrakeStatusOverlay extends StatefulWidget {
+  const _BrakeStatusOverlay({required this.active, required this.intensity});
+
+  final bool active;
+  final double intensity;
+
+  @override
+  State<_BrakeStatusOverlay> createState() => _BrakeStatusOverlayState();
+}
+
+class _BrakeStatusOverlayState extends State<_BrakeStatusOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 920),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final targetOpacity = widget.active ? 1.0 : 0.0;
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: targetOpacity,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) => CustomPaint(
+            painter: _BrakeStatusPainter(
+              light: _isLight(context),
+              pulse: _controller.value,
+              intensity: widget.intensity.clamp(0.0, 1.0),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BrakeStatusPainter extends CustomPainter {
+  const _BrakeStatusPainter({
+    required this.light,
+    required this.pulse,
+    required this.intensity,
+  });
+
+  final bool light;
+  final double pulse;
+  final double intensity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (intensity <= 0) return;
+
+    // Rear-wheel brake glow tuned for the current rear camera orbit.
+    // Keep the effect anchored low and close to the two rear tyres instead of
+    // spreading a large red wash across the whole rear bumper/road.
+    // Rear brake glow: intentionally placed *behind and below* the rear bumper
+    // so the native 3D vehicle does not cover it and it reads as light spill
+    // around the two rear tyres.
+    final rearCenter = Offset(size.width * 0.500, size.height * 0.745);
+    final rearHalf = size.width * 0.154;
+    final red = light ? const Color(0xFFFF3B32) : const Color(0xFFFF5148);
+    final glowT = 0.90 + 0.10 * math.sin(pulse * math.pi);
+    final glowAlpha = (0.16 + 0.20 * intensity) * glowT;
+    final leftRearWheel = rearCenter.translate(-rearHalf * 0.76, 0);
+    final rightRearWheel = rearCenter.translate(rearHalf * 0.76, 0);
+
+    _drawTailLamp(canvas, leftRearWheel, rearHalf, red, glowAlpha);
+    _drawTailLamp(canvas, rightRearWheel, rearHalf, red, glowAlpha);
+    _drawRoadReflection(canvas, size, rearCenter, rearHalf, red, intensity, glowT);
+  }
+
+  void _drawTailLamp(
+    Canvas canvas,
+    Offset center,
+    double rearHalf,
+    Color red,
+    double alpha,
+  ) {
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          red.withValues(alpha: alpha),
+          red.withValues(alpha: alpha * 0.42),
+          red.withValues(alpha: 0),
+        ],
+        stops: const [0.0, 0.46, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: rearHalf * 0.48))
+      ..blendMode = BlendMode.plus;
+    canvas.drawCircle(center, rearHalf * 0.48, glowPaint);
+
+    final spillRect = Rect.fromCenter(
+      center: center.translate(0, rearHalf * 0.10),
+      width: rearHalf * 0.58,
+      height: rearHalf * 0.22,
+    );
+    final spillPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          red.withValues(alpha: 0.24 + 0.18 * intensity),
+          red.withValues(alpha: 0.08 + 0.08 * intensity),
+          red.withValues(alpha: 0),
+        ],
+        stops: const [0.0, 0.48, 1.0],
+      ).createShader(spillRect)
+      ..blendMode = BlendMode.plus;
+    canvas.drawOval(spillRect, spillPaint);
+  }
+
+  void _drawCenterBrakeStrip(
+    Canvas canvas,
+    Size size,
+    Offset rearCenter,
+    double rearHalf,
+    Color red,
+    double alpha,
+  ) {
+    final paint = Paint()
+      ..color = red.withValues(alpha: alpha * 0.72)
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2)
+      ..blendMode = BlendMode.plus;
+    final y = rearCenter.dy - size.height * 0.018;
+    canvas.drawLine(
+      Offset(rearCenter.dx - rearHalf * 0.36, y),
+      Offset(rearCenter.dx + rearHalf * 0.36, y),
+      paint,
+    );
+  }
+
+  void _drawRoadReflection(
+    Canvas canvas,
+    Size size,
+    Offset rearCenter,
+    double rearHalf,
+    Color red,
+    double intensity,
+    double glowT,
+  ) {
+    final rect = Rect.fromCenter(
+      center: Offset(rearCenter.dx, rearCenter.dy + size.height * 0.046),
+      width: rearHalf * (2.25 + intensity * 0.42),
+      height: size.height * (0.046 + intensity * 0.020),
+    );
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          red.withValues(alpha: (light ? 0.045 : 0.065) * intensity * glowT),
+          red.withValues(alpha: (light ? 0.018 : 0.032) * intensity),
+          red.withValues(alpha: 0),
+        ],
+        stops: const [0.0, 0.44, 1.0],
+      ).createShader(rect)
+      ..blendMode = BlendMode.plus;
+    canvas.drawOval(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BrakeStatusPainter oldDelegate) {
+    return oldDelegate.light != light ||
+        oldDelegate.pulse != pulse ||
+        oldDelegate.intensity != intensity;
+  }
 }
 
 class _LightStatusOverlay extends StatefulWidget {
@@ -9729,6 +9987,8 @@ class _VehicleHero extends StatefulWidget {
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
     required this.windowLevels,
+    required this.brakeActive,
+    required this.brakeIntensity,
     required this.demoLightMode,
   });
 
@@ -9742,6 +10002,8 @@ class _VehicleHero extends StatefulWidget {
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
   final Map<int, double> windowLevels;
+  final bool brakeActive;
+  final double brakeIntensity;
   final _DemoLightMode demoLightMode;
 
   @override
@@ -9936,6 +10198,13 @@ class _VehicleHeroState extends State<_VehicleHero> {
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
+          // Draw brake glow above the 3D renderer so it remains visible on
+          // Android native scene. The glow itself is compact and tyre-aligned,
+          // so it reads like rear brake illumination instead of a red wash.
+          _BrakeStatusOverlay(
+            active: widget.brakeActive,
+            intensity: widget.brakeIntensity,
+          ),
           if (signalModeActive) _LightStatusOverlay(mode: visibleLightMode),
           if (effectModeActive)
             Positioned.fill(
@@ -12621,10 +12890,16 @@ class _BottomTab extends StatelessWidget {
 }
 
 class _MiniAction extends StatelessWidget {
-  const _MiniAction({required this.icon, required this.label, this.onTap});
+  const _MiniAction({
+    required this.icon,
+    required this.label,
+    this.active = false,
+    this.onTap,
+  });
 
   final IconData icon;
   final String label;
+  final bool active;
   final VoidCallback? onTap;
 
   @override
@@ -12634,14 +12909,30 @@ class _MiniAction extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
-      child: Padding(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+        decoration: BoxDecoration(
+          color: active
+              ? const Color(0xFFFF3B30).withValues(alpha: light ? 0.12 : 0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: active
+              ? Border.all(
+                  color: const Color(0xFFFF6B5F).withValues(alpha: light ? 0.28 : 0.38),
+                )
+              : null,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
-              color: light ? const Color(0xFF475569) : const Color(0xFFEAF1F8),
+              color: active
+                  ? const Color(0xFFFF6B5F)
+                  : light
+                  ? const Color(0xFF475569)
+                  : const Color(0xFFEAF1F8),
               size: 17,
             ),
             const SizedBox(width: 7),
@@ -12650,7 +12941,9 @@ class _MiniAction extends StatelessWidget {
               style: _sharp(
                 context,
                 Theme.of(context).textTheme.labelSmall,
-                color: light
+                color: active
+                    ? const Color(0xFFFF6B5F)
+                    : light
                     ? const Color(0xFF475569)
                     : const Color(0xFFD8E2ED),
                 weight: FontWeight.w600,

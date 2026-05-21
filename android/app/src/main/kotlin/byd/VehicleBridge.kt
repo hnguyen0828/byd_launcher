@@ -114,6 +114,10 @@ class VehicleBridge {
         private var cachedElectricRangeKm: Int? = null
         private var cachedFuelPercent: Int? = null
         private var cachedBatteryPercent: Double? = null
+        private var cachedAcceleratorDepth: Int? = null
+        private var cachedBrakeDepth: Int? = null
+        private var cachedBrakePedalState: Int? = null
+        private var cachedParkBrakeSwitch: Int? = null
 
         // Statistic events are noisy on BYD DiLink: the same device id can emit
         // transient/counter values. Keep only sane, debounced dashboard values.
@@ -1104,7 +1108,8 @@ class VehicleBridge {
                     "Returning cached vehicle snapshot: speed=$cachedSpeedKmh, gear=$cachedGear, " +
                         "fuelRange=$cachedFuelRangeKm, electricRange=$cachedElectricRangeKm, " +
                         "fuelPercent=$cachedFuelPercent, batteryPercent=$cachedBatteryPercent, " +
-                        "outsideTemp=$cachedOutsideTemperatureC, tyres=${cachedTyres.size}"
+                        "outsideTemp=$cachedOutsideTemperatureC, brakeDepth=$cachedBrakeDepth, " +
+                        "brakePedal=$cachedBrakePedalState, tyres=${cachedTyres.size}"
                 )
             }
 
@@ -1123,6 +1128,11 @@ class VehicleBridge {
                 "fuelPercent" to cachedFuelPercent,
                 "batteryPercent" to cachedBatteryPercent,
                 "outsideTemperatureC" to cachedOutsideTemperatureC,
+                "acceleratorDepth" to cachedAcceleratorDepth,
+                "brakeDepth" to cachedBrakeDepth,
+                "brakePedalState" to cachedBrakePedalState,
+                "parkBrakeSwitch" to cachedParkBrakeSwitch,
+                "braking" to ((cachedBrakeDepth ?: 0) > 2 || cachedBrakePedalState == 1),
                 "tpms" to mapOf(
                     "systemState" to cachedTyreSystemState,
                     "temperatureState" to cachedTyreTemperatureState,
@@ -1507,11 +1517,23 @@ class VehicleBridge {
             val speed = speedDevice?.let { device ->
                 safe("poll speed current") { device.getCurrentSpeed() }
             }?.takeIf { it in 0.0..300.0 }
+            val acceleratorDepth = speedDevice?.let { device ->
+                safe("poll accelerator depth") { device.getAccelerateDeepness() }
+            }?.takeIf { it in 0..100 }
+            val brakeDepth = speedDevice?.let { device ->
+                safe("poll brake depth") { device.getBrakeDeepness() }
+            }?.takeIf { it in 0..100 }
 
             val gearRaw = gearboxDevice?.let { device ->
                 safe("poll gearbox auto mode") { device.getGearboxAutoModeType() }
             }
             val gear = gearRaw?.let { gearLabel(it) }
+            val brakePedalState = gearboxDevice?.let { device ->
+                safe("poll brake pedal state") { device.getBrakePedalState() }
+            }
+            val parkBrakeSwitch = gearboxDevice?.let { device ->
+                safe("poll park brake switch") { device.getParkBrakeSwitch() }
+            }
 
             var changed = false
             if (speed != null && cachedSpeedKmh != speed) {
@@ -1522,9 +1544,25 @@ class VehicleBridge {
                 cachedGear = gear
                 changed = true
             }
+            if (acceleratorDepth != null && cachedAcceleratorDepth != acceleratorDepth) {
+                cachedAcceleratorDepth = acceleratorDepth
+                changed = true
+            }
+            if (brakeDepth != null && cachedBrakeDepth != brakeDepth) {
+                cachedBrakeDepth = brakeDepth
+                changed = true
+            }
+            if (brakePedalState != null && cachedBrakePedalState != brakePedalState) {
+                cachedBrakePedalState = brakePedalState
+                changed = true
+            }
+            if (parkBrakeSwitch != null && cachedParkBrakeSwitch != parkBrakeSwitch) {
+                cachedParkBrakeSwitch = parkBrakeSwitch
+                changed = true
+            }
 
             if (changed) {
-                logRealtime("POLL DRIVE speed=$cachedSpeedKmh gearRaw=$gearRaw gear=$cachedGear")
+                logRealtime("POLL DRIVE speed=$cachedSpeedKmh gearRaw=$gearRaw gear=$cachedGear accel=$cachedAcceleratorDepth brakeDepth=$cachedBrakeDepth brakePedal=$cachedBrakePedalState parkBrake=$cachedParkBrakeSwitch")
                 emitSnapshot()
             }
         }
@@ -1703,13 +1741,15 @@ class VehicleBridge {
                 }
 
                 override fun onAccelerateDeepnessChanged(value: Int) {
-                    logRealtime("CALLBACK acceleratorDepth=$value")
-                    emitSnapshot()
+                    if (value in 0..100) cachedAcceleratorDepth = value
+                    logRealtime("CALLBACK acceleratorDepth=$value cached=$cachedAcceleratorDepth")
+                    emitSnapshot(force = true)
                 }
 
                 override fun onBrakeDeepnessChanged(value: Int) {
-                    logRealtime("CALLBACK brakeDepth=$value")
-                    emitSnapshot()
+                    if (value in 0..100) cachedBrakeDepth = value
+                    logRealtime("CALLBACK brakeDepth=$value cached=$cachedBrakeDepth")
+                    emitSnapshot(force = true)
                 }
             }
         }
@@ -1815,11 +1855,15 @@ class VehicleBridge {
                 }
 
                 override fun onParkBrakeSwitchChanged(value: Int) {
+                    cachedParkBrakeSwitch = value
                     logRealtime("CALLBACK parkBrakeSwitch=$value")
+                    emitSnapshot(force = true)
                 }
 
                 override fun onBrakePedalStateChanged(value: Int) {
+                    cachedBrakePedalState = value
                     logRealtime("CALLBACK brakePedalState=$value")
+                    emitSnapshot(force = true)
                 }
             }
         }
