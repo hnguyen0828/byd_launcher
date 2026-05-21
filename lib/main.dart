@@ -11349,13 +11349,15 @@ class _DrivingRoadPainter extends CustomPainter {
           );
     canvas.drawRect(Offset.zero & size, glowPaint);
 
-    // Keep the road detached from the skyline: the perspective still resolves
-    // toward the horizon, but visible edges begin after a short atmospheric gap.
+    // Let the road resolve into the skyline glow instead of ending as a hard
+    // trapezoid under the city.
     final vanish = Offset(roadCenterX, size.height * 0.27);
     final near = Offset(roadCenterX, size.height * 1.24);
-    final roadFarT = light ? 0.180 : 0.160;
-    final edgeStartT = light ? 0.260 : 0.230;
-    final laneStartT = light ? 0.275 : 0.245;
+    final roadFarT = light ? 0.115 : 0.100;
+    final roadAtmosphereEndT = light ? 0.290 : 0.265;
+    final shoulderStartT = light ? 0.330 : 0.300;
+    final edgeStartT = light ? 0.380 : 0.345;
+    final laneStartT = light ? 0.395 : 0.360;
     const roadPerp = Offset(1.0, 0.0);
 
     Offset centerAt(double t) {
@@ -11366,8 +11368,12 @@ class _DrivingRoadPainter extends CustomPainter {
       );
     }
 
+    double depthAt(double t) {
+      return Curves.easeIn.transform(t.clamp(0.0, 1.0));
+    }
+
     double halfWidthAt(double t) {
-      final depth = Curves.easeInCubic.transform(t.clamp(0.0, 1.0));
+      final depth = depthAt(t);
       return lerpDouble(size.width * 0.018, size.width * 0.482, depth)!;
     }
 
@@ -11382,12 +11388,12 @@ class _DrivingRoadPainter extends CustomPainter {
 
     final roadPath = Path()
       ..moveTo(roadPoint(1, -1).dx, roadPoint(1, -1).dy)
-      ..lineTo(roadPoint(roadFarT, -1).dx, roadPoint(roadFarT, -1).dy)
+      ..lineTo(roadPoint(roadFarT, -0.12).dx, roadPoint(roadFarT, -0.12).dy)
       ..quadraticBezierTo(
         vanish.dx,
-        vanish.dy + size.height * 0.006,
-        roadPoint(roadFarT, 1).dx,
-        roadPoint(roadFarT, 1).dy,
+        vanish.dy + size.height * (light ? 0.016 : 0.014),
+        roadPoint(roadFarT, 0.12).dx,
+        roadPoint(roadFarT, 0.12).dy,
       )
       ..lineTo(roadPoint(1, 1).dx, roadPoint(1, 1).dy)
       ..close();
@@ -11398,24 +11404,104 @@ class _DrivingRoadPainter extends CustomPainter {
         end: Alignment.bottomCenter,
         colors: light
             ? [
-                const Color(0xFFCBD8E5).withValues(alpha: 0.055),
-                const Color(0xFF8FA2B7).withValues(alpha: 0.190),
+                const Color(0xFFCBD8E5).withValues(alpha: 0.000),
+                const Color(0xFFB7C8D8).withValues(alpha: 0.006),
+                const Color(0xFF9EB2C5).withValues(alpha: 0.070),
+                const Color(0xFF8FA2B7).withValues(alpha: 0.168),
               ]
             : [
-                const Color(0xFF101C28).withValues(alpha: 0.105),
-                const Color(0xFF02070D).withValues(alpha: 0.38),
+                const Color(0xFF101C28).withValues(alpha: 0.000),
+                _accentSoftBlue.withValues(alpha: 0.006),
+                const Color(0xFF0B1621).withValues(alpha: 0.135),
+                const Color(0xFF02070D).withValues(alpha: 0.385),
               ],
+        stops: const [0.0, 0.30, 0.66, 1.0],
       ).createShader(Offset.zero & size);
     canvas.drawPath(roadPath, roadPaint);
 
+    final horizonBlendPath = Path()
+      ..moveTo(roadPoint(roadFarT, -0.22).dx, roadPoint(roadFarT, -0.22).dy)
+      ..lineTo(
+        roadPoint(roadAtmosphereEndT, -0.74).dx,
+        roadPoint(roadAtmosphereEndT, -0.74).dy,
+      )
+      ..lineTo(
+        roadPoint(roadAtmosphereEndT, 0.74).dx,
+        roadPoint(roadAtmosphereEndT, 0.74).dy,
+      )
+      ..lineTo(roadPoint(roadFarT, 0.22).dx, roadPoint(roadFarT, 0.22).dy)
+      ..close();
+    final horizonBlendPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: light
+            ? [
+                Colors.white.withValues(alpha: 0.000),
+                const Color(0xFFB9D2E7).withValues(alpha: 0.024),
+                const Color(0xFF8EB6D7).withValues(alpha: 0.006),
+              ]
+            : [
+                _accentSoftBlue.withValues(alpha: 0.000),
+                _accentSoftBlue.withValues(alpha: 0.032),
+                _accentSoftBlue.withValues(alpha: 0.006),
+              ],
+        stops: const [0.0, 0.42, 1.0],
+      ).createShader(Offset.zero & size)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, light ? 16 : 20);
+    canvas.drawPath(horizonBlendPath, horizonBlendPaint);
+
+    final leftShoulderPath = Path()
+      ..moveTo(roadPoint(1, -1).dx, roadPoint(1, -1).dy)
+      ..lineTo(
+        roadPoint(shoulderStartT, -1).dx,
+        roadPoint(shoulderStartT, -1).dy,
+      )
+      ..lineTo(
+        roadPoint(shoulderStartT, -0.66).dx,
+        roadPoint(shoulderStartT, -0.66).dy,
+      )
+      ..lineTo(roadPoint(1, -0.63).dx, roadPoint(1, -0.63).dy)
+      ..close();
+    final rightShoulderPath = Path()
+      ..moveTo(
+        roadPoint(shoulderStartT, 0.66).dx,
+        roadPoint(shoulderStartT, 0.66).dy,
+      )
+      ..lineTo(roadPoint(shoulderStartT, 1).dx, roadPoint(shoulderStartT, 1).dy)
+      ..lineTo(roadPoint(1, 1).dx, roadPoint(1, 1).dy)
+      ..lineTo(roadPoint(1, 0.63).dx, roadPoint(1, 0.63).dy)
+      ..close();
+    final shoulderPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: light
+            ? [
+                const Color(0xFF5F7690).withValues(alpha: 0.000),
+                const Color(0xFF4C657D).withValues(alpha: 0.014),
+                const Color(0xFF22384E).withValues(alpha: 0.060),
+              ]
+            : [
+                _accentSoftBlue.withValues(alpha: 0.000),
+                _accentSoftBlue.withValues(alpha: 0.006),
+                const Color(0xFF020811).withValues(alpha: 0.118),
+              ],
+        stops: const [0.0, 0.60, 1.0],
+      ).createShader(Offset.zero & size);
+    canvas
+      ..drawPath(leftShoulderPath, shoulderPaint)
+      ..drawPath(rightShoulderPath, shoulderPaint);
+
     final roadCenterWashPath = Path()
       ..moveTo(roadPoint(1, -0.56).dx, roadPoint(1, -0.56).dy)
-      ..lineTo(roadPoint(roadFarT, -0.22).dx, roadPoint(roadFarT, -0.22).dy)
-      ..quadraticBezierTo(
-        vanish.dx,
-        vanish.dy + size.height * 0.012,
-        roadPoint(roadFarT, 0.22).dx,
-        roadPoint(roadFarT, 0.22).dy,
+      ..lineTo(
+        roadPoint(roadAtmosphereEndT, -0.18).dx,
+        roadPoint(roadAtmosphereEndT, -0.18).dy,
+      )
+      ..lineTo(
+        roadPoint(roadAtmosphereEndT, 0.18).dx,
+        roadPoint(roadAtmosphereEndT, 0.18).dy,
       )
       ..lineTo(roadPoint(1, 0.56).dx, roadPoint(1, 0.56).dy)
       ..close();
@@ -11426,15 +11512,17 @@ class _DrivingRoadPainter extends CustomPainter {
         colors: light
             ? [
                 Colors.white.withValues(alpha: 0.00),
-                Colors.white.withValues(alpha: 0.055),
+                Colors.white.withValues(alpha: 0.008),
+                Colors.white.withValues(alpha: 0.044),
                 Colors.white.withValues(alpha: 0.020),
               ]
             : [
                 _accentSoftBlue.withValues(alpha: 0.00),
-                _accentSoftBlue.withValues(alpha: 0.035),
+                _accentSoftBlue.withValues(alpha: 0.006),
+                _accentSoftBlue.withValues(alpha: 0.027),
                 _accentSoftBlue.withValues(alpha: 0.012),
               ],
-        stops: const [0.0, 0.58, 1.0],
+        stops: const [0.0, 0.36, 0.66, 1.0],
       ).createShader(Offset.zero & size);
     canvas.drawPath(roadCenterWashPath, roadCenterWashPaint);
 
@@ -11486,7 +11574,7 @@ class _DrivingRoadPainter extends CustomPainter {
       );
 
     final edgePaint = Paint()
-      ..strokeWidth = 0.75
+      ..strokeWidth = 0.82
       ..style = PaintingStyle.stroke;
 
     void drawFadedEdge(double side) {
@@ -11497,7 +11585,7 @@ class _DrivingRoadPainter extends CustomPainter {
             edgeStartT + (1 - edgeStartT) * (i / segmentCount).clamp(0.0, 1.0);
         final local = ((t - edgeStartT) / (1 - edgeStartT)).clamp(0.0, 1.0);
         final alpha =
-            Curves.easeInCubic.transform(local) * (light ? 0.029 : 0.041);
+            Curves.easeInCubic.transform(local) * (light ? 0.040 : 0.055);
         final current = roadPoint(t, side);
         edgePaint.color = _accentSoftBlue.withValues(alpha: alpha);
         canvas.drawLine(previous, current, edgePaint);
@@ -11511,6 +11599,35 @@ class _DrivingRoadPainter extends CustomPainter {
     canvas.save();
     canvas.clipPath(roadPath);
 
+    final texturePaint = Paint()
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.0;
+    final motionPhase = motionProgress * 2.2;
+    for (var i = -2; i < 10; i++) {
+      final t = ((i + motionPhase) / 8.0).clamp(0.0, 1.0);
+      final horizonFade = ((t - edgeStartT) / 0.24).clamp(0.0, 1.0);
+      final nearFade = (1.0 - ((t - 0.90).clamp(0.0, 0.10) / 0.10)).clamp(
+        0.0,
+        1.0,
+      );
+      final alpha = Curves.easeOut.transform(horizonFade) * nearFade;
+      if (alpha <= 0.01) {
+        continue;
+      }
+
+      final insetStart = lerpDouble(0.66, 0.72, depthAt(t))!;
+      final insetEnd = lerpDouble(0.88, 0.94, depthAt(t))!;
+      for (final side in const [-1.0, 1.0]) {
+        final start = roadPoint(t, side * insetStart);
+        final endT = (t + lerpDouble(0.018, 0.045, t)!).clamp(0.0, 1.0);
+        final end = roadPoint(endT, side * insetEnd);
+        texturePaint.color = _accentSoftBlue.withValues(
+          alpha: (light ? 0.075 : 0.060) * alpha,
+        );
+        canvas.drawLine(start, end, texturePaint);
+      }
+    }
+
     final lanePaint = Paint()
       ..color = (light ? const Color(0xFF31516F) : Colors.white).withValues(
         alpha: light ? 0.26 : 0.22,
@@ -11519,7 +11636,7 @@ class _DrivingRoadPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     for (var i = -2; i < 7; i++) {
-      final t = ((i + motionProgress * 2.2) / 7).clamp(0.0, 1.0);
+      final t = ((i + motionPhase) / 7).clamp(0.0, 1.0);
       final center = centerAt(t);
       final segment = lerpDouble(7, 48, t)!;
       final distanceFade = Curves.easeOut.transform(t).clamp(0.0, 1.0);
@@ -11542,21 +11659,30 @@ class _DrivingRoadPainter extends CustomPainter {
     }
 
     final speedPaint = Paint()
-      ..strokeWidth = 1.0
+      ..strokeWidth = 1.1
       ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < 8; i++) {
-      final t = ((i / 8) + motionProgress) % 1.0;
+    for (var i = -2; i < 9; i++) {
+      final t = ((i + motionPhase) / 8.0).clamp(0.0, 1.0);
       final horizonFade = ((t - edgeStartT) / 0.22).clamp(0.0, 1.0);
       if (horizonFade <= 0.01) {
         continue;
       }
-      speedPaint.color = _accentSoftBlue.withValues(
-        alpha: (light ? 0.16 : 0.13) * horizonFade,
+      final nearFade = (1.0 - ((t - 0.84).clamp(0.0, 0.16) / 0.16)).clamp(
+        0.0,
+        1.0,
       );
-      final left = roadPoint(t, -1);
-      final right = roadPoint(t, 1);
-      canvas.drawLine(left, left + const Offset(-22, -34), speedPaint);
-      canvas.drawLine(right, right + const Offset(22, -34), speedPaint);
+      speedPaint.color = _accentSoftBlue.withValues(
+        alpha:
+            (light ? 0.13 : 0.105) *
+            Curves.easeOut.transform(horizonFade) *
+            nearFade,
+      );
+      final length = lerpDouble(14, 42, depthAt(t))!;
+      final rise = lerpDouble(18, 36, depthAt(t))!;
+      final left = roadPoint(t, -0.965);
+      final right = roadPoint(t, 0.965);
+      canvas.drawLine(left, left + Offset(-length, -rise), speedPaint);
+      canvas.drawLine(right, right + Offset(length, -rise), speedPaint);
     }
     canvas.restore();
   }
