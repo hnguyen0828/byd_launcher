@@ -11224,13 +11224,16 @@ class _DrivingSkylineLayer extends StatelessWidget {
                 ),
                 child: Opacity(
                   opacity: light ? 0.66 : 0.56,
-                  child: Image.asset(
-                    light
-                        ? _lightDrivingSkylineAsset
-                        : _darkDrivingSkylineAsset,
-                    fit: BoxFit.contain,
-                    alignment: Alignment.bottomCenter,
-                    filterQuality: FilterQuality.high,
+                  child: _SkylineEdgeFade(
+                    light: light,
+                    child: Image.asset(
+                      light
+                          ? _lightDrivingSkylineAsset
+                          : _darkDrivingSkylineAsset,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.bottomCenter,
+                      filterQuality: FilterQuality.high,
+                    ),
                   ),
                 ),
               ),
@@ -11267,6 +11270,33 @@ class _DrivingSkylineLayer extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _SkylineEdgeFade extends StatelessWidget {
+  const _SkylineEdgeFade({required this.light, required this.child});
+
+  final bool light;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!light) {
+      return child;
+    }
+
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) {
+        return const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.transparent, Colors.white, Colors.white],
+          stops: [0.0, 0.085, 1.0],
+        ).createShader(bounds);
+      },
+      child: child,
     );
   }
 }
