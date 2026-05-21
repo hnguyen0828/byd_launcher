@@ -7,6 +7,13 @@ import android.content.pm.PackageManager
 import android.provider.Settings
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.os.Handler
+import android.os.Looper
+import android.view.View
+import android.view.Window
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import byd.VehicleBridge
 import byd.MusicBridge
 import byd.NavigationBridge
@@ -25,6 +32,7 @@ import java.util.Locale
 class MainActivity : FlutterActivity() {
     private var pendingWallpaperImportResult: MethodChannel.Result? = null
     private var lastSystemBarsDark: Boolean? = null
+    private val systemUiHandler = Handler(Looper.getMainLooper())
     private val vehicleModelAssets = listOf(
         "assets/models/2024_byd_atto_3.glb",
         "assets/models/2024_byd_dolphin.glb",
@@ -46,6 +54,11 @@ class MainActivity : FlutterActivity() {
         applyLauncherSystemUi()
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        applyLauncherSystemUi()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
@@ -55,15 +68,40 @@ class MainActivity : FlutterActivity() {
 
     private fun applyLauncherSystemUi(dark: Boolean = lastSystemBarsDark ?: resolveInitialSystemBarsDark()) {
         lastSystemBarsDark = dark
+        applyLauncherSystemUiNow(dark)
 
+        // Flutter/DiLink may re-apply immersive or edge-to-edge flags shortly after
+        // Activity creation/resume. Re-assert the same bar policy a few times, the
+        // same way Kinex keeps the OEM bars in sync with Light/Dark mode.
+        systemUiHandler.post { applyLauncherSystemUiNow(dark) }
+        systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, 80L)
+        systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, 250L)
+        systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, 900L)
+    }
+
+    private fun applyLauncherSystemUiNow(dark: Boolean) {
         val barColor = if (dark) {
             android.graphics.Color.parseColor("#070B12")
         } else {
             android.graphics.Color.parseColor("#F1F5FA")
         }
 
+        // Make Android draw real system-bar backgrounds. Without these clears,
+        // BYD/DiLink can keep the previous black translucent/immersive bars even
+        // after Flutter SystemChrome has requested light bars.
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+        )
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+
         window.statusBarColor = barColor
         window.navigationBarColor = barColor
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            window.navigationBarDividerColor = barColor
+        }
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             window.isStatusBarContrastEnforced = false
@@ -73,27 +111,25 @@ class MainActivity : FlutterActivity() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(true)
             window.insetsController?.let { controller ->
-                controller.show(android.view.WindowInsets.Type.systemBars())
+                controller.show(WindowInsets.Type.systemBars())
 
                 val lightAppearance =
-                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
                 val appearance = if (dark) 0 else lightAppearance
 
                 controller.setSystemBarsAppearance(appearance, lightAppearance)
             }
-        } else {
-            var flags = android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-
-            if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-            }
-            if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            }
-
-            window.decorView.systemUiVisibility = flags
         }
+
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
+        if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        }
+        window.decorView.systemUiVisibility = flags
     }
 
     private fun resolveInitialSystemBarsDark(): Boolean {

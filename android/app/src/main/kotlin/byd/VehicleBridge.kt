@@ -302,6 +302,9 @@ class VehicleBridge {
             } else {
                 BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN
             }
+            val isPartialWindowTarget = explicitPercent != null &&
+                explicitPercent > BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN &&
+                explicitPercent < BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX
             val intArgs = listOf(0, state, targetPercent).distinct()
             val doubleArgs = intArgs.map { it.toDouble() }
             FileLogger.log(
@@ -340,6 +343,37 @@ class VehicleBridge {
                 "BODYWORK CONTROL kinex-method setWindowTargetPercent area=$command percent=$targetPercent -> ${bodyworkCodeLabel(targetPercentCode)}"
             )
             success = targetPercentCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+            for (methodName in listOf(
+                "setWindowTargetPosition",
+                "setWindowOpenPercent",
+                "setWindowOpenPercentage",
+            )) {
+                val code = invokeBodyworkPublicIntMethod(device, methodName, command, targetPercent)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL target-method $methodName area=$command percent=$targetPercent -> ${bodyworkCodeLabel(code)}"
+                )
+                success = code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            }
+
+            if (isPartialWindowTarget && success) {
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL partial window target accepted area=$command percent=$targetPercent; skip full open/close ctrl"
+                )
+                logWindowStatusAfterControl(command)
+                return true
+            }
+
+            if (isPartialWindowTarget) {
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL partial window target failed area=$command percent=$targetPercent; skip full open/close ctrl fallback"
+                )
+                logWindowStatusAfterControl(command)
+                return false
+            }
 
             val ctrlStateCode = invokeBodyworkPublicIntMethod(device, "setWindowCtrlState", command, state)
             FileLogger.log(
@@ -830,6 +864,72 @@ class VehicleBridge {
                 else -> 0L
             }
             return lastOnMs > 0L && SystemClock.elapsedRealtime() - lastOnMs <= TURN_SIGNAL_HOLD_MS
+        }
+
+        private fun handleTurnLightAreaState(area: Int, rawState: Int, source: String) {
+            val state = if (rawState == BYDAutoLightDevice.LIGHT_OFF || rawState == 0) {
+                BYDAutoLightDevice.LIGHT_OFF
+            } else {
+                BYDAutoLightDevice.LIGHT_ON
+            }
+
+            when (area) {
+                BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
+                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> {
+                    applyTurnSignalState(
+                        area,
+                        state == BYDAutoLightDevice.LIGHT_ON,
+                        clearOff = true,
+                        source = source,
+                    )
+                    emitSnapshot(force = true)
+                }
+                else -> {
+                    // Some BYD ROMs dispatch the aggregate turn-signal value
+                    // through this overload. Decode it the same way as Kinex.
+                    handleTurnLightAggregateState(rawState, "$source/fallback area=$area")
+                }
+            }
+        }
+
+        private fun handleTurnLightAggregateState(value: Int, source: String) {
+            val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
+            val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
+
+            if (value == 0 || value == BYDAutoLightDevice.LIGHT_OFF) {
+                applyTurnSignalState(leftArea, on = false, clearOff = true, source = source)
+                applyTurnSignalState(rightArea, on = false, clearOff = true, source = source)
+            } else if (value == 1 || value == leftArea) {
+                applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
+                applyTurnSignalState(rightArea, on = false, clearOff = true, source = source)
+            } else if (value == 2 || value == rightArea) {
+                applyTurnSignalState(rightArea, on = true, clearOff = false, source = source)
+                applyTurnSignalState(leftArea, on = false, clearOff = true, source = source)
+            } else if (value == 3) {
+                applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
+                applyTurnSignalState(rightArea, on = true, clearOff = false, source = source)
+            } else {
+                // Last-resort bitmask support for ROMs that encode left/right
+                // using the BYDAutoLightDevice area values.
+                val leftOn = (value and leftArea) != 0
+                val rightOn = (value and rightArea) != 0
+                if (leftOn || rightOn) {
+                    applyTurnSignalState(leftArea, on = leftOn, clearOff = true, source = source)
+                    applyTurnSignalState(rightArea, on = rightOn, clearOff = true, source = source)
+                } else {
+                    logRealtime("LIGHT CALLBACK $source unknown turn value=$value")
+                    return
+                }
+            }
+
+            emitSnapshot(force = true)
+        }
+
+        private fun applyTurnSignalState(area: Int, on: Boolean, clearOff: Boolean, source: String) {
+            val state = if (on) BYDAutoLightDevice.LIGHT_ON else BYDAutoLightDevice.LIGHT_OFF
+            cachedLights[area] = state
+            updateTurnSignalLatch(area, state, clearOnOff = clearOff)
+            logRealtime("LIGHT CALLBACK $source signal area=$area on=$on")
         }
 
         private fun effectiveLightStatuses(): Map<Int, Int> {
@@ -1810,6 +1910,22 @@ class VehicleBridge {
                     updateTurnSignalLatch(area, BYDAutoLightDevice.LIGHT_OFF)
                     logRealtime("LIGHT CALLBACK off area=$area")
                     emitSnapshot(force = true)
+                }
+
+                // Kinex-style BYD turn-signal callbacks. These methods are
+                // intentionally declared WITHOUT override because the compile-time
+                // BYD stub on some builds does not expose them, while the runtime
+                // listener dispatch still calls the exact JVM signatures.
+                fun onTurnLightStateChanged(value: Int) {
+                    handleTurnLightAggregateState(value, "turnState")
+                }
+
+                fun onTurnLightFlashStateChanged(value: Int) {
+                    handleTurnLightAggregateState(value, "turnFlash")
+                }
+
+                fun onTurnLightStateChanged(area: Int, value: Int) {
+                    handleTurnLightAreaState(area, value, "turnStateArea")
                 }
 
                 override fun onLightAutoSwitchOn() {

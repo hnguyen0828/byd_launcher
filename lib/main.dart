@@ -9490,6 +9490,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final visibleLightMode = effectModeActive
         ? _visibleLightMode
         : _DemoLightMode.off;
+    final signalModeActive =
+        visibleLightMode == _DemoLightMode.turnLeft ||
+        visibleLightMode == _DemoLightMode.turnRight;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -9503,7 +9506,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
             reverse: widget.reverseRoadMotion,
             speedKmh: widget.vehicleSpeedKmh,
           ),
-          _LightStatusOverlay(mode: visibleLightMode),
+          _LightStatusOverlay(
+            mode: signalModeActive ? _DemoLightMode.off : visibleLightMode,
+          ),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
             duration: const Duration(milliseconds: 520),
@@ -9568,6 +9573,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
+          if (signalModeActive) _LightStatusOverlay(mode: visibleLightMode),
           if (effectModeActive)
             Positioned.fill(
               child: GestureDetector(
