@@ -149,7 +149,8 @@ class _VehicleSnapshot {
       batteryPercent: _doubleFromMap(map, 'batteryPercent'),
       outsideTemperatureC: _intFromMapOrNull(map, 'outsideTemperatureC'),
       brakeDepth: _intFromMapOrNull(map, 'brakeDepth'),
-      braking: map['braking'] == true ||
+      braking:
+          map['braking'] == true ||
           ((_intFromMapOrNull(map, 'brakeDepth') ?? 0) > 2) ||
           ((_intFromMapOrNull(map, 'brakePedalState') ?? 0) == 1),
       tpms: tpmsMap is Map
@@ -5754,7 +5755,8 @@ class _VehicleCanvas extends StatelessWidget {
                       reverseRoadMotion: reverseRoadMotion,
                       vehicleSpeedKmh: vehicleSpeedKmh,
                       windowLevels: vehicleSnapshot.windowLevels,
-                      brakeActive: activeTab == _LauncherTab.status && brakeActive,
+                      brakeActive:
+                          activeTab == _LauncherTab.status && brakeActive,
                       brakeIntensity: brakeIntensity,
                       demoLightMode: activeTab == _LauncherTab.status
                           ? visibleDemoLightMode
@@ -9339,7 +9341,9 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
         debugPill(
           _MiniAction(
             icon: Icons.stop_circle_outlined,
-            label: widget.brakeActive ? _t(context, 'brakeOn') : _t(context, 'brake'),
+            label: widget.brakeActive
+                ? _t(context, 'brakeOn')
+                : _t(context, 'brake'),
             active: widget.brakeActive,
             onTap: () => widget.onBrakeChanged(!widget.brakeActive),
           ),
@@ -9372,7 +9376,6 @@ String _vehicleLightModeName(_DemoLightMode mode) {
     _DemoLightMode.turnRight => 'turn_right',
   };
 }
-
 
 class _BrakeStatusOverlay extends StatefulWidget {
   const _BrakeStatusOverlay({required this.active, required this.intensity});
@@ -9457,7 +9460,15 @@ class _BrakeStatusPainter extends CustomPainter {
 
     _drawTailLamp(canvas, leftRearWheel, rearHalf, red, glowAlpha);
     _drawTailLamp(canvas, rightRearWheel, rearHalf, red, glowAlpha);
-    _drawRoadReflection(canvas, size, rearCenter, rearHalf, red, intensity, glowT);
+    _drawRoadReflection(
+      canvas,
+      size,
+      rearCenter,
+      rearHalf,
+      red,
+      intensity,
+      glowT,
+    );
   }
 
   void _drawTailLamp(
@@ -9974,6 +9985,7 @@ class _LightStatusPainter extends CustomPainter {
 }
 
 const double _vehicleModelGlobalScale = 0.92;
+const Offset _vehicleModelGroundingOffset = Offset(0, 0.022);
 
 class _VehicleHero extends StatefulWidget {
   const _VehicleHero({
@@ -10149,51 +10161,55 @@ class _VehicleHeroState extends State<_VehicleHero> {
                 ),
               );
             },
-            child: Transform.scale(
-              scale: _vehicleModelGlobalScale,
-              alignment: Alignment.center,
-              child: useNativeRenderer
-                  ? _NativeVehicleScene(
-                      asset: widget.vehicleModelAsset,
-                      cameraOrbit: focusedOrbit,
-                      vehicleColor: widget.vehicleColor,
-                      renderQuality: widget.renderQuality,
-                      active: widget.active,
-                      drivingMode: widget.roadMotionActive || effectModeActive,
-                      backgroundColor: sceneBackground,
-                      onVisible: _handleVehicleSceneVisible,
-                    )
-                  : ModelViewer(
-                      src: widget.vehicleModelAsset,
-                      alt:
-                          '${_vehicleModelLabel(widget.vehicleModelAsset)} 3D model',
-                      loading: Loading.eager,
-                      reveal: Reveal.auto,
-                      backgroundColor: Colors.transparent,
-                      cameraControls: !effectModeActive,
-                      autoRotate: false,
-                      disablePan: true,
-                      disableTap: true,
-                      disableZoom: true,
-                      interactionPrompt: InteractionPrompt.none,
-                      cameraOrbit: focusedOrbit,
-                      minCameraOrbit: 'auto 42deg 64%',
-                      maxCameraOrbit: 'auto 86deg 126%',
-                      fieldOfView: '19deg',
-                      minFieldOfView: '19deg',
-                      maxFieldOfView: '19deg',
-                      exposure: 0.78,
-                      shadowIntensity: 0.30,
-                      relatedCss:
-                          'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
-                          'model-viewer { background: transparent !important; background-color: transparent !important; '
-                          '--poster-color: transparent; }',
-                      onWebViewCreated: (controller) {
-                        _webViewController = controller;
-                        _handleVehicleSceneVisible();
-                        _scheduleColorApply();
-                      },
-                    ),
+            child: FractionalTranslation(
+              translation: _vehicleModelGroundingOffset,
+              child: Transform.scale(
+                scale: _vehicleModelGlobalScale,
+                alignment: Alignment.center,
+                child: useNativeRenderer
+                    ? _NativeVehicleScene(
+                        asset: widget.vehicleModelAsset,
+                        cameraOrbit: focusedOrbit,
+                        vehicleColor: widget.vehicleColor,
+                        renderQuality: widget.renderQuality,
+                        active: widget.active,
+                        drivingMode:
+                            widget.roadMotionActive || effectModeActive,
+                        backgroundColor: sceneBackground,
+                        onVisible: _handleVehicleSceneVisible,
+                      )
+                    : ModelViewer(
+                        src: widget.vehicleModelAsset,
+                        alt:
+                            '${_vehicleModelLabel(widget.vehicleModelAsset)} 3D model',
+                        loading: Loading.eager,
+                        reveal: Reveal.auto,
+                        backgroundColor: Colors.transparent,
+                        cameraControls: !effectModeActive,
+                        autoRotate: false,
+                        disablePan: true,
+                        disableTap: true,
+                        disableZoom: true,
+                        interactionPrompt: InteractionPrompt.none,
+                        cameraOrbit: focusedOrbit,
+                        minCameraOrbit: 'auto 42deg 64%',
+                        maxCameraOrbit: 'auto 86deg 126%',
+                        fieldOfView: '19deg',
+                        minFieldOfView: '19deg',
+                        maxFieldOfView: '19deg',
+                        exposure: 0.78,
+                        shadowIntensity: 0.30,
+                        relatedCss:
+                            'html, body { background: transparent !important; margin: 0; overflow: hidden; } '
+                            'model-viewer { background: transparent !important; background-color: transparent !important; '
+                            '--poster-color: transparent; }',
+                        onWebViewCreated: (controller) {
+                          _webViewController = controller;
+                          _handleVehicleSceneVisible();
+                          _scheduleColorApply();
+                        },
+                      ),
+              ),
             ),
           ),
           if (useNativeRenderer) const _NativeSceneLightWash(),
@@ -12103,7 +12119,7 @@ class _DrivingRoadPainter extends CustomPainter {
     final motionProgress = reverse ? 1.0 - progress : progress;
     final vehicleCenterX = size.width * 0.50;
     final roadCenterX = vehicleCenterX;
-    final contactY = size.height * 0.700;
+    final contactY = size.height * 0.685;
     final glowCenter = Offset(vehicleCenterX, size.height * 0.52);
     final glowPaint = Paint()
       ..shader =
@@ -12304,8 +12320,8 @@ class _DrivingRoadPainter extends CustomPainter {
       ..shader =
           RadialGradient(
             colors: [
-              Colors.black.withValues(alpha: light ? 0.13 : 0.28),
-              Colors.black.withValues(alpha: light ? 0.055 : 0.13),
+              Colors.black.withValues(alpha: light ? 0.16 : 0.32),
+              Colors.black.withValues(alpha: light ? 0.068 : 0.15),
               Colors.transparent,
             ],
             stops: const [0.0, 0.48, 1.0],
@@ -12313,27 +12329,27 @@ class _DrivingRoadPainter extends CustomPainter {
             Rect.fromCenter(
               center: vehicleContactCenter,
               width: size.width * 0.38,
-              height: size.height * 0.145,
+              height: size.height * 0.120,
             ),
           );
     canvas.drawOval(
       Rect.fromCenter(
         center: vehicleContactCenter,
         width: size.width * 0.38,
-        height: size.height * 0.145,
+        height: size.height * 0.120,
       ),
       softShadowPaint,
     );
 
     final tireShadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: light ? 0.18 : 0.34)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+      ..color = Colors.black.withValues(alpha: light ? 0.24 : 0.40)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
     canvas
       ..drawOval(
         Rect.fromCenter(
           center: Offset(vehicleCenterX - size.width * 0.085, contactY),
           width: size.width * 0.105,
-          height: size.height * 0.055,
+          height: size.height * 0.045,
         ),
         tireShadowPaint,
       )
@@ -12341,7 +12357,7 @@ class _DrivingRoadPainter extends CustomPainter {
         Rect.fromCenter(
           center: Offset(vehicleCenterX + size.width * 0.085, contactY),
           width: size.width * 0.105,
-          height: size.height * 0.055,
+          height: size.height * 0.045,
         ),
         tireShadowPaint,
       );
@@ -12919,7 +12935,9 @@ class _MiniAction extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           border: active
               ? Border.all(
-                  color: const Color(0xFFFF6B5F).withValues(alpha: light ? 0.28 : 0.38),
+                  color: const Color(
+                    0xFFFF6B5F,
+                  ).withValues(alpha: light ? 0.28 : 0.38),
                 )
               : null,
         ),
