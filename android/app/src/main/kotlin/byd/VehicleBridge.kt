@@ -615,6 +615,13 @@ class VehicleBridge {
             label: String,
         ): Boolean {
             var success = false
+            val args = listOf(0, state).distinct()
+
+            // Use the same Kinex-observed window APIs first, then fall back to the
+            // lower-level postEvent / set / manager paths that already make full
+            // Open/Close work on this car. The previous half implementation only
+            // tried a small subset, so the pulse could fail even though Open/Close
+            // worked from the normal path.
             for (methodName in listOf("setWindowCtrlState", "setBodyWindowCtrlState")) {
                 val code = invokeBodyworkPublicIntMethod(device, methodName, command, state)
                 FileLogger.log(
@@ -631,27 +638,59 @@ class VehicleBridge {
             )
             success = publicCtrlCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
 
-            val postOk = safe("bodywork $label postEvent area=$command state=$state") {
-                device.postEvent(command, state, 0, null)
+            for (arg in args) {
+                val postOk = safe("bodywork $label postEvent area=$command state=$state arg=$arg") {
+                    device.postEvent(command, state, arg, null)
+                }
+                FileLogger.log(appContext, "BODYWORK CONTROL $label postEvent area=$command state=$state arg=$arg -> $postOk")
+                success = postOk == true || success
             }
-            FileLogger.log(appContext, "BODYWORK CONTROL $label postEvent area=$command state=$state -> $postOk")
-            success = postOk == true || success
 
-            val setCode = invokeBodyworkSetInt(device, command, state, 0)
-            FileLogger.log(
-                appContext,
-                "BODYWORK CONTROL $label device.set area=$command state=$state arg=0 -> ${bodyworkCodeLabel(setCode)}"
-            )
-            success = setCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            for (arg in args) {
+                val setCode = invokeBodyworkSetInt(device, command, state, arg)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL $label device.set area=$command state=$state arg=$arg -> ${bodyworkCodeLabel(setCode)}"
+                )
+                success = setCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            }
+
+            for (value in listOf(state, 0).distinct()) {
+                val managerCode = safe("bodywork $label manager.setInt device=$DEVICE_BODYWORK command=$command value=$value") {
+                    deviceManager?.setInt(DEVICE_BODYWORK, command, value)
+                }
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL $label manager.setInt device=$DEVICE_BODYWORK area=$command value=$value -> ${bodyworkCodeLabel(managerCode)}"
+                )
+                success = managerCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            }
 
             return success
         }
 
+        private fun bodyworkStaticInt(fieldName: String): Int? {
+            return safe("bodywork static field $fieldName") {
+                val field = BYDAutoBodyworkDevice::class.java.getField(fieldName)
+                field.getInt(null)
+            }
+        }
+
         private fun stopWindowMotion(device: BYDAutoBodyworkDevice, command: Int): Boolean {
-            // BYD SDKs differ on the stop state. Try the likely non-open/non-close
-            // control states first. Do not call full close as the first stop path,
-            // otherwise the glass may continue closing instead of stopping halfway.
-            val stopCandidates = listOf(3, 4, 5, 0).distinct()
+            // Kinex listens to onWindowOpenPercentChanged and uses ctrl-state APIs.
+            // BYD SDKs differ on the actual STOP constant, so reflect known field
+            // names first and then try the common raw state codes.
+            val stopCandidates = listOfNotNull(
+                bodyworkStaticInt("BODYWORK_STATE_STOP"),
+                bodyworkStaticInt("BODYWORK_STATE_STOPPED"),
+                bodyworkStaticInt("BODYWORK_STATE_PAUSE"),
+                bodyworkStaticInt("BODYWORK_STATE_HOLD"),
+                bodyworkStaticInt("BODYWORK_STATE_IDLE"),
+                3,
+                4,
+                5,
+                0,
+            ).distinct()
             var success = false
             for (stopState in stopCandidates) {
                 success = sendWindowCtrlState(device, command, stopState, "half-pulse-stop") || success
