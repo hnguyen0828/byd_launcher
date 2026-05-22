@@ -11938,8 +11938,8 @@ class _DrivingSkylineLayer extends StatelessWidget {
           return const SizedBox.expand();
         }
 
-        final width = size.width * (light ? 0.590 : 0.59);
-        final height = size.height * (light ? 0.156 : 0.168);
+        final width = size.width * (light ? 0.631 : 0.614);
+        final height = size.height * (light ? 0.167 : 0.175);
         final horizonY = size.height * (light ? 0.276 : 0.282);
         final skylineTop =
             horizonY - height + size.height * (light ? 0.002 : 0.006);
