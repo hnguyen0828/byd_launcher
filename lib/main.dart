@@ -35,6 +35,11 @@ const String _favoriteAppsPreferenceKey = 'launcher.favoriteApps';
 const int _favoriteAppsMaxCount = 10;
 const String _wallpaperFixedFolderPath =
     '/storage/emulated/0/Android/data/com.kimkim/files/wallpapers';
+const String _wallpaperDarkFolderName = 'dark';
+const String _wallpaperLightFolderName = 'light';
+const String _wallpaperAssetPrefix = 'asset://';
+const String _defaultDarkWallpaperAsset = 'assets/images/s6_dark.png';
+const String _defaultLightWallpaperAsset = 'assets/images/s6_light.png';
 const String _wallpaperIntervalPreferenceKey =
     'launcher.wallpaper.intervalSeconds';
 const String _wallpaperButtonEnabledPreferenceKey =
@@ -1566,6 +1571,13 @@ const Color _lightInk = Color(0xFF101827);
 const Color _lightInkSoft = Color(0xFF334155);
 const Color _lightMuted = Color(0xFF728197);
 
+String _assetWallpaperPath(String assetPath) => '$_wallpaperAssetPrefix$assetPath';
+
+bool _isAssetWallpaperPath(String path) => path.startsWith(_wallpaperAssetPrefix);
+
+String _wallpaperAssetName(String path) =>
+    path.substring(_wallpaperAssetPrefix.length);
+
 bool _isLight(BuildContext context) {
   return Theme.of(context).brightness == Brightness.light;
 }
@@ -1730,6 +1742,18 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       GlobalKey<_NavigationPanelState>();
   _VehicleSnapshot? _pendingSettingsVehicleSnapshot;
 
+  bool get _wallpaperLightMode =>
+      _effectiveBrightnessForTheme(widget.themeMode) == Brightness.light;
+
+  String get _wallpaperModeFolderName =>
+      _wallpaperLightMode ? _wallpaperLightFolderName : _wallpaperDarkFolderName;
+
+  String get _defaultWallpaperAssetPath => _assetWallpaperPath(
+    _wallpaperLightMode
+        ? _defaultLightWallpaperAsset
+        : _defaultDarkWallpaperAsset,
+  );
+
   bool get _roadMotionActive =>
       _effectiveGear == _VehicleGear.d || _effectiveGear == _VehicleGear.r;
 
@@ -1812,6 +1836,23 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _vehicleSnapshotSubscription?.cancel();
     _cancelVehicleStartupRefreshes();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LauncherHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.themeMode != widget.themeMode) {
+      _applySystemBarsForTheme(widget.themeMode);
+      unawaited(_reloadWallpapers());
+    }
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (widget.themeMode == ThemeMode.system) {
+      _applySystemBarsForTheme(widget.themeMode);
+      unawaited(_reloadWallpapers());
+    }
   }
 
   @override
@@ -2604,7 +2645,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   Future<void> _reloadWallpapers() async {
     const folder = _wallpaperFixedFolderPath;
 
-    final paths = await _scanWallpaperFolderWithFallback(folder);
+    final paths = await _scanWallpaperFolderWithFallback(
+      folder,
+      modeFolderName: _wallpaperModeFolderName,
+      defaultAssetPath: _defaultWallpaperAssetPath,
+    );
     if (!mounted) return;
     setState(() {
       _wallpaperPaths = paths;
@@ -2613,25 +2658,60 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _scheduleWallpaperTimer();
   }
 
-  Future<List<String>> _scanWallpaperFolderWithFallback(String folder) async {
+  Future<List<String>> _scanWallpaperFolderWithFallback(
+    String folder, {
+    required String modeFolderName,
+    required String defaultAssetPath,
+  }) async {
     try {
-      final directory = Directory(folder);
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
+      final rootDirectory = Directory(folder);
+      if (!await rootDirectory.exists()) {
+        await rootDirectory.create(recursive: true);
       }
-      final paths = await directory
-          .list(followLinks: false)
-          .where(
-            (entity) =>
-                entity is File && _isSupportedWallpaperPath(entity.path),
-          )
-          .map((entity) => entity.path)
-          .toList();
-      paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-      return paths;
-    } catch (_) {
-      return const [];
-    }
+
+      // Create both mode folders so users immediately know where to place
+      // Ambient wallpapers for Light and Dark themes.
+      final darkDirectory = Directory(
+        _childPath(rootDirectory.path, _wallpaperDarkFolderName),
+      );
+      final lightDirectory = Directory(
+        _childPath(rootDirectory.path, _wallpaperLightFolderName),
+      );
+      if (!await darkDirectory.exists()) {
+        await darkDirectory.create(recursive: true);
+      }
+      if (!await lightDirectory.exists()) {
+        await lightDirectory.create(recursive: true);
+      }
+
+      final modeDirectory = Directory(_childPath(rootDirectory.path, modeFolderName));
+      final modePaths = await _scanWallpaperDirectory(modeDirectory);
+      if (modePaths.isNotEmpty) return modePaths;
+
+      final fallbackPaths = await _scanWallpaperDirectory(rootDirectory);
+      if (fallbackPaths.isNotEmpty) return fallbackPaths;
+    } catch (_) {}
+
+    return [defaultAssetPath];
+  }
+
+  Future<List<String>> _scanWallpaperDirectory(Directory directory) async {
+    if (!await directory.exists()) return const [];
+    final paths = await directory
+        .list(followLinks: false)
+        .where(
+          (entity) =>
+              entity is File && _isSupportedWallpaperPath(entity.path),
+        )
+        .map((entity) => entity.path)
+        .toList();
+    paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return paths;
+  }
+
+  String _childPath(String parent, String child) {
+    if (parent.endsWith('/')) return '$parent$child';
+    return '$parent/$child';
   }
 
   bool _isSupportedWallpaperPath(String path) {
@@ -4710,9 +4790,9 @@ class _EnergyStrip extends StatelessWidget {
           final tyreCompact = constraints.maxHeight < 455;
           final showTpmsTitle = constraints.maxHeight >= 382;
           final speedSize = tightHeight ? 136.0 : 150.0;
-          final contentWidth = constraints.maxWidth < 286
+          final contentWidth = constraints.maxWidth < 304
               ? constraints.maxWidth
-              : 292.0;
+              : 304.0;
 
           return FittedBox(
             fit: BoxFit.scaleDown,
@@ -4727,7 +4807,7 @@ class _EnergyStrip extends StatelessWidget {
                     children: [
                       Icon(
                         Icons.directions_car_filled_outlined,
-                        size: 17,
+                        size: 19,
                         color: _accentSoftBlue,
                       ),
                       const SizedBox(width: 7),
@@ -4738,9 +4818,9 @@ class _EnergyStrip extends StatelessWidget {
                           Theme.of(context).textTheme.labelLarge,
                           color: _textMuted,
                           weight: FontWeight.w700,
-                          size: 12.5,
+                          size: 14.0,
                           height: 1,
-                          letterSpacing: 0.25,
+                          letterSpacing: 0.20,
                         ),
                       ),
                       const Spacer(),
@@ -4767,7 +4847,7 @@ class _EnergyStrip extends StatelessWidget {
                           children: [
                             Icon(
                               Icons.wb_sunny_outlined,
-                              size: 13,
+                              size: 14,
                               color: _tone(context, _textSecondary),
                             ),
                             const SizedBox(width: 5),
@@ -4780,7 +4860,7 @@ class _EnergyStrip extends StatelessWidget {
                                 Theme.of(context).textTheme.labelMedium,
                                 color: _textSecondary,
                                 weight: FontWeight.w600,
-                                size: 11.5,
+                                size: 12.8,
                                 height: 1,
                               ),
                             ),
@@ -4789,7 +4869,7 @@ class _EnergyStrip extends StatelessWidget {
                       ),
                     ],
                   ),
-                  SizedBox(height: compactHeight ? 12 : 16),
+                  SizedBox(height: compactHeight ? 11 : 15),
                   Center(
                     child: SizedBox(
                       width: speedSize,
@@ -4802,13 +4882,13 @@ class _EnergyStrip extends StatelessWidget {
                       ),
                     ),
                   ),
-                  SizedBox(height: tightHeight ? 12 : 15),
+                  SizedBox(height: tightHeight ? 11 : 14),
                   _StatusMetricRow(
                     icon: Icons.route_outlined,
                     label: _t(context, 'range'),
                     value: range == null ? '-- km' : '$range km',
                   ),
-                  SizedBox(height: tightHeight ? 8 : 10),
+                  SizedBox(height: tightHeight ? 7 : 9),
                   Row(
                     children: [
                       Expanded(
@@ -4832,15 +4912,15 @@ class _EnergyStrip extends StatelessWidget {
                       ),
                     ],
                   ),
-                  SizedBox(height: compactHeight ? 12 : 15),
+                  SizedBox(height: compactHeight ? 10 : 13),
                   const _StatusDivider(),
-                  SizedBox(height: compactHeight ? 9 : 11),
+                  SizedBox(height: compactHeight ? 8 : 10),
                   if (showTpmsTitle) ...[
                     _StatusSectionHeader(
                       icon: Icons.tire_repair,
                       label: _t(context, 'tpms'),
                     ),
-                    SizedBox(height: compactHeight ? 7 : 9),
+                    SizedBox(height: compactHeight ? 6 : 8),
                   ],
                   _TyrePressureMiniGrid(
                     snapshot: snapshot,
@@ -4890,7 +4970,7 @@ class _StatusSectionHeader extends StatelessWidget {
       children: [
         Icon(
           icon,
-          size: 14,
+          size: 15,
           color: _AmbientUiScope.enabledOf(context) && _isLight(context)
               ? const Color(0xFF6C9FD4)
               : _accentSoftBlue.withValues(
@@ -4905,9 +4985,9 @@ class _StatusSectionHeader extends StatelessWidget {
             Theme.of(context).textTheme.labelSmall,
             color: _textMuted,
             weight: FontWeight.w700,
-            size: 10.8,
+            size: 12.0,
             height: 1,
-            letterSpacing: 0.28,
+            letterSpacing: 0.22,
           ),
         ),
       ],
@@ -4933,7 +5013,7 @@ class _StatusMetricRow extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(icon, size: 14, color: _tone(context, _textMuted)),
+            Icon(icon, size: 16, color: _tone(context, _textMuted)),
             const SizedBox(width: 7),
             Expanded(
               child: Text(
@@ -4945,7 +5025,7 @@ class _StatusMetricRow extends StatelessWidget {
                   Theme.of(context).textTheme.labelMedium,
                   color: _textSecondary,
                   weight: FontWeight.w500,
-                  size: 11.6,
+                  size: 13.0,
                   height: 1,
                 ),
               ),
@@ -4959,7 +5039,7 @@ class _StatusMetricRow extends StatelessWidget {
                 Theme.of(context).textTheme.labelMedium,
                 color: _textPrimary,
                 weight: FontWeight.w700,
-                size: 12.4,
+                size: 13.8,
                 height: 1,
               ),
             ),
@@ -4996,7 +5076,7 @@ class _StatusPercentBar extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(icon, size: 14, color: _tone(context, _textMuted)),
+            Icon(icon, size: 16, color: _tone(context, _textMuted)),
             const SizedBox(width: 7),
             Expanded(
               child: Text(
@@ -5008,7 +5088,7 @@ class _StatusPercentBar extends StatelessWidget {
                   Theme.of(context).textTheme.labelMedium,
                   color: _textSecondary,
                   weight: FontWeight.w500,
-                  size: compact ? 10.6 : 11.6,
+                  size: compact ? 12.0 : 13.0,
                   height: 1,
                 ),
               ),
@@ -5022,7 +5102,7 @@ class _StatusPercentBar extends StatelessWidget {
                 Theme.of(context).textTheme.labelMedium,
                 color: _textPrimary,
                 weight: FontWeight.w800,
-                size: compact ? 12.0 : 12.8,
+                size: compact ? 13.2 : 14.0,
                 height: 1,
               ),
             ),
@@ -5033,7 +5113,7 @@ class _StatusPercentBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           child: LinearProgressIndicator(
             value: percent ?? 0,
-            minHeight: compact ? 3.8 : 4.2,
+            minHeight: compact ? 4.2 : 4.6,
             color: accent.withValues(alpha: _isLight(context) ? 0.86 : 0.92),
             backgroundColor: _isLight(context)
                 ? const Color(0xFFD4E0EB).withValues(alpha: 0.86)
@@ -5301,8 +5381,8 @@ class _TyrePressurePill extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 5 : 6,
-        vertical: compact ? 4 : 5,
+        horizontal: compact ? 4 : 5,
+        vertical: compact ? 3.5 : 4.5,
       ),
       decoration: BoxDecoration(
         color: warning
@@ -5313,8 +5393,8 @@ class _TyrePressurePill extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: compact ? 7 : 8,
-            height: compact ? 7 : 8,
+            width: compact ? 8 : 9,
+            height: compact ? 8 : 9,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: warning
@@ -5343,7 +5423,7 @@ class _TyrePressurePill extends StatelessWidget {
               Theme.of(context).textTheme.labelSmall,
               color: _textMuted,
               weight: FontWeight.w700,
-              size: compact ? 9.5 : 10.5,
+              size: compact ? 11.0 : 12.0,
               height: 1,
               letterSpacing: 0.2,
             ),
@@ -5358,7 +5438,7 @@ class _TyrePressurePill extends StatelessWidget {
               Theme.of(context).textTheme.labelMedium,
               color: _textPrimary,
               weight: FontWeight.w700,
-              size: compact ? 10.5 : 11.5,
+              size: compact ? 12.0 : 13.0,
               height: 1,
             ),
           ),
@@ -6955,6 +7035,14 @@ class _WallpaperPanelState extends State<_WallpaperPanel> {
   }
 
   ImageProvider _wallpaperProvider(String path) {
+    if (_isAssetWallpaperPath(path)) {
+      return ResizeImage(
+        AssetImage(_wallpaperAssetName(path)),
+        width: _wallpaperDecodeWidth,
+        height: _wallpaperDecodeHeight,
+      );
+    }
+
     return ResizeImage(
       FileImage(File(path)),
       width: _wallpaperDecodeWidth,
