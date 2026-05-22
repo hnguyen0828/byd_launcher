@@ -9987,6 +9987,20 @@ class _LightStatusPainter extends CustomPainter {
 const double _vehicleModelGlobalScale = 0.92;
 const Offset _vehicleModelGroundingOffset = Offset(0, 0.022);
 
+class _VehicleModelAnchoredOverlay extends StatelessWidget {
+  const _VehicleModelAnchoredOverlay({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return FractionalTranslation(
+      translation: _vehicleModelGroundingOffset,
+      child: child,
+    );
+  }
+}
+
 class _VehicleHero extends StatefulWidget {
   const _VehicleHero({
     required this.enable3dModel,
@@ -10141,8 +10155,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
             reverse: widget.reverseRoadMotion,
             speedKmh: widget.vehicleSpeedKmh,
           ),
-          _LightStatusOverlay(
-            mode: signalModeActive ? _DemoLightMode.off : visibleLightMode,
+          _VehicleModelAnchoredOverlay(
+            child: _LightStatusOverlay(
+              mode: signalModeActive ? _DemoLightMode.off : visibleLightMode,
+            ),
           ),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
@@ -10212,16 +10228,22 @@ class _VehicleHeroState extends State<_VehicleHero> {
               ),
             ),
           ),
+          const _VehicleContactShadowOverlay(),
           if (useNativeRenderer) const _NativeSceneLightWash(),
           if (!useNativeRenderer) const _ModelStartupCover(),
           // Draw brake glow above the 3D renderer so it remains visible on
           // Android native scene. The glow itself is compact and tyre-aligned,
           // so it reads like rear brake illumination instead of a red wash.
-          _BrakeStatusOverlay(
-            active: widget.brakeActive,
-            intensity: widget.brakeIntensity,
+          _VehicleModelAnchoredOverlay(
+            child: _BrakeStatusOverlay(
+              active: widget.brakeActive,
+              intensity: widget.brakeIntensity,
+            ),
           ),
-          if (signalModeActive) _LightStatusOverlay(mode: visibleLightMode),
+          if (signalModeActive)
+            _VehicleModelAnchoredOverlay(
+              child: _LightStatusOverlay(mode: visibleLightMode),
+            ),
           if (effectModeActive)
             Positioned.fill(
               child: GestureDetector(
@@ -12481,6 +12503,82 @@ class _DrivingRoadPainter extends CustomPainter {
     return oldDelegate.progress != progress ||
         oldDelegate.light != light ||
         oldDelegate.reverse != reverse;
+  }
+}
+
+class _VehicleContactShadowOverlay extends StatelessWidget {
+  const _VehicleContactShadowOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _VehicleContactShadowPainter(light: _isLight(context)),
+      ),
+    );
+  }
+}
+
+class _VehicleContactShadowPainter extends CustomPainter {
+  const _VehicleContactShadowPainter({required this.light});
+
+  final bool light;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width * 0.50;
+    final contactY = size.height * 0.703;
+    final wheelHalfGap = size.width * 0.083;
+
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(0, size.height * 0.625, size.width, size.height * 0.14),
+    );
+
+    final contactPaint = Paint()
+      ..color = Colors.black.withValues(alpha: light ? 0.17 : 0.30)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+
+    for (final side in const [-1.0, 1.0]) {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(centerX + wheelHalfGap * side, contactY),
+          width: size.width * 0.075,
+          height: size.height * 0.030,
+        ),
+        contactPaint,
+      );
+    }
+
+    final underbodyPaint = Paint()
+      ..shader =
+          RadialGradient(
+            colors: [
+              Colors.black.withValues(alpha: light ? 0.060 : 0.13),
+              Colors.transparent,
+            ],
+          ).createShader(
+            Rect.fromCenter(
+              center: Offset(centerX, contactY - size.height * 0.010),
+              width: size.width * 0.22,
+              height: size.height * 0.048,
+            ),
+          );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(centerX, contactY - size.height * 0.010),
+        width: size.width * 0.22,
+        height: size.height * 0.048,
+      ),
+      underbodyPaint,
+    );
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _VehicleContactShadowPainter oldDelegate) {
+    return oldDelegate.light != light;
   }
 }
 
