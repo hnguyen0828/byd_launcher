@@ -204,16 +204,23 @@ class VehicleBridge {
             ensureListenersRegistered()
             val area = (call.argument<Any>("area") as? Number)?.toInt()
                 ?: return mapOf("ok" to false, "error" to "Missing area")
-            val explicitPercent = (call.argument<Any>("percent") as? Number)
-                ?.toInt()
-                ?.coerceIn(
-                    BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN,
-                    BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX,
-                )
+            val requestedPercent = windowPercentFromCall(call)
+            val explicitPercent = requestedPercent?.let { normalizeWindowPercent(it.first, it.second) }
             val state = stateFromAction(call.argument<String>("action"), call.argument<Int>("state"), explicitPercent)
             val ok = postBodyworkEvent(area, state, explicitPercent)
-            FileLogger.log(appContext, "BODYWORK CONTROL window area=$area state=$state percent=$explicitPercent ok=$ok")
-            return mapOf("ok" to ok, "area" to area, "state" to state, "percent" to explicitPercent)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL window area=$area state=$state rawPercent=${requestedPercent?.first} " +
+                    "percent10=${requestedPercent?.second} sdkPercent=$explicitPercent ok=$ok"
+            )
+            return mapOf(
+                "ok" to ok,
+                "area" to area,
+                "state" to state,
+                "percent" to explicitPercent,
+                "rawPercent" to requestedPercent?.first,
+                "percent10" to requestedPercent?.second,
+            )
         }
 
         private fun controlSunroof(call: MethodCall): Map<String, Any?> {
@@ -283,6 +290,37 @@ class VehicleBridge {
             return mapOf("ok" to success, "mode" to mode, "state" to state, "commands" to commands.map { "${it.first}:${it.second}" })
         }
 
+        private fun windowPercentFromCall(call: MethodCall): Pair<Int, Boolean>? {
+            val percent10 = (call.argument<Any>("percent10") as? Number)?.toInt()
+            if (percent10 != null) return percent10 to true
+
+            val targetPercent = (call.argument<Any>("targetPercent") as? Number)?.toInt()
+            if (targetPercent != null) return targetPercent to false
+
+            val percent = (call.argument<Any>("percent") as? Number)?.toInt()
+            if (percent != null) return percent to false
+
+            return null
+        }
+
+        private fun normalizeWindowPercent(rawPercent: Int, percent10: Boolean): Int {
+            val min = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN
+            val max = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX
+            if (percent10) {
+                return if (max <= 10) {
+                    rawPercent.coerceIn(min, max)
+                } else {
+                    (rawPercent * 10).coerceIn(min, max)
+                }
+            }
+
+            return if (max <= 10 && rawPercent > max) {
+                ((rawPercent / 100.0) * max).roundToInt().coerceIn(min, max)
+            } else {
+                rawPercent.coerceIn(min, max)
+            }
+        }
+
         private fun stateFromAction(action: String?, explicitState: Int?, percent: Int? = null): Int {
             if (explicitState != null) return explicitState
             if (percent != null) {
@@ -297,6 +335,26 @@ class VehicleBridge {
                 "close", "down", "off", "stop" -> BYDAutoBodyworkDevice.BODYWORK_STATE_CLOSED
                 else -> 1
             }
+        }
+
+        private fun windowTargetPercentAttempts(targetPercent: Int): List<Int> {
+            val min = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN
+            val max = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX
+            val attempts = mutableListOf<Int>()
+            fun add(value: Int) {
+                val coerced = value.coerceIn(min, max)
+                if (!attempts.contains(coerced)) attempts.add(coerced)
+            }
+
+            add(targetPercent)
+            if (max <= 10) {
+                add(((targetPercent / 10.0).roundToInt()))
+                add(((targetPercent / 100.0) * max).roundToInt())
+            } else {
+                add(targetPercent * 10)
+                add(((targetPercent / max.toDouble()) * 100.0).roundToInt())
+            }
+            return attempts
         }
 
         private fun postBodyworkEvent(command: Int, state: Int, explicitPercent: Int? = null): Boolean {
@@ -317,66 +375,68 @@ class VehicleBridge {
                     "deviceType=${safe("bodywork getType before control") { device.getType() }}"
             )
 
+            val targetPercentAttempts = windowTargetPercentAttempts(targetPercent)
             val targetFeatureId = bodyworkWindowTargetFeatureId(command)
             var success = false
             if (targetFeatureId != null) {
-                val targetCode = invokeBodyworkSetInt(device, DEVICE_BODYWORK, targetFeatureId, targetPercent)
-                FileLogger.log(
-                    appContext,
-                    "BODYWORK CONTROL kinex-target set device=$DEVICE_BODYWORK feature=0x${targetFeatureId.toString(16)} " +
-                        "area=$command percent=$targetPercent -> ${bodyworkCodeLabel(targetCode)}"
-                )
-                success = targetCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS
+                for (percentValue in targetPercentAttempts) {
+                    val targetCode = invokeBodyworkSetInt(device, DEVICE_BODYWORK, targetFeatureId, percentValue)
+                    FileLogger.log(
+                        appContext,
+                        "BODYWORK CONTROL kinex-target set device=$DEVICE_BODYWORK feature=0x${targetFeatureId.toString(16)} " +
+                            "area=$command percent=$percentValue -> ${bodyworkCodeLabel(targetCode)}"
+                    )
+                    success = targetCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
 
-                val managerTargetCode = safe("bodywork manager.setInt target feature=$targetFeatureId percent=$targetPercent") {
-                    deviceManager?.setInt(DEVICE_BODYWORK, targetFeatureId, targetPercent)
+                    val managerTargetCode = safe("bodywork manager.setInt target feature=$targetFeatureId percent=$percentValue") {
+                        deviceManager?.setInt(DEVICE_BODYWORK, targetFeatureId, percentValue)
+                    }
+                    FileLogger.log(
+                        appContext,
+                        "BODYWORK CONTROL kinex-target manager.setInt device=$DEVICE_BODYWORK feature=0x${targetFeatureId.toString(16)} " +
+                            "area=$command percent=$percentValue -> ${bodyworkCodeLabel(managerTargetCode)}"
+                    )
+                    success = managerTargetCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
                 }
-                FileLogger.log(
-                    appContext,
-                    "BODYWORK CONTROL kinex-target manager.setInt device=$DEVICE_BODYWORK feature=0x${targetFeatureId.toString(16)} " +
-                        "area=$command percent=$targetPercent -> ${bodyworkCodeLabel(managerTargetCode)}"
-                )
-                success = managerTargetCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
             } else {
                 FileLogger.log(appContext, "BODYWORK CONTROL kinex-target no feature id for area=$command")
             }
 
-            val targetPercentCode = invokeBodyworkPublicIntMethod(device, "setWindowTargetPercent", command, targetPercent)
-            FileLogger.log(
-                appContext,
-                "BODYWORK CONTROL kinex-method setWindowTargetPercent area=$command percent=$targetPercent -> ${bodyworkCodeLabel(targetPercentCode)}"
-            )
-            success = targetPercentCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
-
-            for (methodName in listOf(
-                "setWindowTargetPosition",
-                "setWindowOpenPercent",
-                "setWindowOpenPercentage",
-            )) {
-                val code = invokeBodyworkPublicIntMethod(device, methodName, command, targetPercent)
+            for (percentValue in targetPercentAttempts) {
+                val targetPercentCode = invokeBodyworkPublicIntMethod(device, "setWindowTargetPercent", command, percentValue)
                 FileLogger.log(
                     appContext,
-                    "BODYWORK CONTROL target-method $methodName area=$command percent=$targetPercent -> ${bodyworkCodeLabel(code)}"
+                    "BODYWORK CONTROL kinex-method setWindowTargetPercent area=$command percent=$percentValue -> ${bodyworkCodeLabel(targetPercentCode)}"
                 )
-                success = code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
-            }
+                success = targetPercentCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
 
-            if (isPartialWindowTarget && success) {
-                FileLogger.log(
-                    appContext,
-                    "BODYWORK CONTROL partial window target accepted area=$command percent=$targetPercent; skip full open/close ctrl"
-                )
-                logWindowStatusAfterControl(command)
-                return true
+                for (methodName in listOf(
+                    "setWindowTargetPosition",
+                    "setWindowOpenPercent",
+                    "setWindowOpenPercentage",
+                )) {
+                    val code = invokeBodyworkPublicIntMethod(device, methodName, command, percentValue)
+                    FileLogger.log(
+                        appContext,
+                        "BODYWORK CONTROL target-method $methodName area=$command percent=$percentValue -> ${bodyworkCodeLabel(code)}"
+                    )
+                    success = code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+                }
             }
 
             if (isPartialWindowTarget) {
+                // Some BYD / DiLink builds accept target-percent APIs but do not
+                // physically move the glass. Because full Open/Close already works
+                // on this vehicle, use a premium-safe pulse fallback: start opening
+                // or closing, then send a stop pulse after a calibrated short delay.
+                val pulseOk = postWindowHalfPulseFallback(device, command, targetPercent)
                 FileLogger.log(
                     appContext,
-                    "BODYWORK CONTROL partial window target failed area=$command percent=$targetPercent; skip full open/close ctrl fallback"
+                    "BODYWORK CONTROL partial window target area=$command percent=$targetPercent " +
+                        "directAccepted=$success pulseFallback=$pulseOk"
                 )
                 logWindowStatusAfterControl(command)
-                return false
+                return pulseOk || success
             }
 
             val ctrlStateCode = invokeBodyworkPublicIntMethod(device, "setWindowCtrlState", command, state)
@@ -481,6 +541,123 @@ class VehicleBridge {
             FileLogger.log(appContext, "BODYWORK CONTROL all control paths failed command=$command state=$state")
             logWindowStatusAfterControl(command)
             return false
+        }
+
+        private fun postWindowHalfPulseFallback(
+            device: BYDAutoBodyworkDevice,
+            command: Int,
+            targetPercent: Int,
+        ): Boolean {
+            val currentPercent = readWindowPercentForControl(device, command)
+            val min = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN
+            val max = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX
+            val midpoint = ((min + max) / 2.0).roundToInt()
+            val tolerance = kotlin.math.max(1, ((max - min) * 0.08).roundToInt())
+
+            if (currentPercent != null && kotlin.math.abs(currentPercent - targetPercent) <= tolerance) {
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL half-pulse skip area=$command current=$currentPercent target=$targetPercent tolerance=$tolerance"
+                )
+                return true
+            }
+
+            val shouldClose = currentPercent?.let { it > targetPercent } ?: false
+            val driveState = if (shouldClose) {
+                BYDAutoBodyworkDevice.BODYWORK_STATE_CLOSED
+            } else {
+                BYDAutoBodyworkDevice.BODYWORK_STATE_OPEN
+            }
+
+            val distanceRatio = currentPercent?.let {
+                val span = kotlin.math.max(1, max - min)
+                (kotlin.math.abs(it - targetPercent).toDouble() / span.toDouble()).coerceIn(0.25, 0.65)
+            } ?: if (targetPercent <= midpoint) 0.50 else 0.35
+            val pulseMs = (520L + (distanceRatio * 950L).roundToInt()).coerceIn(650, 1150).toLong()
+
+            val startOk = sendWindowCtrlState(device, command, driveState, "half-pulse-start")
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL half-pulse start area=$command current=$currentPercent target=$targetPercent " +
+                    "driveState=$driveState pulseMs=$pulseMs ok=$startOk"
+            )
+            if (!startOk) return false
+
+            mainHandler.postDelayed({
+                val stopOk = stopWindowMotion(device, command)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL half-pulse stop area=$command target=$targetPercent ok=$stopOk"
+                )
+                logWindowStatusAfterControl(command)
+            }, pulseMs)
+
+            return true
+        }
+
+        private fun readWindowPercentForControl(device: BYDAutoBodyworkDevice, area: Int): Int? {
+            val polled = safe("bodywork read window percent before half area=$area") {
+                device.getWindowOpenPercent(area)
+            }
+            val min = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MIN
+            val max = BYDAutoBodyworkDevice.WINDOW_OPEN_PERCENT_MAX
+            if (polled != null && polled in min..max) {
+                window(area).percent = polled
+                return polled
+            }
+            return cachedWindows[area]?.percent?.takeIf { it in min..max }
+        }
+
+        private fun sendWindowCtrlState(
+            device: BYDAutoBodyworkDevice,
+            command: Int,
+            state: Int,
+            label: String,
+        ): Boolean {
+            var success = false
+            for (methodName in listOf("setWindowCtrlState", "setBodyWindowCtrlState")) {
+                val code = invokeBodyworkPublicIntMethod(device, methodName, command, state)
+                FileLogger.log(
+                    appContext,
+                    "BODYWORK CONTROL $label $methodName area=$command state=$state -> ${bodyworkCodeLabel(code)}"
+                )
+                success = code == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+            }
+
+            val publicCtrlCode = invokeBodyworkSetInt(device, DEVICE_BODYWORK, command, state)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL $label public-ctrl device=$DEVICE_BODYWORK area=$command state=$state -> ${bodyworkCodeLabel(publicCtrlCode)}"
+            )
+            success = publicCtrlCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+            val postOk = safe("bodywork $label postEvent area=$command state=$state") {
+                device.postEvent(command, state, 0, null)
+            }
+            FileLogger.log(appContext, "BODYWORK CONTROL $label postEvent area=$command state=$state -> $postOk")
+            success = postOk == true || success
+
+            val setCode = invokeBodyworkSetInt(device, command, state, 0)
+            FileLogger.log(
+                appContext,
+                "BODYWORK CONTROL $label device.set area=$command state=$state arg=0 -> ${bodyworkCodeLabel(setCode)}"
+            )
+            success = setCode == BYDAutoBodyworkDevice.BODYWORK_COMMAND_SUCCESS || success
+
+            return success
+        }
+
+        private fun stopWindowMotion(device: BYDAutoBodyworkDevice, command: Int): Boolean {
+            // BYD SDKs differ on the stop state. Try the likely non-open/non-close
+            // control states first. Do not call full close as the first stop path,
+            // otherwise the glass may continue closing instead of stopping halfway.
+            val stopCandidates = listOf(3, 4, 5, 0).distinct()
+            var success = false
+            for (stopState in stopCandidates) {
+                success = sendWindowCtrlState(device, command, stopState, "half-pulse-stop") || success
+                if (success) break
+            }
+            return success
         }
 
         private fun postSunshadeEvent(state: Int, percent: Int): Boolean {

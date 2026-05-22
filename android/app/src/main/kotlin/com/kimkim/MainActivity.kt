@@ -70,13 +70,14 @@ class MainActivity : FlutterActivity() {
         lastSystemBarsDark = dark
         applyLauncherSystemUiNow(dark)
 
-        // Flutter/DiLink may re-apply immersive or edge-to-edge flags shortly after
-        // Activity creation/resume. Re-assert the same bar policy a few times, the
-        // same way Kinex keeps the OEM bars in sync with Light/Dark mode.
+        // Flutter/DiLink/BYD shell can re-apply dark/immersive system-bar flags
+        // after Activity resume, after Flutter first frame, and after window focus.
+        // Re-assert the latest launcher theme for a longer window so Light mode
+        // survives OEM post-processing on the real head unit.
         systemUiHandler.post { applyLauncherSystemUiNow(dark) }
-        systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, 80L)
-        systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, 250L)
-        systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, 900L)
+        for (delay in listOf(80L, 250L, 900L, 1700L, 2600L)) {
+            systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, delay)
+        }
     }
 
     private fun applyLauncherSystemUiNow(dark: Boolean) {
@@ -98,6 +99,7 @@ class MainActivity : FlutterActivity() {
 
         window.statusBarColor = barColor
         window.navigationBarColor = barColor
+        window.decorView.setBackgroundColor(barColor)
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             window.navigationBarDividerColor = barColor
@@ -107,6 +109,18 @@ class MainActivity : FlutterActivity() {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
+
+        // Set legacy flags first. On Android 11+ / some BYD builds, assigning
+        // systemUiVisibility after WindowInsetsController can wipe the light-bar
+        // appearance bits, leaving white icons / dark-looking bars in Light mode.
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
+        if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        }
+        window.decorView.systemUiVisibility = flags
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(true)
@@ -121,15 +135,6 @@ class MainActivity : FlutterActivity() {
                 controller.setSystemBarsAppearance(appearance, lightAppearance)
             }
         }
-
-        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-        }
-        if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        }
-        window.decorView.systemUiVisibility = flags
     }
 
     private fun resolveInitialSystemBarsDark(): Boolean {

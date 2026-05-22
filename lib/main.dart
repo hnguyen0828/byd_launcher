@@ -534,6 +534,14 @@ void _applyNativeSystemBars({required bool dark}) {
     const Duration(milliseconds: 900),
     () => unawaited(apply()),
   );
+  Future<void>.delayed(
+    const Duration(milliseconds: 1700),
+    () => unawaited(apply()),
+  );
+  Future<void>.delayed(
+    const Duration(milliseconds: 2600),
+    () => unawaited(apply()),
+  );
 }
 
 void _preloadVehicleModelAssets() {
@@ -10573,41 +10581,49 @@ class _VehicleHeroState extends State<_VehicleHero> {
     _VehicleHotspot hotspot,
     double level,
   ) async {
-    final windowHotspot = _windowAreaForHotspot(hotspot) != null;
+    final windowArea = _windowAreaForHotspot(hotspot);
+    final windowHotspot = windowArea != null;
     final targetLevel = windowHotspot ? _snapWindowLevel(level) : level;
-    final action = targetLevel >= 0.5 ? 'open' : 'close';
+    final targetPercent = (targetLevel * 100).round();
+    final targetPercent10 = (targetLevel * 10).round();
+    final action = windowHotspot
+        ? targetLevel <= 0.02
+              ? 'close'
+              : targetLevel >= 0.98
+              ? 'open'
+              : 'target'
+        : targetLevel >= 0.5
+        ? 'open'
+        : 'close';
     String method;
     Map<String, Object?> arguments;
+
+    Map<String, Object?> windowArgs() => {
+      'area': windowArea,
+      'action': action,
+      // Keep the original 0-100 percentage for current/new bridge builds.
+      'percent': targetPercent,
+      'targetPercent': targetPercent,
+      // BYD ROMs differ: some window APIs use 0-10 instead of 0-100.
+      // The native bridge can try this as a fallback for the 1/2 button.
+      'percent10': targetPercent10,
+      'targetLevel': targetLevel,
+      'partial': targetLevel > 0.02 && targetLevel < 0.98,
+    };
 
     switch (hotspot) {
       case _VehicleHotspot.frontLeftWindow:
         method = 'controlWindow';
-        arguments = {
-          'area': _windowAreaForHotspot(hotspot),
-          'action': action,
-          'percent': (targetLevel * 100).round(),
-        };
+        arguments = windowArgs();
       case _VehicleHotspot.frontRightWindow:
         method = 'controlWindow';
-        arguments = {
-          'area': _windowAreaForHotspot(hotspot),
-          'action': action,
-          'percent': (targetLevel * 100).round(),
-        };
+        arguments = windowArgs();
       case _VehicleHotspot.rearLeftWindow:
         method = 'controlWindow';
-        arguments = {
-          'area': _windowAreaForHotspot(hotspot),
-          'action': action,
-          'percent': (targetLevel * 100).round(),
-        };
+        arguments = windowArgs();
       case _VehicleHotspot.rearRightWindow:
         method = 'controlWindow';
-        arguments = {
-          'area': _windowAreaForHotspot(hotspot),
-          'action': action,
-          'percent': (targetLevel * 100).round(),
-        };
+        arguments = windowArgs();
       case _VehicleHotspot.sunroof:
         method = 'controlSunroof';
         arguments = {'action': action};
@@ -10622,7 +10638,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
         arguments,
       );
       debugPrint(
-        'BODYWORK $method action=$action ok=${result?['ok']} result=$result',
+        'BODYWORK $method action=$action target=$targetPercent% ok=${result?['ok']} result=$result',
       );
     } on PlatformException catch (error) {
       debugPrint(
