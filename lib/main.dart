@@ -1637,17 +1637,10 @@ TextStyle? _sharp(
 }) {
   final light = _isLight(context);
   final ambientMode = _AmbientUiScope.enabledOf(context);
-  final effectiveWeight = ambientMode && light
-      ? (weight == FontWeight.w300
-            ? FontWeight.w500
-            : weight == FontWeight.w400
-            ? FontWeight.w600
-            : weight == FontWeight.w500
-            ? FontWeight.w700
-            : weight == FontWeight.w600
-            ? FontWeight.w700
-            : weight)
-      : weight;
+  // Keep Ambient light text crisp without artificially increasing the
+  // requested weight. The previous weight bump made widget labels look bolder
+  // than the rest of the launcher in Light mode.
+  final effectiveWeight = weight;
 
   return base?.copyWith(
     color: _tone(context, color),
@@ -1659,14 +1652,14 @@ TextStyle? _sharp(
     shadows: ambientMode && light
         ? const [
             Shadow(
-              color: Color(0xE6FFFFFF),
-              blurRadius: 10,
+              color: Color(0x99FFFFFF),
+              blurRadius: 6,
               offset: Offset(0, 0),
             ),
             Shadow(
-              color: Color(0x33000000),
-              blurRadius: 1.2,
-              offset: Offset(0, 0.4),
+              color: Color(0x1A000000),
+              blurRadius: 0.8,
+              offset: Offset(0, 0.25),
             ),
           ]
         : null,
