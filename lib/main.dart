@@ -3007,82 +3007,94 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
       onTapOutside: (_) => _exitEditing(),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final itemExtent = widget.compactVisual
-              ? (constraints.maxWidth >= 430 ? 70.0 : 56.0)
-              : (constraints.maxWidth >= 430 ? 74.0 : 60.0);
-          final addExtent = widget.compactVisual
-              ? (constraints.maxWidth >= 430 ? 72.0 : 56.0)
-              : (constraints.maxWidth >= 430 ? 78.0 : 60.0);
+          final minSlotExtent = widget.compactVisual
+              ? (constraints.maxWidth >= 430 ? 56.0 : 50.0)
+              : (constraints.maxWidth >= 430 ? 58.0 : 52.0);
+          final includeAddButton = canAdd || visibleApps.isEmpty;
+          final slotCount = math.max(
+            1,
+            visibleApps.length + (includeAddButton ? 1 : 0),
+          );
+          final fittedSlotExtent = constraints.maxWidth / slotCount;
+          final slotExtent = math.max(minSlotExtent, fittedSlotExtent);
+          final contentWidth = math.max(constraints.maxWidth, slotExtent * slotCount);
 
-          return Row(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      for (final app in visibleApps)
-                        SizedBox(
-                          width: itemExtent,
-                          child: DragTarget<_LauncherApp>(
-                            onWillAcceptWithDetails: (details) =>
-                                details.data.packageName != app.packageName,
-                            onAcceptWithDetails: (details) {
-                              _enterEditing();
-                              _reorder(details.data, app);
-                            },
-                            builder: (context, candidateData, rejectedData) {
-                              final highlighted = candidateData.isNotEmpty;
-                              final button = _FavoriteAppButton(
-                                app: app,
-                                editing: _editing,
-                                highlighted: highlighted,
-                                compactVisual: widget.compactVisual,
-                                onTap: () => _editing
-                                    ? _exitEditing()
-                                    : widget.onAppTap(app),
-                                onLongPress: _enterEditing,
-                                onRemove: () => widget.onRemove(app),
-                              );
+          Widget appSlot(_LauncherApp app) {
+            return SizedBox(
+              width: slotExtent,
+              child: Center(
+                child: DragTarget<_LauncherApp>(
+                  onWillAcceptWithDetails: (details) =>
+                      details.data.packageName != app.packageName,
+                  onAcceptWithDetails: (details) {
+                    _enterEditing();
+                    _reorder(details.data, app);
+                  },
+                  builder: (context, candidateData, rejectedData) {
+                    final highlighted = candidateData.isNotEmpty;
+                    final button = _FavoriteAppButton(
+                      app: app,
+                      editing: _editing,
+                      highlighted: highlighted,
+                      compactVisual: widget.compactVisual,
+                      onTap: () => _editing
+                          ? _exitEditing()
+                          : widget.onAppTap(app),
+                      onLongPress: _enterEditing,
+                      onRemove: () => widget.onRemove(app),
+                    );
 
-                              return LongPressDraggable<_LauncherApp>(
-                                data: app,
-                                delay: const Duration(milliseconds: 220),
-                                onDragStarted: _enterEditing,
-                                feedback: Material(
-                                  color: Colors.transparent,
-                                  child: SizedBox(
-                                    width: itemExtent,
-                                    height: widget.compactVisual ? 54 : 58,
-                                    child: button,
-                                  ),
-                                ),
-                                childWhenDragging: Opacity(
-                                  opacity: 0.32,
-                                  child: button,
-                                ),
-                                child: button,
-                              );
-                            },
-                          ),
+                    return LongPressDraggable<_LauncherApp>(
+                      data: app,
+                      delay: const Duration(milliseconds: 220),
+                      onDragStarted: _enterEditing,
+                      feedback: Material(
+                        color: Colors.transparent,
+                        child: SizedBox(
+                          width: slotExtent,
+                          height: widget.compactVisual ? 54 : 58,
+                          child: Center(child: button),
                         ),
-                    ],
-                  ),
+                      ),
+                      childWhenDragging: Opacity(
+                        opacity: 0.32,
+                        child: button,
+                      ),
+                      child: button,
+                    );
+                  },
                 ),
               ),
-              if (canAdd || visibleApps.isEmpty) ...[
-                const SizedBox(width: 6),
-                SizedBox(
-                  width: addExtent,
-                  child: _AddFavoriteAppButton(
-                    onTap: widget.onEditTap,
-                    compactVisual: widget.compactVisual,
-                  ),
+            );
+          }
+
+          Widget addSlot() {
+            return SizedBox(
+              width: slotExtent,
+              child: Center(
+                child: _AddFavoriteAppButton(
+                  onTap: widget.onEditTap,
+                  compactVisual: widget.compactVisual,
                 ),
-              ],
-            ],
+              ),
+            );
+          }
+
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: contentWidth > constraints.maxWidth
+                ? const BouncingScrollPhysics()
+                : const NeverScrollableScrollPhysics(),
+            child: SizedBox(
+              width: contentWidth,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  for (final app in visibleApps) appSlot(app),
+                  if (includeAddButton) addSlot(),
+                ],
+              ),
+            ),
           );
         },
       ),
