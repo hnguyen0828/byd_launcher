@@ -497,8 +497,9 @@ void _applySystemBarsForTheme(ThemeMode mode) {
       statusBarColor: dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
       statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
       statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-      systemNavigationBarColor:
-          dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
+      systemNavigationBarColor: dark
+          ? const Color(0x40000000)
+          : const Color(0x33FFFFFF),
       systemNavigationBarIconBrightness: dark
           ? Brightness.light
           : Brightness.dark,
@@ -1574,9 +1575,11 @@ const Color _lightInk = Color(0xFF101827);
 const Color _lightInkSoft = Color(0xFF334155);
 const Color _lightMuted = Color(0xFF728197);
 
-String _assetWallpaperPath(String assetPath) => '$_wallpaperAssetPrefix$assetPath';
+String _assetWallpaperPath(String assetPath) =>
+    '$_wallpaperAssetPrefix$assetPath';
 
-bool _isAssetWallpaperPath(String path) => path.startsWith(_wallpaperAssetPrefix);
+bool _isAssetWallpaperPath(String path) =>
+    path.startsWith(_wallpaperAssetPrefix);
 
 String _wallpaperAssetName(String path) =>
     path.substring(_wallpaperAssetPrefix.length);
@@ -1748,8 +1751,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   bool get _wallpaperLightMode =>
       _effectiveBrightnessForTheme(widget.themeMode) == Brightness.light;
 
-  String get _wallpaperModeFolderName =>
-      _wallpaperLightMode ? _wallpaperLightFolderName : _wallpaperDarkFolderName;
+  String get _wallpaperModeFolderName => _wallpaperLightMode
+      ? _wallpaperLightFolderName
+      : _wallpaperDarkFolderName;
 
   String get _defaultWallpaperAssetPath => _assetWallpaperPath(
     _wallpaperLightMode
@@ -2691,7 +2695,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         await lightDirectory.create(recursive: true);
       }
 
-      final modeDirectory = Directory(_childPath(rootDirectory.path, modeFolderName));
+      final modeDirectory = Directory(
+        _childPath(rootDirectory.path, modeFolderName),
+      );
       final modePaths = await _scanWallpaperDirectory(modeDirectory);
       if (modePaths.isNotEmpty) return modePaths;
 
@@ -2707,8 +2713,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     final paths = await directory
         .list(followLinks: false)
         .where(
-          (entity) =>
-              entity is File && _isSupportedWallpaperPath(entity.path),
+          (entity) => entity is File && _isSupportedWallpaperPath(entity.path),
         )
         .map((entity) => entity.path)
         .toList();
@@ -3011,17 +3016,24 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
               ? (constraints.maxWidth >= 430 ? 56.0 : 50.0)
               : (constraints.maxWidth >= 430 ? 58.0 : 52.0);
           final includeAddButton = canAdd || visibleApps.isEmpty;
-          final slotCount = math.max(
-            1,
-            visibleApps.length + (includeAddButton ? 1 : 0),
+          final addSlotExtent = includeAddButton ? minSlotExtent : 0.0;
+          final appsViewportWidth = math.max(
+            0.0,
+            constraints.maxWidth - addSlotExtent,
           );
-          final fittedSlotExtent = constraints.maxWidth / slotCount;
-          final slotExtent = math.max(minSlotExtent, fittedSlotExtent);
-          final contentWidth = math.max(constraints.maxWidth, slotExtent * slotCount);
+          final appSlotCount = math.max(1, visibleApps.length);
+          final fittedAppSlotExtent = appsViewportWidth / appSlotCount;
+          final appSlotExtent = visibleApps.isEmpty
+              ? minSlotExtent
+              : math.max(minSlotExtent, fittedAppSlotExtent);
+          final appsContentWidth = math.max(
+            appsViewportWidth,
+            appSlotExtent * visibleApps.length,
+          );
 
           Widget appSlot(_LauncherApp app) {
             return SizedBox(
-              width: slotExtent,
+              width: appSlotExtent,
               child: Center(
                 child: DragTarget<_LauncherApp>(
                   onWillAcceptWithDetails: (details) =>
@@ -3037,9 +3049,8 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                       editing: _editing,
                       highlighted: highlighted,
                       compactVisual: widget.compactVisual,
-                      onTap: () => _editing
-                          ? _exitEditing()
-                          : widget.onAppTap(app),
+                      onTap: () =>
+                          _editing ? _exitEditing() : widget.onAppTap(app),
                       onLongPress: _enterEditing,
                       onRemove: () => widget.onRemove(app),
                     );
@@ -3051,15 +3062,12 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                       feedback: Material(
                         color: Colors.transparent,
                         child: SizedBox(
-                          width: slotExtent,
+                          width: appSlotExtent,
                           height: widget.compactVisual ? 54 : 58,
                           child: Center(child: button),
                         ),
                       ),
-                      childWhenDragging: Opacity(
-                        opacity: 0.32,
-                        child: button,
-                      ),
+                      childWhenDragging: Opacity(opacity: 0.32, child: button),
                       child: button,
                     );
                   },
@@ -3070,7 +3078,7 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
 
           Widget addSlot() {
             return SizedBox(
-              width: slotExtent,
+              width: addSlotExtent,
               child: Center(
                 child: _AddFavoriteAppButton(
                   onTap: widget.onEditTap,
@@ -3080,21 +3088,29 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
             );
           }
 
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: contentWidth > constraints.maxWidth
-                ? const BouncingScrollPhysics()
-                : const NeverScrollableScrollPhysics(),
-            child: SizedBox(
-              width: contentWidth,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  for (final app in visibleApps) appSlot(app),
-                  if (includeAddButton) addSlot(),
-                ],
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: appsContentWidth > appsViewportWidth
+                      ? const BouncingScrollPhysics()
+                      : const NeverScrollableScrollPhysics(),
+                  child: SizedBox(
+                    width: appsContentWidth,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: visibleApps.length <= 1
+                          ? MainAxisAlignment.center
+                          : MainAxisAlignment.start,
+                      children: [for (final app in visibleApps) appSlot(app)],
+                    ),
+                  ),
+                ),
               ),
-            ),
+              if (includeAddButton) addSlot(),
+            ],
           );
         },
       ),
@@ -9550,7 +9566,7 @@ class _BrakeStatusPainter extends CustomPainter {
     // Rear brake glow: intentionally placed *behind and below* the rear bumper
     // so the native 3D vehicle does not cover it and it reads as light spill
     // around the two rear tyres.
-    final rearCenter = Offset(size.width * 0.500, size.height * 0.732);
+    final rearCenter = Offset(size.width * 0.500, size.height * 0.78);
     final rearHalf = size.width * 0.150;
     final red = light ? const Color(0xFFFF3B32) : const Color(0xFFFF5148);
     final glowT = 0.90 + 0.10 * math.sin(pulse * math.pi);
