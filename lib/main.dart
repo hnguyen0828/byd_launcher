@@ -497,9 +497,8 @@ void _applySystemBarsForTheme(ThemeMode mode) {
       statusBarColor: dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
       statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
       statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-      systemNavigationBarColor: dark
-          ? const Color(0x40000000)
-          : const Color(0x33FFFFFF),
+      systemNavigationBarColor:
+          dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
       systemNavigationBarIconBrightness: dark
           ? Brightness.light
           : Brightness.dark,
@@ -1575,11 +1574,9 @@ const Color _lightInk = Color(0xFF101827);
 const Color _lightInkSoft = Color(0xFF334155);
 const Color _lightMuted = Color(0xFF728197);
 
-String _assetWallpaperPath(String assetPath) =>
-    '$_wallpaperAssetPrefix$assetPath';
+String _assetWallpaperPath(String assetPath) => '$_wallpaperAssetPrefix$assetPath';
 
-bool _isAssetWallpaperPath(String path) =>
-    path.startsWith(_wallpaperAssetPrefix);
+bool _isAssetWallpaperPath(String path) => path.startsWith(_wallpaperAssetPrefix);
 
 String _wallpaperAssetName(String path) =>
     path.substring(_wallpaperAssetPrefix.length);
@@ -1751,9 +1748,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   bool get _wallpaperLightMode =>
       _effectiveBrightnessForTheme(widget.themeMode) == Brightness.light;
 
-  String get _wallpaperModeFolderName => _wallpaperLightMode
-      ? _wallpaperLightFolderName
-      : _wallpaperDarkFolderName;
+  String get _wallpaperModeFolderName =>
+      _wallpaperLightMode ? _wallpaperLightFolderName : _wallpaperDarkFolderName;
 
   String get _defaultWallpaperAssetPath => _assetWallpaperPath(
     _wallpaperLightMode
@@ -2695,9 +2691,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         await lightDirectory.create(recursive: true);
       }
 
-      final modeDirectory = Directory(
-        _childPath(rootDirectory.path, modeFolderName),
-      );
+      final modeDirectory = Directory(_childPath(rootDirectory.path, modeFolderName));
       final modePaths = await _scanWallpaperDirectory(modeDirectory);
       if (modePaths.isNotEmpty) return modePaths;
 
@@ -2713,7 +2707,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     final paths = await directory
         .list(followLinks: false)
         .where(
-          (entity) => entity is File && _isSupportedWallpaperPath(entity.path),
+          (entity) =>
+              entity is File && _isSupportedWallpaperPath(entity.path),
         )
         .map((entity) => entity.path)
         .toList();
@@ -3049,8 +3044,9 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                       editing: _editing,
                       highlighted: highlighted,
                       compactVisual: widget.compactVisual,
-                      onTap: () =>
-                          _editing ? _exitEditing() : widget.onAppTap(app),
+                      onTap: () => _editing
+                          ? _exitEditing()
+                          : widget.onAppTap(app),
                       onLongPress: _enterEditing,
                       onRemove: () => widget.onRemove(app),
                     );
@@ -3067,7 +3063,10 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                           child: Center(child: button),
                         ),
                       ),
-                      childWhenDragging: Opacity(opacity: 0.32, child: button),
+                      childWhenDragging: Opacity(
+                        opacity: 0.32,
+                        child: button,
+                      ),
                       child: button,
                     );
                   },
@@ -3104,7 +3103,9 @@ class _FavoriteAppsStripState extends State<_FavoriteAppsStrip> {
                       mainAxisAlignment: visibleApps.length <= 1
                           ? MainAxisAlignment.center
                           : MainAxisAlignment.start,
-                      children: [for (final app in visibleApps) appSlot(app)],
+                      children: [
+                        for (final app in visibleApps) appSlot(app),
+                      ],
                     ),
                   ),
                 ),
