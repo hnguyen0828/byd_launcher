@@ -81,15 +81,17 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun applyLauncherSystemUiNow(dark: Boolean) {
-        val barColor = if (dark) {
-            android.graphics.Color.parseColor("#070B12")
+        val barOverlayColor = if (dark) {
+            android.graphics.Color.argb(0x40, 0x00, 0x00, 0x00)
         } else {
-            android.graphics.Color.parseColor("#F1F5FA")
+            android.graphics.Color.argb(0x33, 0xFF, 0xFF, 0xFF)
         }
+        val transparent = android.graphics.Color.TRANSPARENT
 
-        // Make Android draw real system-bar backgrounds. Without these clears,
-        // BYD/DiLink can keep the previous black translucent/immersive bars even
-        // after Flutter SystemChrome has requested light bars.
+        // Kinex-style fix for BYD/DiLink: draw real Android system bars with
+        // the launcher theme color instead of letting the OEM black surface stay
+        // active. Keep the existing edge-to-edge layout flags unchanged so the
+        // Flutter layout is not pushed or resized.
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
@@ -97,12 +99,11 @@ class MainActivity : FlutterActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
 
-        window.statusBarColor = barColor
-        window.navigationBarColor = barColor
-        window.decorView.setBackgroundColor(barColor)
+        window.statusBarColor = barOverlayColor
+        window.navigationBarColor = barOverlayColor
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            window.navigationBarDividerColor = barColor
+            window.navigationBarDividerColor = transparent
         }
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
@@ -110,10 +111,9 @@ class MainActivity : FlutterActivity() {
             window.isNavigationBarContrastEnforced = false
         }
 
-        // Set legacy flags first. On Android 11+ / some BYD builds, assigning
-        // systemUiVisibility after WindowInsetsController can wipe the light-bar
-        // appearance bits, leaving white icons / dark-looking bars in Light mode.
-        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
@@ -123,7 +123,6 @@ class MainActivity : FlutterActivity() {
         window.decorView.systemUiVisibility = flags
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(true)
             window.insetsController?.let { controller ->
                 controller.show(WindowInsets.Type.systemBars())
 

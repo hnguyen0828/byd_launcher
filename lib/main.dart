@@ -475,15 +475,10 @@ Brightness _effectiveBrightnessForTheme(ThemeMode mode) {
 }
 
 void _showSystemBars() {
-  // Keep Android status/navigation bars visible. Some BYD/Android head units
-  // can keep the previous immersive flag for a short moment after the app
-  // resumes, so apply it now and once again after the first frame/delay.
-  unawaited(
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    ),
-  );
+  // Kinex-style behavior: keep the app edge-to-edge and let the launcher
+  // background paint behind the Android bars. On BYD/DiLink, manual overlays
+  // can leave the OEM black bar surface active in Light mode.
+  unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
 }
 
 void _restoreSystemBars() {
@@ -496,14 +491,14 @@ void _restoreSystemBars() {
 void _applySystemBarsForTheme(ThemeMode mode) {
   _restoreSystemBars();
   final dark = _effectiveBrightnessForTheme(mode) == Brightness.dark;
-  final barColor = dark ? const Color(0xFF070B12) : const Color(0xFFF1F5FA);
 
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(
-      statusBarColor: barColor,
+      statusBarColor: dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
       statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
       statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-      systemNavigationBarColor: barColor,
+      systemNavigationBarColor:
+          dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
       systemNavigationBarIconBrightness: dark
           ? Brightness.light
           : Brightness.dark,
@@ -1908,6 +1903,10 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         child: Container(
           width: double.infinity,
           height: double.infinity,
+          // Keep Kinex-style transparent system bars, but restore only the
+          // BYD top status-bar inset so launcher content no longer touches it.
+          // Bottom/left/right remain unchanged to preserve the current layout.
+          margin: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top),
           decoration: BoxDecoration(
             gradient: RadialGradient(
               center: const Alignment(0.40, -0.25),
