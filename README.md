@@ -192,7 +192,7 @@ However, vehicle-specific features may not work outside supported BYD / DiLink e
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/byd_launcher.git
+git clone https://github.com/hnguyen0828/byd_launcher.git
 cd byd_launcher
 ```
 
