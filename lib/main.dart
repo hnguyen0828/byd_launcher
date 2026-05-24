@@ -475,10 +475,15 @@ Brightness _effectiveBrightnessForTheme(ThemeMode mode) {
 }
 
 void _showSystemBars() {
-  // Kinex-style behavior: keep the app edge-to-edge and let the launcher
-  // background paint behind the Android bars. On BYD/DiLink, manual overlays
-  // can leave the OEM black bar surface active in Light mode.
-  unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+  // BYD/DiLink draws its own black bar surface when the app stays edge-to-edge.
+  // Keep Android system bars visible in normal fitted mode so the real bar
+  // background can follow Light/Dark mode and the bottom dock is not covered.
+  unawaited(
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    ),
+  );
 }
 
 void _restoreSystemBars() {
@@ -494,12 +499,12 @@ void _applySystemBarsForTheme(ThemeMode mode) {
 
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(
-      statusBarColor: dark ? const Color(0x40000000) : const Color(0x33FFFFFF),
+      statusBarColor: dark ? const Color(0xFF070B12) : const Color(0xFFF1F5FA),
       statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
       statusBarBrightness: dark ? Brightness.dark : Brightness.light,
       systemNavigationBarColor: dark
-          ? const Color(0x40000000)
-          : const Color(0x33FFFFFF),
+          ? const Color(0xFF070B12)
+          : const Color(0xFFF1F5FA),
       systemNavigationBarIconBrightness: dark
           ? Brightness.light
           : Brightness.dark,
@@ -1907,10 +1912,13 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         child: Container(
           width: double.infinity,
           height: double.infinity,
-          // Keep Kinex-style transparent system bars, but restore only the
-          // BYD top status-bar inset so launcher content no longer touches it.
-          // Bottom/left/right remain unchanged to preserve the current layout.
-          margin: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top),
+          // BYD/DiLink keeps a persistent system/control bar at the bottom.
+          // Only reserve the bottom inset. The top status/header bar is already
+          // outside the Flutter fitted area; adding viewPadding.top here creates
+          // the visible white strip under the OEM header in Light mode.
+          margin: EdgeInsets.only(
+            bottom: MediaQuery.viewPaddingOf(context).bottom,
+          ),
           decoration: BoxDecoration(
             gradient: RadialGradient(
               center: const Alignment(0.40, -0.25),

@@ -82,16 +82,15 @@ class MainActivity : FlutterActivity() {
 
     private fun applyLauncherSystemUiNow(dark: Boolean) {
         val barOverlayColor = if (dark) {
-            android.graphics.Color.argb(0x40, 0x00, 0x00, 0x00)
+            android.graphics.Color.rgb(0x07, 0x0B, 0x12)
         } else {
-            android.graphics.Color.argb(0x33, 0xFF, 0xFF, 0xFF)
+            android.graphics.Color.rgb(0xF1, 0xF5, 0xFA)
         }
         val transparent = android.graphics.Color.TRANSPARENT
 
-        // Kinex-style fix for BYD/DiLink: draw real Android system bars with
-        // the launcher theme color instead of letting the OEM black surface stay
-        // active. Keep the existing edge-to-edge layout flags unchanged so the
-        // Flutter layout is not pushed or resized.
+        // BYD/DiLink keeps an OEM bar surface active if the launcher runs
+        // edge-to-edge. Use fitted visible system bars with an opaque launcher
+        // color so Light mode does not leave black top/bottom bars.
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
@@ -111,9 +110,7 @@ class MainActivity : FlutterActivity() {
             window.isNavigationBarContrastEnforced = false
         }
 
-        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
@@ -123,6 +120,7 @@ class MainActivity : FlutterActivity() {
         window.decorView.systemUiVisibility = flags
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(true)
             window.insetsController?.let { controller ->
                 controller.show(WindowInsets.Type.systemBars())
 
