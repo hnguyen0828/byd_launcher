@@ -435,8 +435,11 @@ int _navigationAppSortRank(_NavigationApp app) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  _preloadVehicleModelAssets();
   final prefs = await SharedPreferences.getInstance();
+  final selectedVehicleModel = _parseVehicleModelAsset(
+    prefs.getString(_vehicleModelPreferenceKey),
+  );
+  _warmVehicleRendererAssets(selectedVehicleModel);
   final themeMode = _parseThemeMode(prefs.getString(_themeModePreferenceKey));
   _applySystemBarsForTheme(themeMode);
   final layoutMode = _parseLayoutMode(
@@ -545,16 +548,23 @@ void _applyNativeSystemBars({required bool dark}) {
   );
 }
 
-void _preloadVehicleModelAssets() {
-  for (final asset in _vehicleModelAssets) {
+final Set<String> _warmedVehicleRendererAssets = <String>{};
+
+void _warmVehicleRendererAssets(String vehicleModelAsset) {
+  final asset = _parseVehicleModelAsset(vehicleModelAsset);
+  if (_warmedVehicleRendererAssets.add(asset)) {
     unawaited(rootBundle.load(asset));
   }
-  unawaited(
-    rootBundle.load('packages/model_viewer_plus/assets/model-viewer.min.js'),
-  );
-  unawaited(
-    rootBundle.loadString('packages/model_viewer_plus/assets/template.html'),
-  );
+  if (_warmedVehicleRendererAssets.add('model-viewer.min.js')) {
+    unawaited(
+      rootBundle.load('packages/model_viewer_plus/assets/model-viewer.min.js'),
+    );
+  }
+  if (_warmedVehicleRendererAssets.add('model-viewer.template.html')) {
+    unawaited(
+      rootBundle.loadString('packages/model_viewer_plus/assets/template.html'),
+    );
+  }
 }
 
 class BydLauncherApp extends StatefulWidget {
@@ -2309,10 +2319,12 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _renderQuality = _parseRenderQuality(storedQuality);
       _vehiclePreferencesLoaded = true;
     });
+    _warmVehicleRendererAssets(_vehicleModelAsset);
   }
 
   Future<void> _setVehicleModel(String asset) async {
     final parsedAsset = _parseVehicleModelAsset(asset);
+    _warmVehicleRendererAssets(parsedAsset);
     setState(() => _vehicleModelAsset = parsedAsset);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_vehicleModelPreferenceKey, parsedAsset);
@@ -11644,6 +11656,9 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
       _visibleReportedForActive = false;
       if (widget.active) {
         _scheduleVisibleCallback();
+        if (_textureId == null) {
+          _scheduleNativeTextureCreate(debounce: Duration.zero);
+        }
       }
     }
     if (oldWidget.asset != widget.asset ||
@@ -11651,7 +11666,16 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
       _visibleCallbackTimer?.cancel();
       _visibleCallbackTimer = null;
       _visibleReportedForActive = false;
-      _scheduleNativeTextureCreate(debounce: Duration.zero);
+      _textureCreateDebounceTimer?.cancel();
+      _pendingTextureSize = null;
+      // The vehicle stage stays mounted while Settings/Ambient/Navigation are
+      // visible. Avoid decoding/recreating the heavy GLB texture in the
+      // background; create it when the Status tab becomes active again.
+      if (widget.active) {
+        _scheduleNativeTextureCreate(debounce: Duration.zero);
+      } else {
+        unawaited(_disposeNativeTexture());
+      }
     }
   }
 
@@ -11673,7 +11697,8 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
           MediaQuery.devicePixelRatioOf(context),
           widget.renderQuality,
         );
-        if (_textureSize != size &&
+        if (widget.active &&
+            _textureSize != size &&
             _pendingTextureSize != size &&
             size.width > 1 &&
             size.height > 1) {
@@ -11734,6 +11759,10 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
       return;
     }
 
+    if (!widget.active) {
+      return;
+    }
+
     _pendingTextureSize = nextSize;
     _textureCreateDebounceTimer?.cancel();
     _textureCreateDebounceTimer = Timer(debounce, () {
@@ -11746,6 +11775,10 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   }
 
   Future<void> _createNativeTexture(Size size) async {
+    if (!widget.active) {
+      return;
+    }
+
     final generation = ++_textureGeneration;
     _textureSize = size;
     _pendingTextureSize = null;
