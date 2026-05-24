@@ -115,12 +115,6 @@ const List<_VehiclePaintOption> _vehiclePaintOptions = [
 ];
 
 const List<String> _vehicleModelAssets = [
-  'assets/models/2024_byd_atto_3.glb',
-  'assets/models/2024_byd_dolphin.glb',
-  'assets/models/2024_byd_m6.glb',
-  'assets/models/2024_byd_seagull.glb',
-  'assets/models/2024_byd_seal.glb',
-  'assets/models/2024_byd_seal_5_dm-i.glb',
   'assets/models/2024_byd_seal_u_dm-i.glb',
 ];
 
@@ -1946,171 +1940,172 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
               bottom: MediaQuery.viewPaddingOf(context).bottom,
             ),
             child: Stack(
-            children: [
-              Positioned.fill(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final compact = constraints.maxWidth < 1100;
-                    final sidebarWidth = compact ? 292.0 : 348.0;
-                    final dashboard = _LeftDashboard(
-                      selectedGear: _selectedGear,
-                      effectiveGear: _effectiveGear,
-                      vehicleSpeedKmh: _effectiveSpeedKmh,
-                      vehicleSnapshot: _vehicleSnapshot,
-                      vehicleColor: _vehicleColor,
-                      favoriteApps: _favoriteApps,
-                      onGearChanged: _setGear,
-                      onFavoriteAppTap: _launchFavoriteApp,
-                      onFavoriteAppsEdit: _editFavoriteApps,
-                      onFavoriteAppRemove: _removeFavoriteApp,
-                      onFavoriteAppsReorder: _reorderFavoriteApps,
-                      ambientMode: _activeTab == _LauncherTab.wallpaper,
-                    );
-                    final vehicleCanvas = _VehicleCanvas(
-                      favoriteApps: _favoriteApps,
-                      onFavoriteAppTap: _launchFavoriteApp,
-                      onFavoriteAppsEdit: _editFavoriteApps,
-                      onFavoriteAppRemove: _removeFavoriteApp,
-                      onFavoriteAppsReorder: _reorderFavoriteApps,
-                      enable3dModel:
-                          widget.enable3dModel && _vehiclePreferencesLoaded,
-                      cameraOrbit: _cameraOrbit,
-                      view: _view,
-                      activeTab: _activeTab,
-                      navigationPanelMounted: _navigationPanelMounted,
-                      vehicleModelAsset: _vehicleModelAsset,
-                      vehicleColor: _vehicleColor,
-                      renderQuality: _renderQuality,
-                      layoutMode: _layoutMode,
-                      landscapeSidebarPosition: _landscapeSidebarPosition,
-                      onLandscapeSidebarPositionChanged:
-                          _setLandscapeSidebarPosition,
-                      roadMotionActive: _roadMotionActive,
-                      reverseRoadMotion: _reverseRoadMotion,
-                      vehicleSpeedKmh: _effectiveSpeedKmh,
-                      demoLightMode: _demoLightMode,
-                      brakeActive: _effectiveBrakeActive,
-                      demoBrakeActive: _debugModeEnabled && _demoBrakeActive,
-                      brakeIntensity: _effectiveBrakeIntensity,
-                      debugModeEnabled: _debugModeEnabled,
-                      onDemoLightModeChanged: (mode) => _setDemoLightMode(mode),
-                      onDemoBrakeChanged: (active) =>
-                          setState(() => _demoBrakeActive = active),
-                      deferLightEffectOnVehicleEntry:
-                          _vehicleTabLightEffectDeferred,
-                      effectiveGear: _effectiveGear,
-                      vehicleSnapshot: _vehicleSnapshot,
-                      onGearChanged: _setGear,
-                      onViewChanged: (view) => setState(() {
-                        _view = view;
-                        _keepLightCameraOrbitAfterOff = false;
-                      }),
-                      onTabChanged: _handleTabChanged,
-                      onVehicleModelChanged: _setVehicleModel,
-                      onVehicleColorChanged: _setVehicleColor,
-                      onRenderQualityChanged: _setRenderQuality,
-                      onLayoutModeChanged: _setLayoutMode,
-                      navigationApps: _navigationApps,
-                      selectedNavigationPackage: _selectedNavigationPackage,
-                      embeddedMapScale: _embeddedMapScale,
-                      navigationPanelKey: _navigationPanelKey,
-                      launchNavigationWithLauncher:
-                          _launchNavigationWithLauncher,
-                      defaultLauncherEnabled: _defaultLauncherEnabled,
-                      onDefaultNavigationAppChanged: _setDefaultNavigationApp,
-                      onEmbeddedMapScaleChanged: _setEmbeddedMapScale,
-                      onNavigationReloadRequested: _reloadNavigationApps,
-                      onDefaultNavigationOpenRequested:
-                          _openDefaultNavigationApp,
-                      onLaunchNavigationWithLauncherChanged:
-                          _setLaunchNavigationWithLauncher,
-                      onDefaultLauncherChanged: _setDefaultLauncher,
-                      wallpaperButtonEnabled: _wallpaperButtonEnabled,
-                      wallpaperFolderPath: _wallpaperFolderPath,
-                      wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
-                      wallpaperPaths: _wallpaperPaths,
-                      wallpaperIndex: _wallpaperIndex,
-                      onWallpaperReloadRequested: _reloadWallpapers,
-                      onWallpaperIntervalChanged: _setWallpaperInterval,
-                      onWallpaperButtonEnabledChanged:
-                          _setWallpaperButtonEnabled,
-                      lightEffectEnabled: _lightEffectEnabled,
-                      onLightEffectEnabledChanged: _setLightEffectEnabled,
-                      onDebugModeChanged: _setDebugModeEnabled,
-                      themeMode: widget.themeMode,
-                      onThemeModeChanged: widget.onThemeModeChanged,
-                      language: widget.language,
-                      onLanguageChanged: widget.onLanguageChanged,
-                    );
-
-                    if (_layoutMode == _LauncherLayoutMode.portrait) {
-                      return Column(
-                        children: [
-                          Expanded(child: vehicleCanvas),
-                          if (_activeTab == _LauncherTab.status)
-                            SizedBox(
-                              height: 292,
-                              child: _PortraitBottomDashboard(
-                                vehicleColor: _vehicleColor,
-                                vehicleSnapshot: _vehicleSnapshot,
-                                favoriteApps: _favoriteApps,
-                                onFavoriteAppTap: _launchFavoriteApp,
-                                onFavoriteAppsEdit: _editFavoriteApps,
-                                onFavoriteAppRemove: _removeFavoriteApp,
-                                onFavoriteAppsReorder: _reorderFavoriteApps,
-                              ),
-                            ),
-                        ],
-                      );
-                    }
-
-                    final sidebar = SizedBox(
-                      width: sidebarWidth,
-                      child: dashboard,
-                    );
-                    final canvas = Expanded(child: vehicleCanvas);
-                    final sidebarOnRight =
-                        _landscapeSidebarPosition ==
-                        _LandscapeSidebarPosition.right;
-
-                    if (_activeTab == _LauncherTab.wallpaper) {
-                      return Stack(
-                        children: [
-                          Positioned.fill(child: vehicleCanvas),
-                          Align(
-                            alignment: sidebarOnRight
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: sidebar,
-                          ),
-                        ],
-                      );
-                    }
-
-                    return Row(
-                      children: [
-                        if (!sidebarOnRight) sidebar,
-                        canvas,
-                        if (sidebarOnRight) sidebar,
-                      ],
-                    );
-                  },
-                ),
-              ),
-              if (_transitionLoading)
+              children: [
                 Positioned.fill(
-                  child: _LauncherTransitionLoading(
-                    layoutMode: _layoutMode,
-                    activeTab: _activeTab,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 1100;
+                      final sidebarWidth = compact ? 292.0 : 348.0;
+                      final dashboard = _LeftDashboard(
+                        selectedGear: _selectedGear,
+                        effectiveGear: _effectiveGear,
+                        vehicleSpeedKmh: _effectiveSpeedKmh,
+                        vehicleSnapshot: _vehicleSnapshot,
+                        vehicleColor: _vehicleColor,
+                        favoriteApps: _favoriteApps,
+                        onGearChanged: _setGear,
+                        onFavoriteAppTap: _launchFavoriteApp,
+                        onFavoriteAppsEdit: _editFavoriteApps,
+                        onFavoriteAppRemove: _removeFavoriteApp,
+                        onFavoriteAppsReorder: _reorderFavoriteApps,
+                        ambientMode: _activeTab == _LauncherTab.wallpaper,
+                      );
+                      final vehicleCanvas = _VehicleCanvas(
+                        favoriteApps: _favoriteApps,
+                        onFavoriteAppTap: _launchFavoriteApp,
+                        onFavoriteAppsEdit: _editFavoriteApps,
+                        onFavoriteAppRemove: _removeFavoriteApp,
+                        onFavoriteAppsReorder: _reorderFavoriteApps,
+                        enable3dModel:
+                            widget.enable3dModel && _vehiclePreferencesLoaded,
+                        cameraOrbit: _cameraOrbit,
+                        view: _view,
+                        activeTab: _activeTab,
+                        navigationPanelMounted: _navigationPanelMounted,
+                        vehicleModelAsset: _vehicleModelAsset,
+                        vehicleColor: _vehicleColor,
+                        renderQuality: _renderQuality,
+                        layoutMode: _layoutMode,
+                        landscapeSidebarPosition: _landscapeSidebarPosition,
+                        onLandscapeSidebarPositionChanged:
+                            _setLandscapeSidebarPosition,
+                        roadMotionActive: _roadMotionActive,
+                        reverseRoadMotion: _reverseRoadMotion,
+                        vehicleSpeedKmh: _effectiveSpeedKmh,
+                        demoLightMode: _demoLightMode,
+                        brakeActive: _effectiveBrakeActive,
+                        demoBrakeActive: _debugModeEnabled && _demoBrakeActive,
+                        brakeIntensity: _effectiveBrakeIntensity,
+                        debugModeEnabled: _debugModeEnabled,
+                        onDemoLightModeChanged: (mode) =>
+                            _setDemoLightMode(mode),
+                        onDemoBrakeChanged: (active) =>
+                            setState(() => _demoBrakeActive = active),
+                        deferLightEffectOnVehicleEntry:
+                            _vehicleTabLightEffectDeferred,
+                        effectiveGear: _effectiveGear,
+                        vehicleSnapshot: _vehicleSnapshot,
+                        onGearChanged: _setGear,
+                        onViewChanged: (view) => setState(() {
+                          _view = view;
+                          _keepLightCameraOrbitAfterOff = false;
+                        }),
+                        onTabChanged: _handleTabChanged,
+                        onVehicleModelChanged: _setVehicleModel,
+                        onVehicleColorChanged: _setVehicleColor,
+                        onRenderQualityChanged: _setRenderQuality,
+                        onLayoutModeChanged: _setLayoutMode,
+                        navigationApps: _navigationApps,
+                        selectedNavigationPackage: _selectedNavigationPackage,
+                        embeddedMapScale: _embeddedMapScale,
+                        navigationPanelKey: _navigationPanelKey,
+                        launchNavigationWithLauncher:
+                            _launchNavigationWithLauncher,
+                        defaultLauncherEnabled: _defaultLauncherEnabled,
+                        onDefaultNavigationAppChanged: _setDefaultNavigationApp,
+                        onEmbeddedMapScaleChanged: _setEmbeddedMapScale,
+                        onNavigationReloadRequested: _reloadNavigationApps,
+                        onDefaultNavigationOpenRequested:
+                            _openDefaultNavigationApp,
+                        onLaunchNavigationWithLauncherChanged:
+                            _setLaunchNavigationWithLauncher,
+                        onDefaultLauncherChanged: _setDefaultLauncher,
+                        wallpaperButtonEnabled: _wallpaperButtonEnabled,
+                        wallpaperFolderPath: _wallpaperFolderPath,
+                        wallpaperIntervalSeconds: _wallpaperIntervalSeconds,
+                        wallpaperPaths: _wallpaperPaths,
+                        wallpaperIndex: _wallpaperIndex,
+                        onWallpaperReloadRequested: _reloadWallpapers,
+                        onWallpaperIntervalChanged: _setWallpaperInterval,
+                        onWallpaperButtonEnabledChanged:
+                            _setWallpaperButtonEnabled,
+                        lightEffectEnabled: _lightEffectEnabled,
+                        onLightEffectEnabledChanged: _setLightEffectEnabled,
+                        onDebugModeChanged: _setDebugModeEnabled,
+                        themeMode: widget.themeMode,
+                        onThemeModeChanged: widget.onThemeModeChanged,
+                        language: widget.language,
+                        onLanguageChanged: widget.onLanguageChanged,
+                      );
+
+                      if (_layoutMode == _LauncherLayoutMode.portrait) {
+                        return Column(
+                          children: [
+                            Expanded(child: vehicleCanvas),
+                            if (_activeTab == _LauncherTab.status)
+                              SizedBox(
+                                height: 292,
+                                child: _PortraitBottomDashboard(
+                                  vehicleColor: _vehicleColor,
+                                  vehicleSnapshot: _vehicleSnapshot,
+                                  favoriteApps: _favoriteApps,
+                                  onFavoriteAppTap: _launchFavoriteApp,
+                                  onFavoriteAppsEdit: _editFavoriteApps,
+                                  onFavoriteAppRemove: _removeFavoriteApp,
+                                  onFavoriteAppsReorder: _reorderFavoriteApps,
+                                ),
+                              ),
+                          ],
+                        );
+                      }
+
+                      final sidebar = SizedBox(
+                        width: sidebarWidth,
+                        child: dashboard,
+                      );
+                      final canvas = Expanded(child: vehicleCanvas);
+                      final sidebarOnRight =
+                          _landscapeSidebarPosition ==
+                          _LandscapeSidebarPosition.right;
+
+                      if (_activeTab == _LauncherTab.wallpaper) {
+                        return Stack(
+                          children: [
+                            Positioned.fill(child: vehicleCanvas),
+                            Align(
+                              alignment: sidebarOnRight
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: sidebar,
+                            ),
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          if (!sidebarOnRight) sidebar,
+                          canvas,
+                          if (sidebarOnRight) sidebar,
+                        ],
+                      );
+                    },
                   ),
                 ),
-            ],
+                if (_transitionLoading)
+                  Positioned.fill(
+                    child: _LauncherTransitionLoading(
+                      layoutMode: _layoutMode,
+                      activeTab: _activeTab,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   void _handleTabChanged(_LauncherTab tab) {
     if (tab == _activeTab) return;
