@@ -57,6 +57,13 @@ const MethodChannel _launcherChannel = MethodChannel('byd/launcher');
 
 final Set<int> _activeNavigationTextureIds = <int>{};
 
+// Performance guardrails: keep renderer/model detail unchanged, but avoid
+// rebuilding or pushing native renderer updates more often than the UI can
+// show on the BYD head unit.
+const Duration _vehicleSnapshotPollInterval = Duration(milliseconds: 900);
+const Duration _nativeRendererOrbitUpdateInterval = Duration(milliseconds: 33);
+const double _nativeTextureResizeTolerancePx = 8.0;
+
 Future<void> _disposeActiveNavigationVirtualDisplays() async {
   final textureIds = List<int>.from(_activeNavigationTextureIds);
   _activeNavigationTextureIds.clear();
@@ -1843,7 +1850,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     _refreshVehicleSnapshot();
     _scheduleVehicleStartupRefreshes();
     _vehicleSnapshotTimer = Timer.periodic(
-      const Duration(milliseconds: 650),
+      _vehicleSnapshotPollInterval,
       (_) => _refreshVehicleSnapshot(),
     );
   }
@@ -2197,13 +2204,29 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     }
   }
 
+  bool get _shouldDeferVehicleSnapshotUiUpdate =>
+      _activeTab != _LauncherTab.status;
+
+  bool _vehicleSnapshotDiffNeedsImmediateUi(_VehicleSnapshot snapshot) {
+    // While another tab is visible, keep the newest vehicle state cached but do
+    // not rebuild the whole launcher for high-frequency speed/TPMS ticks.  A
+    // light/gear/brake transition can change the camera/effect state when the
+    // user returns to Vehicle, so those changes are still allowed through.
+    return snapshot.lightMode != _vehicleSnapshot.lightMode ||
+        snapshot.gear != _vehicleSnapshot.gear ||
+        snapshot.braking != _vehicleSnapshot.braking ||
+        snapshot.brakeDepth != _vehicleSnapshot.brakeDepth;
+  }
+
   void _setVehicleSnapshotFromPlatform(
     _VehicleSnapshot snapshot, {
     bool deferWhileSettings = false,
   }) {
     if (!mounted || snapshot == _vehicleSnapshot) return;
 
-    if (deferWhileSettings && _activeTab == _LauncherTab.settings) {
+    if (deferWhileSettings &&
+        _shouldDeferVehicleSnapshotUiUpdate &&
+        !_vehicleSnapshotDiffNeedsImmediateUi(snapshot)) {
       _pendingSettingsVehicleSnapshot = snapshot;
       return;
     }
@@ -2815,7 +2838,10 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         'getVehicleSnapshot',
       );
       if (!mounted || data == null) return;
-      _setVehicleSnapshotFromPlatform(_VehicleSnapshot.fromMap(data));
+      _setVehicleSnapshotFromPlatform(
+        _VehicleSnapshot.fromMap(data),
+        deferWhileSettings: true,
+      );
     } catch (_) {
     } finally {
       _vehicleSnapshotRefreshInFlight = false;
@@ -2824,7 +2850,10 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
 
   void _handleVehicleSnapshotEvent(dynamic value) {
     if (!mounted || value is! Map) return;
-    _setVehicleSnapshotFromPlatform(_VehicleSnapshot.fromMap(value));
+    _setVehicleSnapshotFromPlatform(
+      _VehicleSnapshot.fromMap(value),
+      deferWhileSettings: true,
+    );
   }
 }
 
@@ -11627,6 +11656,8 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   bool _visibleReportedForActive = false;
   bool _nativeUpdateInFlight = false;
   bool _nativeUpdatePending = false;
+  Timer? _nativeUpdateThrottleTimer;
+  int _lastNativeOrbitUpdateMicros = 0;
 
   @override
   void initState() {
@@ -11683,6 +11714,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   void dispose() {
     _textureCreateDebounceTimer?.cancel();
     _visibleCallbackTimer?.cancel();
+    _nativeUpdateThrottleTimer?.cancel();
     _orbitController.dispose();
     _disposeNativeTexture();
     super.dispose();
@@ -11698,8 +11730,8 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
           widget.renderQuality,
         );
         if (widget.active &&
-            _textureSize != size &&
-            _pendingTextureSize != size &&
+            _nativeTextureSizeChanged(_textureSize, size) &&
+            _nativeTextureSizeChanged(_pendingTextureSize, size) &&
             size.width > 1 &&
             size.height > 1) {
           final shouldCreateImmediately = _textureId == null;
@@ -11868,7 +11900,7 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
   void _handleOrbitDrag(DragUpdateDetails details) {
     _orbitController.stop();
     _orbit = _orbit.dragged(details.delta);
-    _updateNativeTexture();
+    _requestNativeOrbitUpdate();
   }
 
   void _animateOrbitTo(_NativeOrbit target) {
@@ -11885,7 +11917,31 @@ class _NativeVehicleSceneState extends State<_NativeVehicleScene>
     }
     final t = Curves.easeInOutCubic.transform(_orbitController.value);
     _orbit = _NativeOrbit.lerp(start, target, t);
-    _updateNativeTexture();
+    _requestNativeOrbitUpdate();
+  }
+
+  void _requestNativeOrbitUpdate() {
+    final nowMicros = DateTime.now().microsecondsSinceEpoch;
+    final elapsed = Duration(
+      microseconds: nowMicros - _lastNativeOrbitUpdateMicros,
+    );
+    if (elapsed >= _nativeRendererOrbitUpdateInterval) {
+      _nativeUpdateThrottleTimer?.cancel();
+      _nativeUpdateThrottleTimer = null;
+      _lastNativeOrbitUpdateMicros = nowMicros;
+      unawaited(_updateNativeTexture());
+      return;
+    }
+
+    _nativeUpdateThrottleTimer ??= Timer(
+      _nativeRendererOrbitUpdateInterval - elapsed,
+      () {
+        _nativeUpdateThrottleTimer = null;
+        if (!mounted) return;
+        _lastNativeOrbitUpdateMicros = DateTime.now().microsecondsSinceEpoch;
+        unawaited(_updateNativeTexture());
+      },
+    );
   }
 
   Future<void> _updateNativeTexture() async {
@@ -11949,6 +12005,13 @@ Size _nativeTextureSize(
     (width * scale).roundToDouble(),
     (height * scale).roundToDouble(),
   );
+}
+
+bool _nativeTextureSizeChanged(Size? oldSize, Size newSize) {
+  if (oldSize == null) return true;
+  return (oldSize.width - newSize.width).abs() >
+          _nativeTextureResizeTolerancePx ||
+      (oldSize.height - newSize.height).abs() > _nativeTextureResizeTolerancePx;
 }
 
 class _NativeOrbit {
