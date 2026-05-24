@@ -1,8 +1,10 @@
 package com.kimkim
 
 import android.app.Activity
+import android.app.UiModeManager
 import android.content.Intent
 import android.content.ComponentName
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.net.Uri
@@ -46,6 +48,9 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         enableHomeComponentIfNeeded()
+        window.decorView.setOnSystemUiVisibilityChangeListener {
+            applyLauncherSystemUi()
+        }
         applyLauncherSystemUi()
     }
 
@@ -75,31 +80,62 @@ class MainActivity : FlutterActivity() {
         // Re-assert the latest launcher theme for a longer window so Light mode
         // survives OEM post-processing on the real head unit.
         systemUiHandler.post { applyLauncherSystemUiNow(dark) }
-        for (delay in listOf(80L, 250L, 900L, 1700L, 2600L)) {
+        for (delay in listOf(16L, 80L, 160L, 250L, 500L, 900L, 1700L, 2600L, 4200L, 6500L)) {
             systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, delay)
         }
     }
 
+    private fun applyApplicationNightMode(dark: Boolean) {
+        // Some BYD/DiLink builds ignore Window.statusBarColor/navigationBarColor
+        // and choose the OEM top/bottom shell color from the app night-mode
+        // classification instead. Tell Android explicitly that this Activity is
+        // light/dark before re-applying the system bar colors.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            try {
+                val uiModeManager = getSystemService(UiModeManager::class.java)
+                uiModeManager?.setApplicationNightMode(
+                    if (dark) UiModeManager.MODE_NIGHT_YES else UiModeManager.MODE_NIGHT_NO
+                )
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     private fun applyLauncherSystemUiNow(dark: Boolean) {
-        val barOverlayColor = if (dark) {
+        applyApplicationNightMode(dark)
+        val transparent = android.graphics.Color.TRANSPARENT
+        val barColor = if (dark) {
+            android.graphics.Color.rgb(0x07, 0x0B, 0x12)
+        } else {
+            // Use pure white, not a semi-transparent/near-white color. Some
+            // BYD/DiLink builds ignore translucent or edge-to-edge bar colors
+            // and fall back to their black shell surface.
+            android.graphics.Color.WHITE
+        }
+        val backgroundColor = if (dark) {
             android.graphics.Color.rgb(0x07, 0x0B, 0x12)
         } else {
             android.graphics.Color.rgb(0xF1, 0xF5, 0xFA)
         }
-        val transparent = android.graphics.Color.TRANSPARENT
 
-        // BYD/DiLink keeps an OEM bar surface active if the launcher runs
-        // edge-to-edge. Use fitted visible system bars with an opaque launcher
-        // color so Light mode does not leave black top/bottom bars.
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+        window.decorView.setBackgroundColor(backgroundColor)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.decorView.isForceDarkAllowed = false
+        }
 
-        window.statusBarColor = barOverlayColor
-        window.navigationBarColor = barOverlayColor
+        // Critical difference from the previous edge-to-edge build:
+        // do not set LAYOUT_FULLSCREEN / LAYOUT_HIDE_NAVIGATION. Those flags let
+        // Flutter draw under the BYD shell bars, but the shell bars themselves
+        // remain black. In normal visible-overlay mode Android can actually use
+        // the statusBarColor/navigationBarColor values below.
+        window.statusBarColor = barColor
+        window.navigationBarColor = barColor
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             window.navigationBarDividerColor = transparent
@@ -110,7 +146,11 @@ class MainActivity : FlutterActivity() {
             window.isNavigationBarContrastEnforced = false
         }
 
-        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(true)
+        }
+
+        var flags = View.SYSTEM_UI_FLAG_VISIBLE
         if (!dark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
@@ -120,15 +160,13 @@ class MainActivity : FlutterActivity() {
         window.decorView.systemUiVisibility = flags
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(true)
             window.insetsController?.let { controller ->
-                controller.show(WindowInsets.Type.systemBars())
+                controller.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
 
                 val lightAppearance =
                     WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
                         WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
                 val appearance = if (dark) 0 else lightAppearance
-
                 controller.setSystemBarsAppearance(appearance, lightAppearance)
             }
         }

@@ -475,9 +475,12 @@ Brightness _effectiveBrightnessForTheme(ThemeMode mode) {
 }
 
 void _showSystemBars() {
-  // BYD/DiLink draws its own black bar surface when the app stays edge-to-edge.
-  // Keep Android system bars visible in normal fitted mode so the real bar
-  // background can follow Light/Dark mode and the bottom dock is not covered.
+  // BYD/DiLink keeps its own top/bottom shell bars visible. Do NOT use
+  // edgeToEdge here: Flutter's edgeToEdge re-adds LAYOUT_FULLSCREEN /
+  // LAYOUT_HIDE_NAVIGATION flags after native code applies bar colors, and on
+  // the BYD head unit that leaves the OEM black bar surface in Light mode.
+  // Keep the overlays visible in manual mode; MainActivity owns the actual
+  // light/dark bar colors and icon flags.
   unawaited(
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
@@ -499,6 +502,9 @@ void _applySystemBarsForTheme(ThemeMode mode) {
 
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(
+      // BYD/DiLink does not always honor transparent bars in Light mode. Use an
+      // opaque theme-matched bar color, then Android light-bar flags make icons
+      // dark. This avoids the OEM black status bar while preserving layout.
       statusBarColor: dark ? const Color(0xFF070B12) : const Color(0xFFF1F5FA),
       statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
       statusBarBrightness: dark ? Brightness.dark : Brightness.light,
@@ -1903,40 +1909,43 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       resizeToAvoidBottomInset: false,
-      body: MediaQuery.removePadding(
-        context: context,
-        removeTop: true,
-        removeBottom: true,
-        removeLeft: true,
-        removeRight: true,
-        child: Container(
-          width: double.infinity,
-          height: double.infinity,
-          // BYD/DiLink keeps a persistent system/control bar at the bottom.
-          // Only reserve the bottom inset. The top status/header bar is already
-          // outside the Flutter fitted area; adding viewPadding.top here creates
-          // the visible white strip under the OEM header in Light mode.
-          margin: EdgeInsets.only(
-            bottom: MediaQuery.viewPaddingOf(context).bottom,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0.40, -0.25),
+            radius: 1.18,
+            colors: light
+                ? const [
+                    Color(0xFFFFFFFF),
+                    Color(0xFFF1F6FC),
+                    Color(0xFFDCE7F2),
+                  ]
+                : const [
+                    Color(0xFF202A38),
+                    Color(0xFF0B111A),
+                    Color(0xFF05070C),
+                  ],
           ),
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(0.40, -0.25),
-              radius: 1.18,
-              colors: light
-                  ? const [
-                      Color(0xFFFFFFFF),
-                      Color(0xFFF1F6FC),
-                      Color(0xFFDCE7F2),
-                    ]
-                  : const [
-                      Color(0xFF202A38),
-                      Color(0xFF0B111A),
-                      Color(0xFF05070C),
-                    ],
+        ),
+        child: MediaQuery.removePadding(
+          context: context,
+          removeTop: true,
+          removeBottom: true,
+          removeLeft: true,
+          removeRight: true,
+          child: Padding(
+            // In edge-to-edge mode, reserve the visible BYD header/footer only
+            // for interactive content. The background container remains full
+            // screen, so Light mode does not create a white strip or get cut.
+            padding: EdgeInsets.only(
+              // In normal visible-system-bar mode, BYD/Android already places
+              // the Flutter surface below the top shell bar. Adding top padding
+              // again creates the white gap seen on the head unit.
+              bottom: MediaQuery.viewPaddingOf(context).bottom,
             ),
-          ),
-          child: Stack(
+            child: Stack(
             children: [
               Positioned.fill(
                 child: LayoutBuilder(
@@ -2099,8 +2108,9 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _handleTabChanged(_LauncherTab tab) {
     if (tab == _activeTab) return;
