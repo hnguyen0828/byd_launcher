@@ -10,8 +10,6 @@ A custom Flutter-based launcher experience designed for BYD / DiLink Android hea
 
 ## Preview
 
-> Add screenshots or demo GIFs here after publishing the repository.
-
 ```md
 ![Dark Mode Preview](docs/screenshots/dark-mode.png)
 ![Light Mode Preview](docs/screenshots/light-mode.png)
