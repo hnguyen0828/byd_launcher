@@ -82,7 +82,7 @@ class VehicleBridge {
         private const val DRIVE_POLL_INTERVAL_MS = 1000L
         private const val TYRE_POLL_INTERVAL_MS = 8000L
         private const val STATISTIC_POLL_INTERVAL_MS = 8000L
-        private const val TURN_SIGNAL_HOLD_MS = 1800L
+        private const val TURN_SIGNAL_HOLD_MS = 5000L
 
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
         // Only confirmed statistic event IDs are mapped; unrelated statistic
@@ -1086,6 +1086,10 @@ class VehicleBridge {
             return lastOnMs > 0L && SystemClock.elapsedRealtime() - lastOnMs <= TURN_SIGNAL_HOLD_MS
         }
 
+        private fun isTurnSignalCurrentlyActive(area: Int): Boolean {
+            return cachedLights[area] == BYDAutoLightDevice.LIGHT_ON || isTurnSignalLatched(area)
+        }
+
         private fun handleTurnLightAreaState(area: Int, rawState: Int, source: String) {
             val state = if (rawState == BYDAutoLightDevice.LIGHT_OFF || rawState == 0) {
                 BYDAutoLightDevice.LIGHT_OFF
@@ -1110,6 +1114,34 @@ class VehicleBridge {
                     handleTurnLightAggregateState(rawState, "$source/fallback area=$area")
                 }
             }
+        }
+
+        private fun handleTurnLightFlashState(value: Int, source: String) {
+            val flashing = value != 0 && value != BYDAutoLightDevice.LIGHT_OFF
+            val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
+            val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
+            val leftActive = isTurnSignalCurrentlyActive(leftArea)
+            val rightActive = isTurnSignalCurrentlyActive(rightArea)
+
+            if (flashing) {
+                if (leftActive) {
+                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
+                }
+                if (rightActive) {
+                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = source)
+                }
+                if (!leftActive && !rightActive) {
+                    logRealtime("LIGHT CALLBACK $source flash=$value without active turn direction")
+                    return
+                }
+            } else {
+                // Flash callbacks describe the blink phase, not the selected
+                // direction. Do not clear left/right here or a right turn can be
+                // briefly decoded as left when flash=1 arrives.
+                logRealtime("LIGHT CALLBACK $source flash off")
+            }
+
+            emitSnapshot(force = true)
         }
 
         private fun handleTurnLightAggregateState(value: Int, source: String) {
@@ -2181,7 +2213,7 @@ class VehicleBridge {
                 }
 
                 fun onTurnLightFlashStateChanged(value: Int) {
-                    handleTurnLightAggregateState(value, "turnFlash")
+                    handleTurnLightFlashState(value, "turnFlash")
                 }
 
                 fun onTurnLightStateChanged(area: Int, value: Int) {
