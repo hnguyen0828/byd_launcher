@@ -82,7 +82,7 @@ class VehicleBridge {
         private const val DRIVE_POLL_INTERVAL_MS = 1000L
         private const val TYRE_POLL_INTERVAL_MS = 8000L
         private const val STATISTIC_POLL_INTERVAL_MS = 8000L
-        private const val TURN_SIGNAL_HOLD_MS = 5000L
+        private const val TURN_SIGNAL_HOLD_MS = 2600L
 
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
         // Only confirmed statistic event IDs are mapped; unrelated statistic
@@ -1109,9 +1109,14 @@ class VehicleBridge {
                     emitSnapshot(force = true)
                 }
                 else -> {
-                    // Some BYD ROMs dispatch the aggregate turn-signal value
-                    // through this overload. Decode it the same way as Kinex.
-                    handleTurnLightAggregateState(rawState, "$source/fallback area=$area")
+                    // Some ROMs pass blink phase values through this overload
+                    // with unrelated area ids. Treat 0/1 as phase-only so they
+                    // cannot be decoded as a false left turn.
+                    if (rawState > 1) {
+                        handleTurnLightAggregateState(rawState, "$source/fallback area=$area")
+                    } else {
+                        handleTurnLightFlashState(rawState, "$source/fallback area=$area")
+                    }
                 }
             }
         }
@@ -1149,9 +1154,16 @@ class VehicleBridge {
             val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
 
             if (value == 0 || value == BYDAutoLightDevice.LIGHT_OFF) {
-                applyTurnSignalState(leftArea, on = false, clearOff = true, source = source)
-                applyTurnSignalState(rightArea, on = false, clearOff = true, source = source)
-            } else if (value == 1 || value == leftArea) {
+                // On this head unit the aggregate callback can report blink
+                // phase 0/1 instead of turn direction. Let explicit area off
+                // callbacks clear the direction; otherwise the animation would
+                // stop between blinks.
+                handleTurnLightFlashState(value, source)
+                return
+            } else if (value == 1) {
+                handleTurnLightFlashState(value, source)
+                return
+            } else if (value == leftArea) {
                 applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
                 applyTurnSignalState(rightArea, on = false, clearOff = true, source = source)
             } else if (value == 2 || value == rightArea) {
