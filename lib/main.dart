@@ -2139,9 +2139,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
         _navigationPanelMounted = true;
       }
     });
-    if (tab != _LauncherTab.settings) {
-      _flushPendingVehicleSnapshot();
-    }
+    _flushPendingVehicleSnapshot();
     if (enteringVehicleTab) {
       _deferVehicleTabLightEffect();
     } else {
@@ -2208,14 +2206,19 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _activeTab != _LauncherTab.status;
 
   bool _vehicleSnapshotDiffNeedsImmediateUi(_VehicleSnapshot snapshot) {
-    // While another tab is visible, keep the newest vehicle state cached but do
-    // not rebuild the whole launcher for high-frequency speed/TPMS ticks.  A
-    // light/gear/brake transition can change the camera/effect state when the
-    // user returns to Vehicle, so those changes are still allowed through.
-    return snapshot.lightMode != _vehicleSnapshot.lightMode ||
+    // The left dashboard and Ambient road are visible outside the Vehicle tab,
+    // so driving-critical values must remain live on every tab.  Only heavier
+    // secondary data such as TPMS/window maps can stay deferred to avoid
+    // unnecessary full launcher rebuilds.
+    return snapshot.speedKmh != _vehicleSnapshot.speedKmh ||
         snapshot.gear != _vehicleSnapshot.gear ||
         snapshot.braking != _vehicleSnapshot.braking ||
-        snapshot.brakeDepth != _vehicleSnapshot.brakeDepth;
+        snapshot.brakeDepth != _vehicleSnapshot.brakeDepth ||
+        snapshot.lightMode != _vehicleSnapshot.lightMode ||
+        snapshot.rangeKm != _vehicleSnapshot.rangeKm ||
+        snapshot.fuelPercent != _vehicleSnapshot.fuelPercent ||
+        snapshot.batteryPercent != _vehicleSnapshot.batteryPercent ||
+        snapshot.outsideTemperatureC != _vehicleSnapshot.outsideTemperatureC;
   }
 
   void _setVehicleSnapshotFromPlatform(
