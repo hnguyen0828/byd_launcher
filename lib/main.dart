@@ -19,6 +19,7 @@ const String _vehicleModelPreferenceKey = 'launcher.vehicleModelAsset';
 const String _vehicleColorPreferenceKey = 'launcher.vehicleColor';
 const String _renderQualityPreferenceKey = 'launcher.renderQuality';
 const String _lightEffectEnabledPreferenceKey = 'launcher.lightEffectEnabled';
+const String _radarEffectEnabledPreferenceKey = 'launcher.radarEffectEnabled';
 const String _debugModePreferenceKey = 'launcher.debugMode';
 const String _appContactEmail = 'hnguyen0828@gmail.com';
 const String _appDeveloperName = 'leonng2023';
@@ -139,6 +140,8 @@ class _VehicleSnapshot {
     this.tpms = const {},
     this.windowLevels = const {},
     this.lightMode = _DemoLightMode.off,
+    this.radarLevel = _DemoRadarLevel.off,
+    this.radarZone = _DemoRadarZone.rear,
   });
 
   factory _VehicleSnapshot.fromMap(Map<dynamic, dynamic> map) {
@@ -146,6 +149,7 @@ class _VehicleSnapshot {
     final bodyworkMap = map['bodywork'];
     final windowsMap = bodyworkMap is Map ? bodyworkMap['windows'] : null;
     final lightMap = map['lights'];
+    final radarMap = map['radar'];
     return _VehicleSnapshot(
       available: map['available'] == true,
       speedKmh: _doubleFromMap(map, 'speedKmh'),
@@ -169,6 +173,8 @@ class _VehicleSnapshot {
           : const {},
       windowLevels: _windowLevelsFromMap(windowsMap),
       lightMode: _lightModeFromMap(lightMap),
+      radarLevel: _radarLevelFromMap(radarMap),
+      radarZone: _radarZoneFromMap(radarMap),
     );
   }
 
@@ -184,6 +190,8 @@ class _VehicleSnapshot {
   final Map<String, _TyreSnapshot> tpms;
   final Map<int, double> windowLevels;
   final _DemoLightMode lightMode;
+  final _DemoRadarLevel radarLevel;
+  final _DemoRadarZone radarZone;
 
   _TyreSnapshot tyre(String key) => tpms[key] ?? const _TyreSnapshot();
 
@@ -201,7 +209,9 @@ class _VehicleSnapshot {
         other.braking == braking &&
         mapEquals(other.tpms, tpms) &&
         mapEquals(other.windowLevels, windowLevels) &&
-        other.lightMode == lightMode;
+        other.lightMode == lightMode &&
+        other.radarLevel == radarLevel &&
+        other.radarZone == radarZone;
   }
 
   @override
@@ -222,6 +232,8 @@ class _VehicleSnapshot {
       windowLevels.entries.map((entry) => Object.hash(entry.key, entry.value)),
     ),
     lightMode,
+    radarLevel,
+    radarZone,
   );
 }
 
@@ -250,6 +262,54 @@ _DemoLightMode _lightModeFromMap(Object? lightMap) {
   if (on.contains(lowBeam)) return _DemoLightMode.lowBeam;
   if (on.contains(side) || lightMap['auto'] == 1) return _DemoLightMode.auto;
   return _DemoLightMode.off;
+}
+
+_DemoRadarLevel _radarLevelFromMap(Object? radarMap) {
+  if (radarMap is! Map) return _DemoRadarLevel.off;
+  final probes = radarMap['probes'];
+  if (probes is! Map || probes.isEmpty) return _DemoRadarLevel.off;
+  var maxState = 0;
+  for (final value in probes.values) {
+    if (value is num) maxState = math.max(maxState, value.toInt());
+  }
+  return switch (maxState) {
+    4 => _DemoRadarLevel.veryClose,
+    3 => _DemoRadarLevel.close,
+    2 => _DemoRadarLevel.far,
+    1 => _DemoRadarLevel.off,
+    _ => _DemoRadarLevel.off,
+  };
+}
+
+_DemoRadarZone _radarZoneFromMap(Object? radarMap) {
+  if (radarMap is! Map) return _DemoRadarZone.rear;
+  final probes = radarMap['probes'];
+  if (probes is! Map || probes.isEmpty) return _DemoRadarZone.rear;
+  final active = <int>[];
+  for (final entry in probes.entries) {
+    final area = int.tryParse(entry.key.toString());
+    final state = entry.value is num ? (entry.value as num).toInt() : 0;
+    if (area != null && state > 0) active.add(area);
+  }
+  if (active.isEmpty) return _DemoRadarZone.rear;
+  final front = active.any(
+    (area) => area == 1 || area == 2 || area == 7 || area == 8,
+  );
+  final rear = active.any((area) => area == 3 || area == 4);
+  final left = active.any(
+    (area) => area == 1 || area == 3 || area == 5 || area == 7,
+  );
+  final right = active.any(
+    (area) => area == 2 || area == 4 || area == 6 || area == 8,
+  );
+  if ((front && rear) || (left && right && active.length > 1)) {
+    return _DemoRadarZone.all;
+  }
+  if (front) return _DemoRadarZone.front;
+  if (rear) return _DemoRadarZone.rear;
+  if (left) return _DemoRadarZone.left;
+  if (right) return _DemoRadarZone.right;
+  return _DemoRadarZone.rear;
 }
 
 int? _intFromDynamicMap(Object? map, String key) {
@@ -775,6 +835,10 @@ String _capitalizeVehicleModelWord(String word) {
 enum _VehicleGear { p, r, n, d }
 
 enum _DemoLightMode { off, auto, lowBeam, highBeam, fog, turnLeft, turnRight }
+
+enum _DemoRadarLevel { off, safe, far, medium, close, veryClose }
+
+enum _DemoRadarZone { rear, front, left, right, all }
 
 enum _VehicleRenderQuality { low, medium, high }
 
@@ -1757,8 +1821,11 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
   bool _vehicleTabLightEffectDeferred = false;
   double _vehicleSpeedKmh = 0;
   _DemoLightMode _demoLightMode = _DemoLightMode.off;
+  _DemoRadarLevel _demoRadarLevel = _DemoRadarLevel.off;
+  _DemoRadarZone _demoRadarZone = _DemoRadarZone.rear;
   bool _demoBrakeActive = false;
   bool _lightEffectEnabled = true;
+  bool _radarEffectEnabled = true;
   bool _debugModeEnabled = false;
   bool _keepLightCameraOrbitAfterOff = false;
   _VehicleSnapshot _vehicleSnapshot = const _VehicleSnapshot();
@@ -2000,6 +2067,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                         reverseRoadMotion: _reverseRoadMotion,
                         vehicleSpeedKmh: _effectiveSpeedKmh,
                         demoLightMode: _demoLightMode,
+                        demoRadarLevel: _demoRadarLevel,
+                        demoRadarZone: _demoRadarZone,
                         brakeActive: _effectiveBrakeActive,
                         demoBrakeActive: _debugModeEnabled && _demoBrakeActive,
                         brakeIntensity: _effectiveBrakeIntensity,
@@ -2008,8 +2077,13 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                             _setDemoLightMode(mode),
                         onDemoBrakeChanged: (active) =>
                             setState(() => _demoBrakeActive = active),
+                        onDemoRadarLevelChanged: (level) =>
+                            setState(() => _demoRadarLevel = level),
+                        onDemoRadarZoneChanged: (zone) =>
+                            setState(() => _demoRadarZone = zone),
                         deferLightEffectOnVehicleEntry:
                             _vehicleTabLightEffectDeferred,
+                        radarEffectEnabled: _radarEffectEnabled,
                         effectiveGear: _effectiveGear,
                         vehicleSnapshot: _vehicleSnapshot,
                         onGearChanged: _setGear,
@@ -2048,6 +2122,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
                             _setWallpaperButtonEnabled,
                         lightEffectEnabled: _lightEffectEnabled,
                         onLightEffectEnabledChanged: _setLightEffectEnabled,
+                        onRadarEffectEnabledChanged: _setRadarEffectEnabled,
                         onDebugModeChanged: _setDebugModeEnabled,
                         themeMode: widget.themeMode,
                         onThemeModeChanged: widget.onThemeModeChanged,
@@ -2378,6 +2453,8 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     );
     final lightEffectEnabled =
         prefs.getBool(_lightEffectEnabledPreferenceKey) ?? true;
+    final radarEffectEnabled =
+        prefs.getBool(_radarEffectEnabledPreferenceKey) ?? true;
     final debugModeEnabled = prefs.getBool(_debugModePreferenceKey) ?? false;
     await _applyLayoutModeOrientation(layoutMode);
     if (!mounted) return;
@@ -2385,6 +2462,7 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
       _layoutMode = layoutMode;
       _landscapeSidebarPosition = sidebarPosition;
       _lightEffectEnabled = lightEffectEnabled;
+      _radarEffectEnabled = radarEffectEnabled;
       _debugModeEnabled = debugModeEnabled;
     });
   }
@@ -2405,6 +2483,12 @@ class _LauncherHomePageState extends State<_LauncherHomePage>
     setState(() => _lightEffectEnabled = value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_lightEffectEnabledPreferenceKey, value);
+  }
+
+  Future<void> _setRadarEffectEnabled(bool value) async {
+    setState(() => _radarEffectEnabled = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_radarEffectEnabledPreferenceKey, value);
   }
 
   Future<void> _setLayoutMode(_LauncherLayoutMode value) async {
@@ -5721,13 +5805,18 @@ class _VehicleCanvas extends StatelessWidget {
     required this.reverseRoadMotion,
     required this.vehicleSpeedKmh,
     required this.demoLightMode,
+    required this.demoRadarLevel,
+    required this.demoRadarZone,
     required this.brakeActive,
     required this.demoBrakeActive,
     required this.brakeIntensity,
     required this.debugModeEnabled,
     required this.lightEffectEnabled,
+    required this.radarEffectEnabled,
     required this.onDemoLightModeChanged,
     required this.onDemoBrakeChanged,
+    required this.onDemoRadarLevelChanged,
+    required this.onDemoRadarZoneChanged,
     required this.deferLightEffectOnVehicleEntry,
     required this.effectiveGear,
     required this.vehicleSnapshot,
@@ -5759,6 +5848,7 @@ class _VehicleCanvas extends StatelessWidget {
     required this.onWallpaperIntervalChanged,
     required this.onWallpaperButtonEnabledChanged,
     required this.onLightEffectEnabledChanged,
+    required this.onRadarEffectEnabledChanged,
     required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -5787,13 +5877,18 @@ class _VehicleCanvas extends StatelessWidget {
   final bool reverseRoadMotion;
   final double vehicleSpeedKmh;
   final _DemoLightMode demoLightMode;
+  final _DemoRadarLevel demoRadarLevel;
+  final _DemoRadarZone demoRadarZone;
   final bool brakeActive;
   final bool demoBrakeActive;
   final double brakeIntensity;
   final bool debugModeEnabled;
   final bool lightEffectEnabled;
+  final bool radarEffectEnabled;
   final ValueChanged<_DemoLightMode> onDemoLightModeChanged;
   final ValueChanged<bool> onDemoBrakeChanged;
+  final ValueChanged<_DemoRadarLevel> onDemoRadarLevelChanged;
+  final ValueChanged<_DemoRadarZone> onDemoRadarZoneChanged;
   final bool deferLightEffectOnVehicleEntry;
   final _VehicleGear effectiveGear;
   final _VehicleSnapshot vehicleSnapshot;
@@ -5825,6 +5920,7 @@ class _VehicleCanvas extends StatelessWidget {
   final ValueChanged<int> onWallpaperIntervalChanged;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final ValueChanged<bool> onLightEffectEnabledChanged;
+  final ValueChanged<bool> onRadarEffectEnabledChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -5844,6 +5940,25 @@ class _VehicleCanvas extends StatelessWidget {
         lightEffectEnabled && !deferLightEffectOnVehicleEntry
         ? candidateLightMode
         : _DemoLightMode.off;
+    final normalizedDemoRadarLevel = demoRadarLevel == _DemoRadarLevel.safe
+        ? _DemoRadarLevel.off
+        : demoRadarLevel;
+    final forceRadarDemo =
+        debugModeEnabled &&
+        radarEffectEnabled &&
+        normalizedDemoRadarLevel != _DemoRadarLevel.off;
+    final visibleDemoRadarLevel = forceRadarDemo
+        ? normalizedDemoRadarLevel
+        : vehicleSnapshot.radarLevel != _DemoRadarLevel.off
+        ? vehicleSnapshot.radarLevel
+        : debugModeEnabled && radarEffectEnabled
+        ? normalizedDemoRadarLevel
+        : _DemoRadarLevel.off;
+    final visibleDemoRadarZone = forceRadarDemo
+        ? demoRadarZone
+        : vehicleSnapshot.radarLevel != _DemoRadarLevel.off
+        ? vehicleSnapshot.radarZone
+        : demoRadarZone;
     final ambientDockInset = wallpaperMode && !portraitMode
         ? (MediaQuery.sizeOf(context).width < 1100 ? 292.0 : 348.0)
         : 0.0;
@@ -5926,6 +6041,10 @@ class _VehicleCanvas extends StatelessWidget {
                       demoLightMode: activeTab == _LauncherTab.status
                           ? visibleDemoLightMode
                           : _DemoLightMode.off,
+                      demoRadarLevel: activeTab == _LauncherTab.status
+                          ? visibleDemoRadarLevel
+                          : _DemoRadarLevel.off,
+                      demoRadarZone: visibleDemoRadarZone,
                     ),
                   ),
                 ),
@@ -5988,8 +6107,10 @@ class _VehicleCanvas extends StatelessWidget {
                     onWallpaperButtonEnabledChanged:
                         onWallpaperButtonEnabledChanged,
                     lightEffectEnabled: lightEffectEnabled,
+                    radarEffectEnabled: radarEffectEnabled,
                     debugModeEnabled: debugModeEnabled,
                     onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+                    onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
                     onDebugModeChanged: onDebugModeChanged,
                     themeMode: themeMode,
                     onThemeModeChanged: onThemeModeChanged,
@@ -6019,8 +6140,12 @@ class _VehicleCanvas extends StatelessWidget {
                 onRear: () => onViewChanged(_VehicleView.rear),
                 debugModeEnabled: debugModeEnabled,
                 lightMode: demoLightMode,
+                radarLevel: demoRadarLevel,
+                radarZone: demoRadarZone,
                 brakeActive: demoBrakeActive,
                 onLightModeChanged: onDemoLightModeChanged,
+                onRadarLevelChanged: onDemoRadarLevelChanged,
+                onRadarZoneChanged: onDemoRadarZoneChanged,
                 onBrakeChanged: onDemoBrakeChanged,
               ),
             ),
@@ -6081,6 +6206,8 @@ class _VehicleStage extends StatelessWidget {
     required this.brakeActive,
     required this.brakeIntensity,
     required this.demoLightMode,
+    required this.demoRadarLevel,
+    required this.demoRadarZone,
   });
 
   final bool enable3dModel;
@@ -6096,6 +6223,8 @@ class _VehicleStage extends StatelessWidget {
   final bool brakeActive;
   final double brakeIntensity;
   final _DemoLightMode demoLightMode;
+  final _DemoRadarLevel demoRadarLevel;
+  final _DemoRadarZone demoRadarZone;
 
   @override
   Widget build(BuildContext context) {
@@ -6115,6 +6244,8 @@ class _VehicleStage extends StatelessWidget {
           brakeActive: brakeActive,
           brakeIntensity: brakeIntensity,
           demoLightMode: demoLightMode,
+          demoRadarLevel: demoRadarLevel,
+          demoRadarZone: demoRadarZone,
         ),
       ),
     );
@@ -7602,8 +7733,10 @@ class _SettingsPanel extends StatelessWidget {
     required this.wallpaperButtonEnabled,
     required this.onWallpaperButtonEnabledChanged,
     required this.lightEffectEnabled,
+    required this.radarEffectEnabled,
     required this.debugModeEnabled,
     required this.onLightEffectEnabledChanged,
+    required this.onRadarEffectEnabledChanged,
     required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -7636,8 +7769,10 @@ class _SettingsPanel extends StatelessWidget {
   final bool wallpaperButtonEnabled;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final bool lightEffectEnabled;
+  final bool radarEffectEnabled;
   final bool debugModeEnabled;
   final ValueChanged<bool> onLightEffectEnabledChanged;
+  final ValueChanged<bool> onRadarEffectEnabledChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -7671,8 +7806,10 @@ class _SettingsPanel extends StatelessWidget {
       wallpaperButtonEnabled: wallpaperButtonEnabled,
       onWallpaperButtonEnabledChanged: onWallpaperButtonEnabledChanged,
       lightEffectEnabled: lightEffectEnabled,
+      radarEffectEnabled: radarEffectEnabled,
       debugModeEnabled: debugModeEnabled,
       onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+      onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
       onDebugModeChanged: onDebugModeChanged,
       themeMode: themeMode,
       onThemeModeChanged: onThemeModeChanged,
@@ -7769,8 +7906,10 @@ class _SettingsPanel extends StatelessWidget {
                       onWallpaperButtonEnabledChanged:
                           onWallpaperButtonEnabledChanged,
                       lightEffectEnabled: lightEffectEnabled,
+                      radarEffectEnabled: radarEffectEnabled,
                       debugModeEnabled: debugModeEnabled,
                       onLightEffectEnabledChanged: onLightEffectEnabledChanged,
+                      onRadarEffectEnabledChanged: onRadarEffectEnabledChanged,
                       onDebugModeChanged: onDebugModeChanged,
                       themeMode: themeMode,
                       onThemeModeChanged: onThemeModeChanged,
@@ -7838,8 +7977,10 @@ class _SettingsMainColumn extends StatelessWidget {
     required this.wallpaperButtonEnabled,
     required this.onWallpaperButtonEnabledChanged,
     required this.lightEffectEnabled,
+    required this.radarEffectEnabled,
     required this.debugModeEnabled,
     required this.onLightEffectEnabledChanged,
+    required this.onRadarEffectEnabledChanged,
     required this.onDebugModeChanged,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -7872,8 +8013,10 @@ class _SettingsMainColumn extends StatelessWidget {
   final bool wallpaperButtonEnabled;
   final ValueChanged<bool> onWallpaperButtonEnabledChanged;
   final bool lightEffectEnabled;
+  final bool radarEffectEnabled;
   final bool debugModeEnabled;
   final ValueChanged<bool> onLightEffectEnabledChanged;
+  final ValueChanged<bool> onRadarEffectEnabledChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -7983,6 +8126,14 @@ class _SettingsMainColumn extends StatelessWidget {
                 subtitle: _t(context, 'lightEffectSubtitle'),
                 value: lightEffectEnabled,
                 onChanged: onLightEffectEnabledChanged,
+              ),
+              const SizedBox(height: 12),
+              _SettingsSwitchRow(
+                icon: Icons.radar_outlined,
+                title: 'Radar effect',
+                subtitle: 'Show parking radar test overlay in Vehicle tab.',
+                value: radarEffectEnabled,
+                onChanged: onRadarEffectEnabledChanged,
               ),
             ],
           ),
@@ -9397,8 +9548,12 @@ class _FloatingVehicleControls extends StatelessWidget {
     required this.onRear,
     required this.debugModeEnabled,
     required this.lightMode,
+    required this.radarLevel,
+    required this.radarZone,
     required this.brakeActive,
     required this.onLightModeChanged,
+    required this.onRadarLevelChanged,
+    required this.onRadarZoneChanged,
     required this.onBrakeChanged,
   });
 
@@ -9406,8 +9561,12 @@ class _FloatingVehicleControls extends StatelessWidget {
   final VoidCallback onRear;
   final bool debugModeEnabled;
   final _DemoLightMode lightMode;
+  final _DemoRadarLevel radarLevel;
+  final _DemoRadarZone radarZone;
   final bool brakeActive;
   final ValueChanged<_DemoLightMode> onLightModeChanged;
+  final ValueChanged<_DemoRadarLevel> onRadarLevelChanged;
+  final ValueChanged<_DemoRadarZone> onRadarZoneChanged;
   final ValueChanged<bool> onBrakeChanged;
 
   @override
@@ -9419,8 +9578,12 @@ class _FloatingVehicleControls extends StatelessWidget {
           onRear: onRear,
           debugModeEnabled: debugModeEnabled,
           lightMode: lightMode,
+          radarLevel: radarLevel,
+          radarZone: radarZone,
           brakeActive: brakeActive,
           onLightModeChanged: onLightModeChanged,
+          onRadarLevelChanged: onRadarLevelChanged,
+          onRadarZoneChanged: onRadarZoneChanged,
           onBrakeChanged: onBrakeChanged,
         ),
       ],
@@ -9433,16 +9596,24 @@ class _QuickActionStrip extends StatefulWidget {
     required this.onRear,
     required this.debugModeEnabled,
     required this.lightMode,
+    required this.radarLevel,
+    required this.radarZone,
     required this.brakeActive,
     required this.onLightModeChanged,
+    required this.onRadarLevelChanged,
+    required this.onRadarZoneChanged,
     required this.onBrakeChanged,
   });
 
   final VoidCallback onRear;
   final bool debugModeEnabled;
   final _DemoLightMode lightMode;
+  final _DemoRadarLevel radarLevel;
+  final _DemoRadarZone radarZone;
   final bool brakeActive;
   final ValueChanged<_DemoLightMode> onLightModeChanged;
+  final ValueChanged<_DemoRadarLevel> onRadarLevelChanged;
+  final ValueChanged<_DemoRadarZone> onRadarZoneChanged;
   final ValueChanged<bool> onBrakeChanged;
 
   @override
@@ -9454,6 +9625,18 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
     final values = _DemoLightMode.values;
     final next = values[(widget.lightMode.index + 1) % values.length];
     widget.onLightModeChanged(next);
+  }
+
+  void _cycleRadarLevel() {
+    final values = _DemoRadarLevel.values;
+    final next = values[(widget.radarLevel.index + 1) % values.length];
+    widget.onRadarLevelChanged(next);
+  }
+
+  void _cycleRadarZone() {
+    final values = _DemoRadarZone.values;
+    final next = values[(widget.radarZone.index + 1) % values.length];
+    widget.onRadarZoneChanged(next);
   }
 
   @override
@@ -9500,30 +9683,71 @@ class _QuickActionStripState extends State<_QuickActionStrip> {
       );
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        debugPill(
-          _MiniAction(
-            icon: Icons.light_mode_rounded,
-            label: _demoLightLabel(context, widget.lightMode),
-            onTap: _cycleLightMode,
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          debugPill(
+            _MiniAction(
+              icon: Icons.light_mode_rounded,
+              label: _demoLightLabel(context, widget.lightMode),
+              onTap: _cycleLightMode,
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        debugPill(
-          _MiniAction(
-            icon: Icons.stop_circle_outlined,
-            label: widget.brakeActive
-                ? _t(context, 'brakeOn')
-                : _t(context, 'brake'),
-            active: widget.brakeActive,
-            onTap: () => widget.onBrakeChanged(!widget.brakeActive),
+          const SizedBox(width: 8),
+          debugPill(
+            _MiniAction(
+              icon: Icons.stop_circle_outlined,
+              label: widget.brakeActive
+                  ? _t(context, 'brakeOn')
+                  : _t(context, 'brake'),
+              active: widget.brakeActive,
+              onTap: () => widget.onBrakeChanged(!widget.brakeActive),
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          debugPill(
+            _MiniAction(
+              icon: Icons.radar_outlined,
+              label: _demoRadarLabel(widget.radarLevel),
+              onTap: _cycleRadarLevel,
+            ),
+          ),
+          const SizedBox(width: 8),
+          debugPill(
+            _MiniAction(
+              icon: Icons.filter_tilt_shift_rounded,
+              label: _demoRadarZoneLabel(widget.radarZone),
+              onTap: _cycleRadarZone,
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+String _demoRadarLabel(_DemoRadarLevel level) {
+  return switch (level) {
+    _DemoRadarLevel.off => 'Radar Off',
+    _DemoRadarLevel.safe => 'Safe',
+    _DemoRadarLevel.far => 'Far',
+    _DemoRadarLevel.medium => 'Medium',
+    _DemoRadarLevel.close => 'Close',
+    _DemoRadarLevel.veryClose => 'Very Close',
+  };
+}
+
+String _demoRadarZoneLabel(_DemoRadarZone zone) {
+  return switch (zone) {
+    _DemoRadarZone.rear => 'Rear',
+    _DemoRadarZone.front => 'Front',
+    _DemoRadarZone.left => 'Left',
+    _DemoRadarZone.right => 'Right',
+    _DemoRadarZone.all => 'All',
+  };
 }
 
 String _demoLightLabel(BuildContext context, _DemoLightMode mode) {
@@ -10135,6 +10359,359 @@ class _LightStatusPainter extends CustomPainter {
   }
 }
 
+Color _demoRadarColor(_DemoRadarLevel level) {
+  return switch (level) {
+    _DemoRadarLevel.off => Colors.transparent,
+    _DemoRadarLevel.safe => const Color(0xFF18D987),
+    _DemoRadarLevel.far => const Color(0xFF5BE878),
+    _DemoRadarLevel.medium => const Color(0xFFFFD43B),
+    _DemoRadarLevel.close => const Color(0xFFFF8A00),
+    _DemoRadarLevel.veryClose => const Color(0xFFFF2D2D),
+  };
+}
+
+class _ParkingRadarOverlay extends StatefulWidget {
+  const _ParkingRadarOverlay({required this.level, required this.zone});
+
+  final _DemoRadarLevel level;
+  final _DemoRadarZone zone;
+
+  @override
+  State<_ParkingRadarOverlay> createState() => _ParkingRadarOverlayState();
+}
+
+class _ParkingRadarOverlayState extends State<_ParkingRadarOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  bool get _animated =>
+      widget.level != _DemoRadarLevel.off && widget.level != _DemoRadarLevel.safe;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 980),
+    );
+    if (_animated) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ParkingRadarOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_animated) {
+      if (!_controller.isAnimating) {
+        _controller.repeat();
+      }
+    } else {
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.level == _DemoRadarLevel.off) return const SizedBox.expand();
+    if (widget.level == _DemoRadarLevel.safe) {
+      return IgnorePointer(
+        child: CustomPaint(
+          painter: _ParkingRadarPainter(
+            level: widget.level,
+            zone: widget.zone,
+            light: _isLight(context),
+            progress: 0,
+          ),
+        ),
+      );
+    }
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _ParkingRadarPainter(
+            level: widget.level,
+            zone: widget.zone,
+            light: _isLight(context),
+            progress: _controller.value,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ParkingRadarPainter extends CustomPainter {
+  const _ParkingRadarPainter({
+    required this.level,
+    required this.zone,
+    required this.light,
+    required this.progress,
+  });
+
+  final _DemoRadarLevel level;
+  final _DemoRadarZone zone;
+  final bool light;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (level == _DemoRadarLevel.off) return;
+    final effectiveLevel =
+        (level != _DemoRadarLevel.off && level != _DemoRadarLevel.safe)
+        ? _DemoRadarLevel.veryClose
+        : level;
+    final isSafe = level == _DemoRadarLevel.safe;
+    final color = _demoRadarColor(level);
+    final severity =
+        (effectiveLevel.index / (_DemoRadarLevel.values.length - 1))
+        .clamp(0.18, 1.0)
+        .toDouble();
+    final themeAlphaScale = light ? 0.78 : 1.0;
+    final center = Offset(size.width * 0.500, size.height * 0.626);
+    final carWidth = size.width * 0.224;
+    final carHeight = size.height * 0.405;
+    final sideGap = size.width * 0.015;
+    final rearGap = size.height * 0.000;
+    final frontGap = size.height * 0.006;
+    final pulse = isSafe
+        ? 0.0
+        : effectiveLevel == _DemoRadarLevel.veryClose
+        ? math.sin(progress * math.pi * 2).abs()
+        : math.sin(progress * math.pi * 2).abs() * 0.22;
+    final pulseAlpha = isSafe
+        ? 1.0
+        : effectiveLevel == _DemoRadarLevel.veryClose
+        ? 0.80 + pulse * 0.20
+        : 0.92 + pulse * 0.08;
+    final pulseOffset = isSafe
+        ? 0.0
+        : effectiveLevel == _DemoRadarLevel.veryClose
+        ? pulse * 2.2
+        : 0.0;
+
+    final glowRadius = size.shortestSide * (0.145 + severity * 0.048);
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: (light ? 0.030 : 0.050) * severity),
+          color.withValues(alpha: (light ? 0.012 : 0.026) * severity),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.52, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: glowRadius));
+    canvas.drawCircle(center, glowRadius, glowPaint);
+
+    final layerCount = switch (effectiveLevel) {
+      _DemoRadarLevel.safe => 1,
+      _DemoRadarLevel.far => 3,
+      _DemoRadarLevel.medium ||
+      _DemoRadarLevel.close ||
+      _DemoRadarLevel.veryClose => 4,
+      _DemoRadarLevel.off => 0,
+    };
+    final baseStroke = lerpDouble(1.8, 4.6, severity)!;
+
+    Paint segmentPaint(int layer, double alphaScale) {
+      final layerFade = (1.0 - layer * 0.18).clamp(0.34, 1.0).toDouble();
+      final alpha = (0.42 *
+              severity *
+              layerFade *
+              alphaScale *
+              pulseAlpha *
+              themeAlphaScale)
+          .clamp(0.035, light ? 0.54 : 0.66)
+          .toDouble();
+      return Paint()
+        ..color = color.withValues(alpha: alpha)
+        ..strokeWidth = (baseStroke - layer * 0.34).clamp(1.45, 4.9).toDouble()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = MaskFilter.blur(
+          BlurStyle.normal,
+          isSafe
+              ? 0.0
+              : (effectiveLevel == _DemoRadarLevel.veryClose ? 1.05 : 0.62),
+        );
+    }
+
+    void drawSegments({
+      required Rect rect,
+      required double startAngle,
+      required double sweepAngle,
+      required int segments,
+      required Paint paint,
+    }) {
+      final gap = math.pi * 0.036;
+      final segmentSweep = (sweepAngle - gap * (segments - 1)) / segments;
+      for (var i = 0; i < segments; i++) {
+        canvas.drawArc(
+          rect,
+          startAngle + i * (segmentSweep + gap),
+          segmentSweep,
+          false,
+          paint,
+        );
+      }
+    }
+
+    void withPerspective({
+      required Offset pivot,
+      required double tilt,
+      required VoidCallback draw,
+    }) {
+      canvas.save();
+      canvas.translate(pivot.dx, pivot.dy);
+      canvas.rotate(tilt);
+      canvas.translate(-pivot.dx, -pivot.dy);
+      draw();
+      canvas.restore();
+    }
+
+    void drawRear([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx, center.dy + carHeight * 0.52);
+      withPerspective(
+        pivot: pivot,
+        tilt: 0.0,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.height * 0.020 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(center.dx, center.dy + carHeight * 0.430 + rearGap + offset),
+              width: carWidth * 0.98 + t * size.width * 0.030,
+              height: size.height * 0.090 + t * size.height * 0.018,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * 0.09,
+              sweepAngle: math.pi * 0.82,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (1.26 - t * 0.070)),
+            );
+          }
+        },
+      );
+    }
+
+    void drawFront([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx, center.dy - carHeight * 0.54);
+      withPerspective(
+        pivot: pivot,
+        tilt: 0.0,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.height * 0.017 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(center.dx, center.dy - carHeight * 0.455 - frontGap - offset),
+              width: carWidth * 0.86 + t * size.width * 0.024,
+              height: size.height * 0.074 + t * size.height * 0.016,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * 1.10,
+              sweepAngle: math.pi * 0.80,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (1.02 - t * 0.060)),
+            );
+          }
+        },
+      );
+    }
+
+    void drawLeft([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx - carWidth * 0.53, center.dy);
+      withPerspective(
+        pivot: pivot,
+        tilt: -0.045,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.width * 0.014 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(
+                center.dx - carWidth * 0.50 - sideGap - offset,
+                center.dy + size.height * 0.006,
+              ),
+              width: size.width * 0.086 + t * size.width * 0.021,
+              height: carHeight * 0.700 + t * size.height * 0.015,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * 0.625,
+              sweepAngle: math.pi * 0.750,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (0.72 - t * 0.028)),
+            );
+          }
+        },
+      );
+    }
+
+    void drawRight([double alphaScale = 1.0]) {
+      final pivot = Offset(center.dx + carWidth * 0.53, center.dy);
+      withPerspective(
+        pivot: pivot,
+        tilt: 0.045,
+        draw: () {
+          for (var layer = 0; layer < layerCount; layer++) {
+            final t = layer.toDouble();
+            final offset = t * size.width * 0.014 + pulseOffset;
+            final rect = Rect.fromCenter(
+              center: Offset(
+                center.dx + carWidth * 0.50 + sideGap + offset,
+                center.dy + size.height * 0.006,
+              ),
+              width: size.width * 0.086 + t * size.width * 0.021,
+              height: carHeight * 0.700 + t * size.height * 0.015,
+            );
+            drawSegments(
+              rect: rect,
+              startAngle: math.pi * -0.375,
+              sweepAngle: math.pi * 0.750,
+              segments: 3,
+              paint: segmentPaint(layer, alphaScale * (0.72 - t * 0.028)),
+            );
+          }
+        },
+      );
+    }
+
+    switch (zone) {
+      case _DemoRadarZone.rear:
+        drawRear();
+      case _DemoRadarZone.front:
+        drawFront();
+      case _DemoRadarZone.left:
+        drawLeft();
+      case _DemoRadarZone.right:
+        drawRight();
+      case _DemoRadarZone.all:
+        drawRear(effectiveLevel == _DemoRadarLevel.veryClose ? 1.15 : 1.02);
+        drawFront(effectiveLevel == _DemoRadarLevel.veryClose ? 0.68 : 0.58);
+        drawLeft(0.66);
+        drawRight(0.66);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ParkingRadarPainter oldDelegate) {
+    return oldDelegate.level != level ||
+        oldDelegate.zone != zone ||
+        oldDelegate.light != light ||
+        oldDelegate.progress != progress;
+  }
+}
+
 const double _vehicleModelGlobalScale = 0.92;
 const Offset _vehicleModelGroundingOffset = Offset(0, 0.022);
 
@@ -10167,6 +10744,8 @@ class _VehicleHero extends StatefulWidget {
     required this.brakeActive,
     required this.brakeIntensity,
     required this.demoLightMode,
+    required this.demoRadarLevel,
+    required this.demoRadarZone,
   });
 
   final bool enable3dModel;
@@ -10182,6 +10761,8 @@ class _VehicleHero extends StatefulWidget {
   final bool brakeActive;
   final double brakeIntensity;
   final _DemoLightMode demoLightMode;
+  final _DemoRadarLevel demoRadarLevel;
+  final _DemoRadarZone demoRadarZone;
 
   @override
   State<_VehicleHero> createState() => _VehicleHeroState();
@@ -10312,6 +10893,13 @@ class _VehicleHeroState extends State<_VehicleHero> {
               mode: signalModeActive ? _DemoLightMode.off : visibleLightMode,
             ),
           ),
+          if (widget.demoRadarLevel != _DemoRadarLevel.off)
+            _VehicleModelAnchoredOverlay(
+              child: _ParkingRadarOverlay(
+                level: widget.demoRadarLevel,
+                zone: widget.demoRadarZone,
+              ),
+            ),
           TweenAnimationBuilder<double>(
             tween: Tween<double>(end: _selectedHotspot == null ? 0 : 1),
             duration: const Duration(milliseconds: 520),
