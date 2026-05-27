@@ -82,6 +82,7 @@ class VehicleBridge {
         private const val DRIVE_POLL_INTERVAL_MS = 1000L
         private const val TYRE_POLL_INTERVAL_MS = 8000L
         private const val STATISTIC_POLL_INTERVAL_MS = 8000L
+        private const val AC_POLL_INTERVAL_MS = 8000L
         private const val TURN_SIGNAL_HOLD_MS = 2600L
 
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
@@ -104,6 +105,7 @@ class VehicleBridge {
         private var lastDrivePollMs = 0L
         private var lastTyrePollMs = 0L
         private var lastStatisticPollMs = 0L
+        private var lastAcPollMs = 0L
         private val discoveryLastLogMs = mutableMapOf<String, Long>()
 
         // Cache-only vehicle state. Direct getters on BYD ROM require *_GET permissions.
@@ -130,6 +132,7 @@ class VehicleBridge {
         private var lastBatteryPercentAcceptMs = 0L
         private var lastFuelPercentAcceptMs = 0L
         private var cachedOutsideTemperatureC: Int? = null
+        private var cachedOutsideTemperatureSource: String? = null
         private var cachedTyreSystemState: Int? = null
         private var cachedTyreTemperatureState: Int? = null
         private val cachedTyres = mutableMapOf<Int, CachedTyre>()
@@ -1149,6 +1152,52 @@ class VehicleBridge {
             emitSnapshot(force = true)
         }
 
+        private fun handleTurnLightCompactDirectionState(value: Int, source: String) {
+            val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
+            val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
+
+            if (value == 0 || value == BYDAutoLightDevice.LIGHT_OFF) {
+                // Direction-state 0 can be emitted between blink phases on
+                // DiLink. Keep the selected side alive via the short latch;
+                // explicit area-off callbacks or latch expiry will clear it.
+                handleTurnLightFlashState(value, "$source/compact-off")
+                return
+            }
+
+            when (value) {
+                1 -> {
+                    // BYD compact turn-state on Sealion 6 / DiLink 3.0 reports
+                    // momentary/one-touch RIGHT as 1 and LEFT as 2. The old
+                    // aggregate decoder treated 1 as blink phase and 2 as right,
+                    // which made one-touch signals appear on the opposite side.
+                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = "$source/compact-right")
+                    applyTurnSignalState(leftArea, on = false, clearOff = true, source = "$source/compact-right")
+                }
+                2 -> {
+                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = "$source/compact-left")
+                    applyTurnSignalState(rightArea, on = false, clearOff = true, source = "$source/compact-left")
+                }
+                3 -> {
+                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = "$source/compact-both")
+                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = "$source/compact-both")
+                }
+                leftArea -> {
+                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = "$source/area-left")
+                    applyTurnSignalState(rightArea, on = false, clearOff = true, source = "$source/area-left")
+                }
+                rightArea -> {
+                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = "$source/area-right")
+                    applyTurnSignalState(leftArea, on = false, clearOff = true, source = "$source/area-right")
+                }
+                else -> {
+                    handleTurnLightAggregateState(value, "$source/aggregate-fallback")
+                    return
+                }
+            }
+
+            emitSnapshot(force = true)
+        }
+
         private fun handleTurnLightAggregateState(value: Int, source: String) {
             val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
             val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
@@ -1357,6 +1406,7 @@ class VehicleBridge {
             ensureDeviceInstances()
             pollDriveSnapshotThrottled()
             pollStatisticSnapshotThrottled()
+            pollAcSnapshotThrottled()
             pollTyreSnapshotThrottled()
             pollLightSnapshot()
 
@@ -1368,7 +1418,7 @@ class VehicleBridge {
                     "Returning cached vehicle snapshot: speed=$cachedSpeedKmh, gear=$cachedGear, " +
                         "fuelRange=$cachedFuelRangeKm, electricRange=$cachedElectricRangeKm, " +
                         "fuelPercent=$cachedFuelPercent, batteryPercent=$cachedBatteryPercent, " +
-                        "outsideTemp=$cachedOutsideTemperatureC, brakeDepth=$cachedBrakeDepth, " +
+                        "outsideTemp=$cachedOutsideTemperatureC source=$cachedOutsideTemperatureSource, brakeDepth=$cachedBrakeDepth, " +
                         "brakePedal=$cachedBrakePedalState, tyres=${cachedTyres.size}"
                 )
             }
@@ -1388,6 +1438,7 @@ class VehicleBridge {
                 "fuelPercent" to cachedFuelPercent,
                 "batteryPercent" to cachedBatteryPercent,
                 "outsideTemperatureC" to cachedOutsideTemperatureC,
+                "outsideTemperatureSource" to cachedOutsideTemperatureSource,
                 "acceleratorDepth" to cachedAcceleratorDepth,
                 "brakeDepth" to cachedBrakeDepth,
                 "brakePedalState" to cachedBrakePedalState,
@@ -1640,12 +1691,16 @@ class VehicleBridge {
             val rounded = rawValue.roundToInt()
             when (eventType) {
                 EVENT_STAT_OUTSIDE_TEMP -> {
+                    // Do not display this as outside temperature. On DiLink 3.0 this
+                    // statistic-bus value can be a derived/noisy value and does not
+                    // consistently match the IC outside-temperature reading. The IC-like
+                    // source is the official AC outside-temperature area below.
                     val temp = normalizeOutsideTempC(rawValue)
-                    if (temp != null && cachedOutsideTemperatureC != temp) {
-                        cachedOutsideTemperatureC = temp
-                        logRealtime("MAP STAT outsideTemp event=$eventType raw=$rawValue -> ${temp}C")
-                        emitSnapshot()
-                    }
+                    logDiscovery(
+                        "stat_outside_temp_ignored",
+                        "STAT outsideTemp ignored event=$eventType raw=$rawValue normalized=$temp data=${shortData(data)}",
+                        intervalMs = 30_000L,
+                    )
                 }
                 EVENT_STAT_BATTERY_PERCENT -> {
                     if (rounded in 0..100 && acceptPercentCandidate(rounded)) {
@@ -1675,7 +1730,7 @@ class VehicleBridge {
                 (rawValue / 100.0).roundToInt(),
                 (rawValue / 1000.0).roundToInt(),
             )
-            return candidates.firstOrNull { it in -40..80 }
+            return candidates.firstOrNull { it in BYDAutoAcDevice.AC_TEMP_OUT_CELSIUS_MIN..BYDAutoAcDevice.AC_TEMP_OUT_CELSIUS_MAX }
         }
 
         private fun acceptPercentCandidate(percent: Int): Boolean {
@@ -2133,7 +2188,12 @@ class VehicleBridge {
 
                 override fun onTemperatureChanged(area: Int, value: Int) {
                     if (area == BYDAutoAcDevice.AC_TEMPERATURE_OUT) {
-                        cachedOutsideTemperatureC = value.takeIf { it != BYDAutoAcDevice.AC_TEMP_INVALID && it in -40..80 }
+                        val temp = value.takeIf {
+                            it != BYDAutoAcDevice.AC_TEMP_INVALID &&
+                                it in BYDAutoAcDevice.AC_TEMP_OUT_CELSIUS_MIN..BYDAutoAcDevice.AC_TEMP_OUT_CELSIUS_MAX
+                        }
+                        cachedOutsideTemperatureC = temp
+                        cachedOutsideTemperatureSource = if (temp != null) "ac_callback" else null
                         logRealtime("CALLBACK outsideTemp area=$area value=$value cached=$cachedOutsideTemperatureC")
                         emitSnapshot()
                     } else {
@@ -2221,7 +2281,7 @@ class VehicleBridge {
                 // BYD stub on some builds does not expose them, while the runtime
                 // listener dispatch still calls the exact JVM signatures.
                 fun onTurnLightStateChanged(value: Int) {
-                    handleTurnLightAggregateState(value, "turnState")
+                    handleTurnLightCompactDirectionState(value, "turnState")
                 }
 
                 fun onTurnLightFlashStateChanged(value: Int) {
@@ -2290,6 +2350,33 @@ class VehicleBridge {
             return null
         }
 
+
+        private fun pollAcSnapshotThrottled() {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAcPollMs < AC_POLL_INTERVAL_MS) return
+            lastAcPollMs = now
+
+            val device = acDevice ?: return
+            val value = safe("poll ac outside temperature") {
+                device.getTemprature(BYDAutoAcDevice.AC_TEMPERATURE_OUT)
+            }
+            val temp = value?.takeIf {
+                it != BYDAutoAcDevice.AC_TEMP_INVALID &&
+                    it in BYDAutoAcDevice.AC_TEMP_OUT_CELSIUS_MIN..BYDAutoAcDevice.AC_TEMP_OUT_CELSIUS_MAX
+            }
+            if (temp != null && (cachedOutsideTemperatureC != temp || cachedOutsideTemperatureSource != "ac_poll")) {
+                cachedOutsideTemperatureC = temp
+                cachedOutsideTemperatureSource = "ac_poll"
+                FileLogger.log(appContext, "POLL AC outsideTemp raw=$value -> ${temp}C")
+                emitSnapshot()
+            } else if (value != null && temp == null) {
+                logDiscovery(
+                    "ac_outside_temp_invalid",
+                    "POLL AC outsideTemp invalid raw=$value",
+                    intervalMs = 30_000L,
+                )
+            }
+        }
 
         private fun pollTyreSnapshotThrottled() {
             val now = SystemClock.elapsedRealtime()
