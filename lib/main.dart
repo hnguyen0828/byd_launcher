@@ -9681,28 +9681,6 @@ class _BrakeStatusPainter extends CustomPainter {
     canvas.drawOval(spillRect, spillPaint);
   }
 
-  void _drawCenterBrakeStrip(
-    Canvas canvas,
-    Size size,
-    Offset rearCenter,
-    double rearHalf,
-    Color red,
-    double alpha,
-  ) {
-    final paint = Paint()
-      ..color = red.withValues(alpha: alpha * 0.72)
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2)
-      ..blendMode = BlendMode.plus;
-    final y = rearCenter.dy - size.height * 0.018;
-    canvas.drawLine(
-      Offset(rearCenter.dx - rearHalf * 0.36, y),
-      Offset(rearCenter.dx + rearHalf * 0.36, y),
-      paint,
-    );
-  }
-
   void _drawRoadReflection(
     Canvas canvas,
     Size size,
