@@ -1,3 +1,0 @@
-package byd
-
-class ClusterBridge

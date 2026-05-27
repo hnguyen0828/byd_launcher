@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.UiModeManager
 import android.content.Intent
 import android.content.ComponentName
-import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.net.Uri
@@ -12,7 +11,6 @@ import android.provider.OpenableColumns
 import android.os.Handler
 import android.os.Looper
 import android.view.View
-import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
