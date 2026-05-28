@@ -39,6 +39,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
+        android:process="com.byd.warning"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true">
         <activity
