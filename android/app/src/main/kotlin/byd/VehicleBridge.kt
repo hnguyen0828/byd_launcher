@@ -83,8 +83,6 @@ class VehicleBridge {
         private const val TYRE_POLL_INTERVAL_MS = 8000L
         private const val STATISTIC_POLL_INTERVAL_MS = 8000L
         private const val AC_POLL_INTERVAL_MS = 8000L
-        private const val TURN_SIGNAL_HOLD_MS = 2600L
-
         // Confirmed from BYD realtime bus on Sealion 6 / DiLink 3.0 logs.
         // Only confirmed statistic event IDs are mapped; unrelated statistic
         // events share the same device id and cause fuel/battery/range to jump.
@@ -142,9 +140,6 @@ class VehicleBridge {
         private var cachedBatteryVoltageLevel: Int? = null
         private val cachedLights = mutableMapOf<Int, Int>()
         private var cachedLightAutoStatus: Int? = null
-        private var lastLeftTurnSignalOnMs = 0L
-        private var lastRightTurnSignalOnMs = 0L
-
         fun register(binaryMessenger: BinaryMessenger, context: Context) {
             appContext = context.applicationContext
             bydContext = BydPermissionBypassContext(appContext)
@@ -1055,205 +1050,85 @@ class VehicleBridge {
 
             if (success) {
                 cachedLights[area] = state
-                updateTurnSignalLatch(area, state, clearOnOff = true)
             }
             return success
         }
 
-        private fun updateTurnSignalLatch(area: Int, state: Int, clearOnOff: Boolean = false) {
-            val now = SystemClock.elapsedRealtime()
-            when (area) {
-                BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL -> {
-                    if (state == BYDAutoLightDevice.LIGHT_ON) {
-                        lastLeftTurnSignalOnMs = now
-                    } else if (clearOnOff) {
-                        lastLeftTurnSignalOnMs = 0L
-                    }
-                }
-                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> {
-                    if (state == BYDAutoLightDevice.LIGHT_ON) {
-                        lastRightTurnSignalOnMs = now
-                    } else if (clearOnOff) {
-                        lastRightTurnSignalOnMs = 0L
-                    }
-                }
-            }
-        }
-
-        private fun isTurnSignalLatched(area: Int): Boolean {
-            val lastOnMs = when (area) {
-                BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL -> lastLeftTurnSignalOnMs
-                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> lastRightTurnSignalOnMs
-                else -> 0L
-            }
-            return lastOnMs > 0L && SystemClock.elapsedRealtime() - lastOnMs <= TURN_SIGNAL_HOLD_MS
-        }
-
-        private fun isTurnSignalCurrentlyActive(area: Int): Boolean {
-            return cachedLights[area] == BYDAutoLightDevice.LIGHT_ON || isTurnSignalLatched(area)
-        }
-
         private fun handleTurnLightAreaState(area: Int, rawState: Int, source: String) {
-            val state = if (rawState == BYDAutoLightDevice.LIGHT_OFF || rawState == 0) {
-                BYDAutoLightDevice.LIGHT_OFF
-            } else {
-                BYDAutoLightDevice.LIGHT_ON
-            }
-
+            val on = rawState != 0 && rawState != BYDAutoLightDevice.LIGHT_OFF
             when (area) {
+                1 -> applyExclusiveTurnSignalState(
+                    BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
+                    on = on,
+                    source = "$source compact-id=1",
+                )
+                2 -> applyExclusiveTurnSignalState(
+                    BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL,
+                    on = on,
+                    source = "$source compact-id=2",
+                )
                 BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
-                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> {
-                    applyTurnSignalState(
-                        area,
-                        state == BYDAutoLightDevice.LIGHT_ON,
-                        clearOff = true,
-                        source = source,
-                    )
-                    emitSnapshot(force = true)
-                }
-                else -> {
-                    // Some ROMs pass blink phase values through this overload
-                    // with unrelated area ids. Treat 0/1 as phase-only so they
-                    // cannot be decoded as a false left turn.
-                    if (rawState > 1) {
-                        handleTurnLightAggregateState(rawState, "$source/fallback area=$area")
-                    } else {
-                        handleTurnLightFlashState(rawState, "$source/fallback area=$area")
-                    }
-                }
+                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL ->
+                    applyExclusiveTurnSignalState(area, on = on, source = source)
+                else -> handleTurnLightCombinedState(rawState, "$source/fallback area=$area")
             }
+            emitSnapshot(force = true)
         }
 
         private fun handleTurnLightFlashState(value: Int, source: String) {
-            val flashing = value != 0 && value != BYDAutoLightDevice.LIGHT_OFF
-            val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
-            val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
-            val leftActive = isTurnSignalCurrentlyActive(leftArea)
-            val rightActive = isTurnSignalCurrentlyActive(rightArea)
-
-            if (flashing) {
-                if (leftActive) {
-                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
-                }
-                if (rightActive) {
-                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = source)
-                }
-                if (!leftActive && !rightActive) {
-                    logRealtime("LIGHT CALLBACK $source flash=$value without active turn direction")
-                    return
-                }
-            } else {
-                // Flash callbacks describe the blink phase, not the selected
-                // direction. Do not clear left/right here or a right turn can be
-                // briefly decoded as left when flash=1 arrives.
-                logRealtime("LIGHT CALLBACK $source flash off")
-            }
-
-            emitSnapshot(force = true)
+            handleTurnLightCombinedState(value, source)
         }
 
         private fun handleTurnLightCompactDirectionState(value: Int, source: String) {
-            val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
-            val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
-
-            if (value == 0 || value == BYDAutoLightDevice.LIGHT_OFF) {
-                // Direction-state 0 can be emitted between blink phases on
-                // DiLink. Keep the selected side alive via the short latch;
-                // explicit area-off callbacks or latch expiry will clear it.
-                handleTurnLightFlashState(value, "$source/compact-off")
-                return
-            }
-
-            when (value) {
-                1 -> {
-                    // BYD compact turn-state on Sealion 6 / DiLink 3.0 reports
-                    // momentary/one-touch RIGHT as 1 and LEFT as 2. The old
-                    // aggregate decoder treated 1 as blink phase and 2 as right,
-                    // which made one-touch signals appear on the opposite side.
-                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = "$source/compact-right")
-                    applyTurnSignalState(leftArea, on = false, clearOff = true, source = "$source/compact-right")
-                }
-                2 -> {
-                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = "$source/compact-left")
-                    applyTurnSignalState(rightArea, on = false, clearOff = true, source = "$source/compact-left")
-                }
-                3 -> {
-                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = "$source/compact-both")
-                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = "$source/compact-both")
-                }
-                leftArea -> {
-                    applyTurnSignalState(leftArea, on = true, clearOff = false, source = "$source/area-left")
-                    applyTurnSignalState(rightArea, on = false, clearOff = true, source = "$source/area-left")
-                }
-                rightArea -> {
-                    applyTurnSignalState(rightArea, on = true, clearOff = false, source = "$source/area-right")
-                    applyTurnSignalState(leftArea, on = false, clearOff = true, source = "$source/area-right")
-                }
-                else -> {
-                    handleTurnLightAggregateState(value, "$source/aggregate-fallback")
-                    return
-                }
-            }
-
-            emitSnapshot(force = true)
+            handleTurnLightCombinedState(value, source)
         }
 
-        private fun handleTurnLightAggregateState(value: Int, source: String) {
+        private fun handleTurnLightCombinedState(value: Int, source: String) {
             val leftArea = BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
             val rightArea = BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
-
-            if (value == 0 || value == BYDAutoLightDevice.LIGHT_OFF) {
-                // On this head unit the aggregate callback can report blink
-                // phase 0/1 instead of turn direction. Let explicit area off
-                // callbacks clear the direction; otherwise the animation would
-                // stop between blinks.
-                handleTurnLightFlashState(value, source)
-                return
-            } else if (value == 1) {
-                handleTurnLightFlashState(value, source)
-                return
-            } else if (value == leftArea) {
-                applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
-                applyTurnSignalState(rightArea, on = false, clearOff = true, source = source)
-            } else if (value == 2 || value == rightArea) {
-                applyTurnSignalState(rightArea, on = true, clearOff = false, source = source)
-                applyTurnSignalState(leftArea, on = false, clearOff = true, source = source)
-            } else if (value == 3) {
-                applyTurnSignalState(leftArea, on = true, clearOff = false, source = source)
-                applyTurnSignalState(rightArea, on = true, clearOff = false, source = source)
-            } else {
-                // Last-resort bitmask support for ROMs that encode left/right
-                // using the BYDAutoLightDevice area values.
-                val leftOn = (value and leftArea) != 0
-                val rightOn = (value and rightArea) != 0
-                if (leftOn || rightOn) {
-                    applyTurnSignalState(leftArea, on = leftOn, clearOff = true, source = source)
-                    applyTurnSignalState(rightArea, on = rightOn, clearOff = true, source = source)
-                } else {
+            when (value) {
+                0, 1 -> {
+                    applyTurnSignalState(leftArea, on = false, source = "$source/combined-off")
+                    applyTurnSignalState(rightArea, on = false, source = "$source/combined-off")
+                }
+                2, 3 -> {
+                    applyTurnSignalState(leftArea, on = true, source = "$source/combined-left")
+                    applyTurnSignalState(rightArea, on = false, source = "$source/combined-left")
+                }
+                leftArea, rightArea -> {
+                    applyTurnSignalState(rightArea, on = true, source = "$source/combined-right")
+                    applyTurnSignalState(leftArea, on = false, source = "$source/combined-right")
+                }
+                else -> {
                     logRealtime("LIGHT CALLBACK $source unknown turn value=$value")
                     return
                 }
             }
-
             emitSnapshot(force = true)
         }
 
-        private fun applyTurnSignalState(area: Int, on: Boolean, clearOff: Boolean, source: String) {
+        private fun applyTurnSignalState(area: Int, on: Boolean, source: String) {
             val state = if (on) BYDAutoLightDevice.LIGHT_ON else BYDAutoLightDevice.LIGHT_OFF
             cachedLights[area] = state
-            updateTurnSignalLatch(area, state, clearOnOff = clearOff)
             logRealtime("LIGHT CALLBACK $source signal area=$area on=$on")
         }
 
+        private fun applyExclusiveTurnSignalState(area: Int, on: Boolean, source: String) {
+            applyTurnSignalState(area, on = on, source = source)
+            if (!on) return
+
+            val opposite = when (area) {
+                BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL -> BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL
+                BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL -> BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL
+                else -> null
+            }
+            if (opposite != null) {
+                applyTurnSignalState(opposite, on = false, source = "$source-clear-opposite")
+            }
+        }
+
         private fun effectiveLightStatuses(): Map<Int, Int> {
-            val statuses = cachedLights.toMutableMap()
-            if (isTurnSignalLatched(BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL)) {
-                statuses[BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL] = BYDAutoLightDevice.LIGHT_ON
-            }
-            if (isTurnSignalLatched(BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL)) {
-                statuses[BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL] = BYDAutoLightDevice.LIGHT_ON
-            }
-            return statuses
+            return cachedLights.toMutableMap()
         }
 
         private fun lightFeatureIdForArea(area: Int): Int? {
@@ -1370,8 +1245,6 @@ class VehicleBridge {
                     BYDAutoLightDevice.LIGHT_SIDE,
                     BYDAutoLightDevice.LIGHT_LOW_BEAM,
                     BYDAutoLightDevice.LIGHT_HIGH_BEAM,
-                    BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
-                    BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL,
                     BYDAutoLightDevice.LIGHT_FRONT_FOG,
                     BYDAutoLightDevice.LIGHT_REAR_FOG,
                 )
@@ -1379,7 +1252,6 @@ class VehicleBridge {
                     val state = safe("light get status area=$area") { device.getLightStatus(area) }
                     if (state != null) {
                         cachedLights[area] = state
-                        updateTurnSignalLatch(area, state)
                     }
                 }
                 val autoState = safe("light get auto status") { device.getLightAutoStatus() }
@@ -2263,15 +2135,23 @@ class VehicleBridge {
         private fun createLightListener(): AbsBYDAutoLightListener {
             return object : AbsBYDAutoLightListener() {
                 override fun onLightOn(area: Int) {
-                    cachedLights[area] = BYDAutoLightDevice.LIGHT_ON
-                    updateTurnSignalLatch(area, BYDAutoLightDevice.LIGHT_ON)
+                    when (area) {
+                        BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
+                        BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL ->
+                            applyExclusiveTurnSignalState(area, on = true, source = "onLightOn")
+                        else -> cachedLights[area] = BYDAutoLightDevice.LIGHT_ON
+                    }
                     logRealtime("LIGHT CALLBACK on area=$area")
                     emitSnapshot(force = true)
                 }
 
                 override fun onLightOff(area: Int) {
-                    cachedLights[area] = BYDAutoLightDevice.LIGHT_OFF
-                    updateTurnSignalLatch(area, BYDAutoLightDevice.LIGHT_OFF)
+                    when (area) {
+                        BYDAutoLightDevice.LIGHT_LEFT_TURN_SIGNAL,
+                        BYDAutoLightDevice.LIGHT_RIGHT_TURN_SIGNAL ->
+                            applyExclusiveTurnSignalState(area, on = false, source = "onLightOff")
+                        else -> cachedLights[area] = BYDAutoLightDevice.LIGHT_OFF
+                    }
                     logRealtime("LIGHT CALLBACK off area=$area")
                     emitSnapshot(force = true)
                 }

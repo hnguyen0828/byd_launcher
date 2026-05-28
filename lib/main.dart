@@ -5943,16 +5943,21 @@ class _VehicleCanvas extends StatelessWidget {
     final normalizedDemoRadarLevel = demoRadarLevel == _DemoRadarLevel.safe
         ? _DemoRadarLevel.off
         : demoRadarLevel;
+    final radarGearActive =
+        effectiveGear == _VehicleGear.d || effectiveGear == _VehicleGear.r;
     final forceRadarDemo =
+        radarGearActive &&
         debugModeEnabled &&
         radarEffectEnabled &&
         normalizedDemoRadarLevel != _DemoRadarLevel.off;
-    final visibleDemoRadarLevel = forceRadarDemo
-        ? normalizedDemoRadarLevel
-        : vehicleSnapshot.radarLevel != _DemoRadarLevel.off
-        ? vehicleSnapshot.radarLevel
-        : debugModeEnabled && radarEffectEnabled
-        ? normalizedDemoRadarLevel
+    final visibleDemoRadarLevel = radarGearActive
+        ? forceRadarDemo
+              ? normalizedDemoRadarLevel
+              : vehicleSnapshot.radarLevel != _DemoRadarLevel.off
+              ? vehicleSnapshot.radarLevel
+              : debugModeEnabled && radarEffectEnabled
+              ? normalizedDemoRadarLevel
+              : _DemoRadarLevel.off
         : _DemoRadarLevel.off;
     final visibleDemoRadarZone = forceRadarDemo
         ? demoRadarZone
