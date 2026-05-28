@@ -10719,6 +10719,7 @@ class _ParkingRadarPainter extends CustomPainter {
 
 const double _vehicleModelGlobalScale = 0.92;
 const Offset _vehicleModelGroundingOffset = Offset(0, 0.022);
+const Duration _signalTapHoldDuration = Duration(milliseconds: 3000);
 
 class _VehicleModelAnchoredOverlay extends StatelessWidget {
   const _VehicleModelAnchoredOverlay({required this.child});
@@ -10878,7 +10879,9 @@ class _VehicleHeroState extends State<_VehicleHero> {
     final focusedOrbit = _focusedCameraOrbit;
     final focusOffset = _focusOffset;
     final focusScale = _focusScale;
-    final effectModeActive = widget.demoLightMode != _DemoLightMode.off;
+    final heldSignalMode = _isSignalMode(_visibleLightMode);
+    final effectModeActive =
+        widget.demoLightMode != _DemoLightMode.off || heldSignalMode;
     final roadSceneActive = widget.roadMotionActive || effectModeActive;
     final allowLightOverlay = !useNativeRenderer || _vehicleSceneVisible;
     final visibleLightMode = effectModeActive && allowLightOverlay
@@ -11034,7 +11037,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
       if (_isSignalMode(_visibleLightMode) && _signalVisibleSinceMs != null) {
         final elapsedMs =
             DateTime.now().millisecondsSinceEpoch - _signalVisibleSinceMs!;
-        final remainingMs = 3000 - elapsedMs;
+        final remainingMs =
+            _signalTapHoldDuration.inMilliseconds - elapsedMs;
         if (remainingMs > 0) {
           _signalHoldTimer = Timer(Duration(milliseconds: remainingMs), () {
             if (!mounted || widget.demoLightMode != _DemoLightMode.off) return;
