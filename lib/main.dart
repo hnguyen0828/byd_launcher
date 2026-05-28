@@ -10786,6 +10786,8 @@ class _VehicleHeroState extends State<_VehicleHero> {
   _VehicleHotspot? _pendingWindowHotspot;
   double? _pendingWindowTarget;
   Timer? _lightEffectRevealTimer;
+  Timer? _signalHoldTimer;
+  int? _signalVisibleSinceMs;
   _DemoLightMode _visibleLightMode = _DemoLightMode.off;
   final Map<_VehicleHotspot, double> _hotspotLevels = {
     _VehicleHotspot.frontLeftWindow: 0,
@@ -10811,12 +10813,16 @@ class _VehicleHeroState extends State<_VehicleHero> {
     if (!widget.active && oldWidget.active) {
       _vehicleSceneVisible = false;
       _lightEffectRevealTimer?.cancel();
+      _signalHoldTimer?.cancel();
+      _signalVisibleSinceMs = null;
       if (_visibleLightMode != _DemoLightMode.off) {
         _visibleLightMode = _DemoLightMode.off;
       }
     } else if (widget.active && !oldWidget.active) {
       _vehicleSceneVisible = false;
       _lightEffectRevealTimer?.cancel();
+      _signalHoldTimer?.cancel();
+      _signalVisibleSinceMs = null;
       if (_visibleLightMode != _DemoLightMode.off) {
         _visibleLightMode = _DemoLightMode.off;
       }
@@ -10853,6 +10859,7 @@ class _VehicleHeroState extends State<_VehicleHero> {
     _cancelColorTimers();
     _hotspotAutoHideTimer?.cancel();
     _lightEffectRevealTimer?.cancel();
+    _signalHoldTimer?.cancel();
     _windowCommandSettleTimer?.cancel();
     _windowCommandDebounceTimer?.cancel();
     super.dispose();
@@ -11021,13 +11028,41 @@ class _VehicleHeroState extends State<_VehicleHero> {
 
   void _syncLightEffectReveal(_DemoLightMode oldMode, _DemoLightMode newMode) {
     _lightEffectRevealTimer?.cancel();
+    _signalHoldTimer?.cancel();
 
     if (newMode == _DemoLightMode.off) {
+      if (_isSignalMode(_visibleLightMode) && _signalVisibleSinceMs != null) {
+        final elapsedMs =
+            DateTime.now().millisecondsSinceEpoch - _signalVisibleSinceMs!;
+        final remainingMs = 3000 - elapsedMs;
+        if (remainingMs > 0) {
+          _signalHoldTimer = Timer(Duration(milliseconds: remainingMs), () {
+            if (!mounted || widget.demoLightMode != _DemoLightMode.off) return;
+            _signalVisibleSinceMs = null;
+            setState(() => _visibleLightMode = _DemoLightMode.off);
+          });
+          return;
+        }
+      }
+      _signalVisibleSinceMs = null;
       if (_visibleLightMode != _DemoLightMode.off) {
         setState(() => _visibleLightMode = _DemoLightMode.off);
       }
       return;
     }
+
+    final signalMode = _isSignalMode(newMode);
+    if (signalMode) {
+      if (_visibleLightMode != newMode || _signalVisibleSinceMs == null) {
+        _signalVisibleSinceMs = DateTime.now().millisecondsSinceEpoch;
+      }
+      if (_visibleLightMode != newMode) {
+        setState(() => _visibleLightMode = newMode);
+      }
+      return;
+    }
+
+    _signalVisibleSinceMs = null;
 
     // When lights are turned on from any manual/hotspot/rear camera angle,
     // first let the vehicle rotate back to the fixed light/driving orbit.
@@ -11057,6 +11092,10 @@ class _VehicleHeroState extends State<_VehicleHero> {
   }
 
   bool get _effectModeActive => widget.demoLightMode != _DemoLightMode.off;
+
+  bool _isSignalMode(_DemoLightMode mode) {
+    return mode == _DemoLightMode.turnLeft || mode == _DemoLightMode.turnRight;
+  }
 
   String get _focusedCameraOrbit {
     if (widget.roadMotionActive || _effectModeActive) {

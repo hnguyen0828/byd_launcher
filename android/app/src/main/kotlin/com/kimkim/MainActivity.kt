@@ -10,10 +10,12 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.graphics.Color
 import byd.VehicleBridge
 import byd.MusicBridge
 import byd.NavigationBridge
@@ -33,6 +35,9 @@ class MainActivity : FlutterActivity() {
     private var pendingWallpaperImportResult: MethodChannel.Result? = null
     private var lastSystemBarsDark: Boolean? = null
     private val systemUiHandler = Handler(Looper.getMainLooper())
+    private var systemUiApplyToken = 0
+    private var lastBydSystemBarPolicyDark: Boolean? = null
+    private var lastBydSystemBarPolicyMs: Long = 0L
     private val vehicleModelAssets = listOf(
         "assets/models/2024_byd_atto_3.glb",
         "assets/models/2024_byd_dolphin.glb",
@@ -71,15 +76,29 @@ class MainActivity : FlutterActivity() {
 
     private fun applyLauncherSystemUi(dark: Boolean = lastSystemBarsDark ?: resolveInitialSystemBarsDark()) {
         lastSystemBarsDark = dark
-        applyLauncherSystemUiNow(dark)
+
+        // Cancel old delayed re-asserts before scheduling a new theme. Without this,
+        // a previous Light-mode sequence can run after the user switches to Dark and
+        // turn the BYD bottom system bar white again.
+        systemUiApplyToken += 1
+        val token = systemUiApplyToken
+        systemUiHandler.removeCallbacksAndMessages(null)
+
+        fun applyIfLatest() {
+            if (token == systemUiApplyToken) {
+                applyLauncherSystemUiNow(dark)
+            }
+        }
+
+        applyIfLatest()
 
         // Flutter/DiLink/BYD shell can re-apply dark/immersive system-bar flags
         // after Activity resume, after Flutter first frame, and after window focus.
-        // Re-assert the latest launcher theme for a longer window so Light mode
-        // survives OEM post-processing on the real head unit.
-        systemUiHandler.post { applyLauncherSystemUiNow(dark) }
+        // Re-assert only the latest launcher theme for a longer window so Light/Dark
+        // cannot race each other on the real head unit.
+        systemUiHandler.post { applyIfLatest() }
         for (delay in listOf(16L, 80L, 160L, 250L, 500L, 900L, 1700L, 2600L, 4200L, 6500L)) {
-            systemUiHandler.postDelayed({ applyLauncherSystemUiNow(dark) }, delay)
+            systemUiHandler.postDelayed({ applyIfLatest() }, delay)
         }
     }
 
@@ -101,19 +120,19 @@ class MainActivity : FlutterActivity() {
 
     private fun applyLauncherSystemUiNow(dark: Boolean) {
         applyApplicationNightMode(dark)
-        val transparent = android.graphics.Color.TRANSPARENT
+        val transparent = Color.TRANSPARENT
         val barColor = if (dark) {
-            android.graphics.Color.rgb(0x07, 0x0B, 0x12)
+            Color.rgb(0x07, 0x0B, 0x12)
         } else {
             // Use pure white, not a semi-transparent/near-white color. Some
             // BYD/DiLink builds ignore translucent or edge-to-edge bar colors
             // and fall back to their black shell surface.
-            android.graphics.Color.WHITE
+            Color.WHITE
         }
         val backgroundColor = if (dark) {
-            android.graphics.Color.rgb(0x07, 0x0B, 0x12)
+            Color.rgb(0x07, 0x0B, 0x12)
         } else {
-            android.graphics.Color.rgb(0xF1, 0xF5, 0xFA)
+            Color.rgb(0xF1, 0xF5, 0xFA)
         }
 
         window.clearFlags(
@@ -167,6 +186,70 @@ class MainActivity : FlutterActivity() {
                 val appearance = if (dark) 0 else lightAppearance
                 controller.setSystemBarsAppearance(appearance, lightAppearance)
             }
+        }
+
+        applyBydSystemBarPolicy(dark)
+    }
+
+    private fun applyBydSystemBarPolicy(dark: Boolean, force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && lastBydSystemBarPolicyDark == dark && now - lastBydSystemBarPolicyMs < 700L) {
+            return
+        }
+        lastBydSystemBarPolicyDark = dark
+        lastBydSystemBarPolicyMs = now
+
+        val barColor = if (dark) Color.rgb(0x07, 0x0B, 0x12) else Color.WHITE
+        val lightBars = if (dark) 0 else 1
+
+        // BYD/DiLink uses OEM shell bars above/below the Activity window.
+        // Window.statusBarColor/navigationBarColor only affects the normal Android
+        // window layer. These global/secure keys mirror the knobs Kinex appears to
+        // rely on so the OEM top status bar and bottom climate/navigation bar can
+        // follow the launcher theme instead of staying in the previous shell mode.
+        putGlobalIntBestEffort("status_bar_color", barColor)
+        putGlobalIntBestEffort("statusbar_color", barColor)
+        putGlobalIntBestEffort("statusbar_current_color", barColor)
+        putGlobalIntBestEffort("statusbar_use_theme_default", 0)
+
+        putGlobalIntBestEffort("navigationbar_color", barColor)
+        putGlobalIntBestEffort("navigationbar_current_color", barColor)
+        putGlobalIntBestEffort("navigation_bar_color", barColor)
+        putGlobalIntBestEffort("navigationbar_use_theme_default", 0)
+
+        putSecureIntBestEffort("status_bar_light", lightBars)
+        putSecureIntBestEffort("navigation_bar_light", lightBars)
+        putSecureIntBestEffort("system_navigation_bar_light", lightBars)
+
+        // Ask BYD/SystemUI to re-read bar policy immediately. Transaction 57 is
+        // vendor/ROM-specific, so it must stay best-effort only.
+        runShellBestEffort("service call statusbar 57 i32 1")
+    }
+
+    private fun putGlobalIntBestEffort(key: String, value: Int) {
+        try {
+            Settings.Global.putInt(contentResolver, key, value)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun putSecureIntBestEffort(key: String, value: Int) {
+        try {
+            Settings.Secure.putInt(contentResolver, key, value)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun runShellBestEffort(command: String) {
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            systemUiHandler.postDelayed({
+                try {
+                    process.destroy()
+                } catch (_: Exception) {
+                }
+            }, 1200L)
+        } catch (_: Exception) {
         }
     }
 
