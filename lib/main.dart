@@ -12736,13 +12736,18 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
   @override
   void didUpdateWidget(covariant _DrivingRoadLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.speedKmh != oldWidget.speedKmh ||
-        widget.reverse != oldWidget.reverse ||
-        widget.moving != oldWidget.moving) {
+
+    final speedChanged = widget.speedKmh != oldWidget.speedKmh;
+    final directionChanged = widget.reverse != oldWidget.reverse;
+    final movingChanged = widget.moving != oldWidget.moving;
+
+    if (speedChanged || directionChanged || movingChanged) {
       _motionController.duration = _roadMotionDuration(widget.speedKmh);
-      if (widget.active && widget.moving && !_motionController.isAnimating) {
+
+      if (widget.active && widget.moving) {
+        // Restart repeat so the new duration/speed is applied immediately.
         _motionController.repeat();
-      } else if (!widget.moving) {
+      } else {
         _motionController.stop();
       }
     }
@@ -12758,6 +12763,7 @@ class _DrivingRoadLayerState extends State<_DrivingRoadLayer>
         }
         _revealController.forward();
         if (widget.moving) {
+          _motionController.duration = _roadMotionDuration(widget.speedKmh);
           _motionController.repeat();
         }
       });
